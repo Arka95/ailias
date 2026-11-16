@@ -16,6 +16,11 @@ class GenerationPolicy:
     min_registered_fraction: float = 0.6
     min_sparse_points: int = 100
     max_reprojection_error_px: float = 2.5
+    mapper_init_min_inliers: int = 100
+    mapper_init_min_tri_angle: float = 16.0
+    mapper_abs_pose_min_inliers: int = 30
+    stereo_min_consistent: int = 2
+    fusion_min_pixels: int = 5
     max_feature_image_size: int = 2000
     max_dense_image_size: int = 1200
     min_fused_points: int = 1000
@@ -30,7 +35,8 @@ class GenerationPolicy:
     blender_device: str = "CUDA"
 
     def __post_init__(self):
-        floats = {"min_registered_fraction", "max_reprojection_error_px", "poisson_trim"}
+        floats = {"min_registered_fraction", "max_reprojection_error_px", "poisson_trim",
+                  "mapper_init_min_tri_angle"}
         for field in fields(self):
             value = getattr(self, field.name)
             if field.name == "blender_device":
@@ -50,6 +56,8 @@ class GenerationPolicy:
             raise ValueError("Require 3 <= min_registered_images <= max_images <= 64")
         if not 5 <= self.poisson_depth <= 12:
             raise ValueError("poisson_depth must be between 5 and 12")
+        if self.mapper_init_min_tri_angle >= 180:
+            raise ValueError("mapper_init_min_tri_angle must be less than 180 degrees")
 
 
 def load_settings(path: Path = DEFAULT_GENERATION_CONFIG):

@@ -54,8 +54,10 @@ before mapping. The best recovered model must register the same minimum/fraction
 have at least 100 sparse points and mean measured reprojection error at most
 2.5 source pixels. Fusion requires 1,000 foreground samples; meshing/cleanup
 requires 500 faces. These are experimental viability heuristics, not calibrated
-head-accuracy criteria. Do not lower them merely to label incompatible portraits
-a successful head reconstruction.
+head-accuracy criteria. The separate `generation-poc.json` profile explicitly
+relaxes those gates for first visual inspection, not to label fragments a
+successful head reconstruction. Mapper initialization and stereo/fusion support
+are recorded policy fields; their defaults match the pinned tool's native defaults.
 
 Poisson's density trim is explicit: the native default of 10 discarded too much
 of a low-resolution synthetic eight-view capture. Trim 5 is retained in provenance;
@@ -103,11 +105,14 @@ Verified on November 16, 2026:
 | Real-photo first benchmark | 24 explicitly kept/quality-eligible `face-001` portraits; 276 possible pairs, one verified pair with 50 inliers, largest component 2; no valid sparse head |
 | Gated real-photo replay | Job `20261116T114830Z-26a2f72c`; GPU extractor/matcher creation confirmed in native logs; 3.219 seconds for native stages; blocked before mapping; 7,995,392 transient bytes removed with zero cleanup errors |
 | Broader real-photo benchmark | Job `20261116T120330Z-45950e2f`: all 31 quality-eligible human-kept group portraits; 465 possible pairs, 6 verified, largest component 4 (two components of 4), maximum 109 pair inliers; blocked before mapping; 3.516 native seconds; 9,306,112 transient bytes removed, zero cleanup errors |
+| First permissive real-photo output | Job `20261116T122510Z-61cf8504`: relaxed initialization registered 3 photos/26 sparse points; 52 fused points became 3,104 faces in 3 fragments, visually inspected and opened in installed Blender 5.3; not a head |
+| Less-filtered real-photo PoC | Job `20261116T122845Z-ed50db97`: one supporting stereo source and two-pixel fusion; 3 cameras/27 sparse points, 0.9148 px measured reprojection error, 4,263 fused points and 6,164 faces in 13 disconnected components; visibly incomplete, 90-degree view mostly empty; 44.469 native seconds; 51,923,277 transient bytes removed, zero cleanup errors; retained hashes verified before manual editing |
 | Reuse | Both 24-photo attempts reference the identical native input view; no source/portrait pixel copies |
 | Actual Blender CUDA integration | Textured six-vertex/eight-face synthetic octahedron; unchanged exported vertex positions/topology, preserved camera-up orientation, three non-flat PNGs and a `.blend`/OBJ/material produced using RTX 4070 SUPER; 3.172 seconds on the recorded run; fixture files removed |
 | Full actual native integration | Synthetic eight-view textured sphere; GPU extraction/matching and CUDA stereo through meshing/texturing/Blender CUDA; all 8 cameras, 977 sparse points, mean 0.2983 px reprojection error, 12,722 fused points, 67,241 faces; three non-flat renders and hashed outputs; 56.031 native seconds; 58,009,622 transient bytes removed with zero errors, temporary fixture removed |
 | Visual diagnostic | Retained synthetic comparison inspected: partial open surface, texture brightening under new lighting and unsupported profile coverage remain visible; execution success is not watertightness, measured albedo or photometric fidelity |
 | Isolated regression | 111 functional units, including saved-external-package verification and receipt-without-asset failure; no model, hardware, editor or network execution in discovery |
+| PoC policy regression | 26 focused generation/Unreal units passed, including explicit native option forwarding, policy provenance, unchanged non-production/likeness flags and invalid-angle/support rejection |
 | Unreal | No registered/common-path engine was found; `unreal-doctor`/import correctly blocked without launching, collecting credentials, downloading engine content or making placeholder assets |
 
 The real-photo result applies to that selected set, not every possible subject,

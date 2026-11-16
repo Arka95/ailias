@@ -179,6 +179,9 @@ def reconstruct(store: Store, run: str, group: str, tools, policy: GenerationPol
             "database_path": database, "image_path": images, "output_path": sparse,
             "Mapper.num_threads": policy.cpu_threads,
             "Mapper.min_model_size": policy.min_registered_images,
+            "Mapper.init_min_num_inliers": policy.mapper_init_min_inliers,
+            "Mapper.init_min_tri_angle": policy.mapper_init_min_tri_angle,
+            "Mapper.abs_pose_min_num_inliers": policy.mapper_abs_pose_min_inliers,
         })
         models = []
         for model in sorted(sparse.iterdir()):
@@ -228,12 +231,14 @@ def reconstruct(store: Store, run: str, group: str, tools, policy: GenerationPol
             "PatchMatchStereo.max_image_size": policy.max_dense_image_size,
             "PatchMatchStereo.geom_consistency": 1, "PatchMatchStereo.cache_size": 2,
             "PatchMatchStereo.num_threads": policy.cpu_threads,
+            "PatchMatchStereo.filter_min_num_consistent": policy.stereo_min_consistent,
         })
         fused = work / "fused.ply"
         colmap("surface-fusion", "stereo_fusion", {
             "workspace_path": dense, "workspace_format": "COLMAP", "input_type": "geometric",
             "output_path": fused, "StereoFusion.mask_path": masks,
             "StereoFusion.num_threads": policy.cpu_threads, "StereoFusion.cache_size": 2,
+            "StereoFusion.min_num_pixels": policy.fusion_min_pixels,
         })
         count = ply_header(fused)["elements"].get("vertex", 0)
         report["reconstruction"]["fused_points"] = count

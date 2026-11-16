@@ -45,6 +45,38 @@ Exit codes: `0` requested operation/status read succeeded; `1` bad input/config/
 `2` blocked/failed reconstruction, Unreal prerequisite failure, or status integrity
 problems. A healthy status read can return `0` for an explicitly blocked job.
 
+## Permissive first PoC
+
+The stricter default is not required for an early visual experiment:
+
+```powershell
+python -m ailias generation reconstruct arka RUN_ID face-001 --generation-config config\generation-poc.json
+```
+
+This explicit profile permits three registered photos (9% of the selected set),
+20 sparse points, 8 px mean reprojection error, 50 fused points and 50 faces.
+It lowers mapper initialization to 20 inliers/0.5-degree triangulation, absolute
+pose support to 15 inliers, dense consistency to one supporting source view and
+fusion to two pixels. Defaults retain the previous native 100/16-degree/30/2/5
+settings. It can expose fragments rather than blocking early, but does not certify
+camera accuracy, complete anatomy or likeness. It does not relax portrait
+curation, original-file integrity or cleanup isolation.
+
+On November 16, job `20261116T122845Z-ed50db97` produced real photo-derived
+geometry: 3 registered photos, 4,263 fused samples and 6,164 textured faces.
+Inspection shows **13 disconnected fragments, not a usable full head**; the
+90-degree diagnostic is mostly empty. A completed software job is not a
+completed person. Its local editable scene is:
+
+```text
+data\arka\generation\runs\20261116T122845Z-ed50db97\blender\head.blend
+```
+
+An earlier, sparser PoC scene was opened successfully in the owner's installed
+Blender 5.3. Native generation still uses the shared, tested Blender 4.5 installation.
+Save manual edits as a new file to preserve the hashed generated revision;
+in-place saves are detected as artifact changes, not silently accepted.
+
 ## Artifacts and cleanup
 
 Each alias uses `generation\inputs\CONTENT_HASH` for reusable native image views

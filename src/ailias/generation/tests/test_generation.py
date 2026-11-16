@@ -217,6 +217,24 @@ class GenerationTests(unittest.TestCase):
         self.assertFalse(list(Path(result["manifest"]).parent.rglob("partial.tmp")))
         self.assertGreater(result["cleanup"]["removed_files"], 0)
 
+    def test_explicit_poc_relaxes_native_constraints_and_retains_policy_without_certifying_likeness(self):
+        policy = replace(self.policy, mapper_init_min_inliers=20, mapper_init_min_tri_angle=0.5,
+                         mapper_abs_pose_min_inliers=15, stereo_min_consistent=1, fusion_min_pixels=2)
+        tools = FakeTools()
+        with patch.object(tools, "run", wraps=tools.run) as native:
+            result = reconstruct(self.store, RUN, "face-001", tools, policy)
+        self.assertEqual(result["status"], "complete")
+        self.assertEqual(result["policy"], asdict(policy))
+        self.assertFalse(result["likeness_verified"])
+        self.assertFalse(result["production_ready"])
+        options = {call.args[1]: dict(zip(call.args[2][1::2], call.args[2][2::2]))
+                   for call in native.call_args_list if call.args[0] == "colmap"}
+        self.assertEqual(options["sparse-mapping"]["--Mapper.init_min_num_inliers"], "20")
+        self.assertEqual(options["sparse-mapping"]["--Mapper.init_min_tri_angle"], "0.5")
+        self.assertEqual(options["sparse-mapping"]["--Mapper.abs_pose_min_num_inliers"], "15")
+        self.assertEqual(options["dense-stereo"]["--PatchMatchStereo.filter_min_num_consistent"], "1")
+        self.assertEqual(options["surface-fusion"]["--StereoFusion.min_num_pixels"], "2")
+
     def test_incomplete_blender_export_is_not_committed_as_cleaned_mesh(self):
         result = reconstruct(self.store, RUN, "face-001", FakeTools(missing_render=True), self.policy)
         self.assertEqual(result["status"], "failed")
@@ -308,7 +326,8 @@ class CameraAndToolTests(unittest.TestCase):
     def test_policy_rejects_unbounded_or_nonfinite_work(self):
         for values in ({"max_images": 65}, {"min_registered_fraction": 0},
                        {"max_reprojection_error_px": float("nan")},
-                       {"poisson_depth": 15}, {"gpu_index": -1}):
+                       {"poisson_depth": 15}, {"gpu_index": -1},
+                       {"mapper_init_min_tri_angle": 180}, {"fusion_min_pixels": 0}):
             with self.subTest(values=values), self.assertRaises(ValueError):
                 replace(GenerationPolicy(), **values)
 

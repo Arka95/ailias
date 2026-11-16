@@ -1,0 +1,27 @@
+{
+  "tools_root": "..\\..\\tools",
+  "policy": {
+    "max_images": 32,
+    "min_registered_images": 3,
+    "min_registered_fraction": 0.09,
+    "min_sparse_points": 20,
+    "max_reprojection_error_px": 8.0,
+    "mapper_init_min_inliers": 20,
+    "mapper_init_min_tri_angle": 0.5,
+    "mapper_abs_pose_min_inliers": 15,
+    "stereo_min_consistent": 1,
+    "fusion_min_pixels": 2,
+    "max_feature_image_size": 2000,
+    "max_dense_image_size": 800,
+    "min_fused_points": 50,
+    "min_mesh_faces": 50,
+    "cpu_threads": 4,
+    "gpu_index": 0,
+    "timeout_seconds": 1200,
+    "poisson_depth": 8,
+    "poisson_trim": 2.0,
+    "render_size": 768,
+    "render_samples": 8,
+    "blender_device": "CUDA"
+  }
+}

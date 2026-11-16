@@ -9,7 +9,7 @@ All items below are open; none is implied complete by a manual handoff receipt.
 | 1 | Prove source plan's manual milestone | Real photo set, reconstructed/cleaned head, MetaHuman and three-view human baseline |
 | 2 | Benchmark reconstruction candidates | Experimental native COLMAP benchmark implemented; 31 real portraits fail overlap gates; select a viable human-head backend and measure accuracy/runtime/VRAM |
 | 3 | Extend photo analysis | Face detection, five points, identity grouping and visible-body extraction implemented; pose/expression/occlusion inference and real threshold calibration still open |
-| 4 | Prove reconstruction adapter on a real head | COLMAP CUDA pipeline, camera/texture provenance, reuse, gates and failure tests implemented; synthetic full pipeline passes, real head remains blocked |
+| 4 | Prove reconstruction adapter on a real head | Full pipeline and explicit permissive PoC implemented; real photos now produce inspectable textured fragments, but a coherent head remains unproven |
 | 5 | Finish Blender and Unreal integration | Blender CUDA cleanup/export/renders verified; UE 5.8 guarded adapter implemented but engine absent; real Identity solve/conform, assembly and editor-lifetime checks still open |
 | 6 | Complete multi-signal validation | Aligned 2D/3D landmark and sampled-surface primitives implemented; true mesh-surface, silhouette, matched-camera and calibrated regional checks still open |
 | 7 | Confidence-driven recapture | Region evidence, proposed yaw/pitch/distance and diminishing-value stopping rule |

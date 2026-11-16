@@ -104,8 +104,10 @@ Only explicitly kept, quality-eligible portraits enter these experiments.
 Reusable hardlinks avoid photo copies; jobs discard native databases/depth caches
 after retaining their results or failure diagnostics. The current real-photo
 benchmark is blocked by insufficient verified multi-view matches, not a missing
-CUDA installation. Blender cleanup/rendering has run on a synthetic fixture;
-that is **not** a reconstructed head. See [generation](docs/generation/README.md)
+CUDA installation. An explicit `config\generation-poc.json` profile relaxes
+initialization/dense gates and has produced real photo-derived facial fragments
+for Blender inspection; **not a complete head**. Default gates remain unchanged.
+See [generation](docs/generation/README.md)
 for gates, actual validation evidence and the remaining manual Identity solve.
 
 | Document | Dev guide | Purpose |
