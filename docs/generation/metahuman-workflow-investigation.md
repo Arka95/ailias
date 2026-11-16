@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | Owner | Arka |
-| Status | GPU fitting and photographic preview verified; static UE head imported; MetaHuman conform remains open |
+| Status | GPU fitting, photographic preview, static UE import and a native Character head fit verified; final review/rig/binding open |
 | Last updated | 2026-11-16 |
 | Scope | Photo-conditioned head, UE 5.8 head fitting, appearance and runtime performance |
 | Reviewer | Owner likeness review pending |
@@ -20,7 +20,8 @@ all 17,821 vertices, ears, skin detail or hidden anatomy
 ([measured evidence](../facefitting/dev.readme.md#evidence)).
 **Gap C:** The legacy Unreal conform code targets an already-solved Identity.
 The new `facefitting\unreal_handoff.py` imports a hair-free custom-head candidate,
-but does not create/conform a MetaHuman Character.
+but does not create/conform a MetaHuman Character. The separate
+`facefitting\unreal_conform.py` adapter now creates local head-only Character drafts.
 
 Local metadata verifies UE **5.8.4**, including the Character plugin and its
 editor subsystem header. A subsequent real NullRHI commandlet loaded the
@@ -35,7 +36,14 @@ plain mesh import is impossible. The doctor now reports this separately.
 A later real import saved eight packages and verified upright head bounds:
 appearance `20261116T163340Z-14973ca7`, handoff
 `99504db87d434eceb922b52cf96b02f7`. This confirms static mesh/texture import,
-not the still-open MetaHuman solve.
+not by itself a MetaHuman solve. Subsequent job
+`73508d43f43540eaafa792c527abc083` completed a native head-only fit, committed
+face/body state and saved a Character that survived a separate editor reload.
+Missing optional content disabled skin editing but did not block this solve.
+The native +Y-facing target and matching perspective camera were essential:
+the first +X attempt returned true but had distorted geometry. Final surface/
+eyelid refinement, likeness review, skin transfer, rig and assembly remain open;
+see [actual native geometry and caveats](../facefitting/README.md#native-character-draft-and-hair-later).
 No other owning team/on-call is involved in this local single-owner workflow.
 Accuracy, explicit cloud controls, source preservation and human approval remain
 load-bearing gates; speed will not substitute for them.

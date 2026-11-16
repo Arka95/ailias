@@ -38,8 +38,9 @@ prior-driven hidden anatomy; it is not a finished photorealistic MetaHuman.
 Blender builds/reviews geometry and assigns prepared appearance; the fitting and
 photo projection run in Python. **Clay, photographic preview, approximate hair
 and an upright textured static-head import in UE 5.8.4 are locally verified.**
-MetaHuman conform, production appearance transfer, assembly and rig validation
-remain separate, unfinished work.
+A native head-only Character draft is now saved and reload-checked too.
+Final shape/likeness review, production appearance transfer, assembly and rig
+validation remain separate, unfinished work.
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 1000}}}%%
@@ -67,10 +68,11 @@ flowchart TB
         BAKE --> UV
         EXPORT --> REVIEW{"Owner appearance and likeness review pending"}:::gate
         EXPORT --> UE["Unreal: import textured static head; verify packages and upright bounds"]:::svc
-        UE -.-> MH["Pending: MetaHuman conform, production skin/groom transfer, rig and validation"]:::unknown
+        UE --> CONFORM["Blender perspective view and camera; native head-only Character fit, commit and save"]:::svc
+        CONFORM -.-> MH["Pending: shape review/refinement, production skin/groom transfer, rig and validation"]:::unknown
     end
     MAIN ~~~ CAPTION
-    CAPTION["Figure - Blender stages and native handoff. How to read: top to bottom; blue implemented steps, green retained data, yellow owner review, dashed red unfinished work. Summary: approved shape is preserved while appearance is generated separately; a static UE head is not a MetaHuman. Backed by: pipeline.py, semantics_worker.py, texture_cuda.py, appearance.py, appearance_worker.py and unreal_handoff.py."]:::caption
+    CAPTION["Figure - Blender stages and native handoff. How to read: top to bottom; blue implemented steps, green retained data, yellow owner review, dashed red unfinished work. Summary: approved source is preserved; static import and native Character fit are distinct from final likeness/rig approval. Backed by: pipeline.py, semantics_worker.py, texture_cuda.py, appearance.py, appearance_worker.py, unreal_handoff.py and unreal_conform.py."]:::caption
     style MAIN fill:none,stroke:none
     classDef svc fill:#cfe3ff,stroke:#2b6cb0,color:#0b2545
     classDef store fill:#d6f5df,stroke:#2f855a,color:#12351f
@@ -83,7 +85,8 @@ flowchart TB
 `blender_worker.py` (`main`), `appearance.py` (`run_appearance`),
 `semantics_worker.py` (`main`), `texture_cuda.py` (`bake`),
 `appearance_worker.py` (`main`, `add_hair`) and `unreal_handoff.py`
-(`import_appearance`). Dashed work is not a successful UE conform.
+(`import_appearance`), `tracking_worker.py` (`main`) and `unreal_conform.py`
+(`conform_head`). Dashed work is not a completed or validated MetaHuman.
 Mermaid rendering has not been checked; no local renderer is installed.
 
 The clay worker owns mesh creation/materials, lighting/cameras, six GPU renders
@@ -114,6 +117,9 @@ python -m ailias facefitting status arka JOB_ID
 python -m ailias facefitting appearance arka APPROVED_FIT_JOB
 python -m ailias facefitting appearance-status arka APPEARANCE_REVISION
 python -m ailias facefitting unreal-import arka APPEARANCE_REVISION `
+  --editor 'C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor-Cmd.exe' `
+  --project 'C:\projectWorkspace\ailias\data\arka\unreal\AiliasReview\AiliasReview.uproject'
+python -m ailias facefitting unreal-conform arka IMPORT_JOB_ID `
   --editor 'C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor-Cmd.exe' `
   --project 'C:\projectWorkspace\ailias\data\arka\unreal\AiliasReview\AiliasReview.uproject'
 ```
@@ -163,14 +169,44 @@ UE importer produces `UE=(GNM Z,-X,Y)*100`: X forward, Z up, nominal scale only,
 **not** calibrated centimetres. Exported vertices are compared with the approved
 head under that transform, and imported bounds are checked. Blender's scene and
 hair Alembic retain original GNM coordinates; the Alembic is not an already
-validated Unreal groom. OBJ eye optics/skin shading are only a preview transfer.
+validated ready-to-bind Unreal groom. OBJ eye optics/skin shading are only a preview transfer.
+
+## Native Character draft and hair later
+
+`unreal-conform` requires the existing verified import and its project. It renders
+a genuine perspective tracking view, preserves the measured camera, tracks native
+face contours and creates a new head-only Character. Native solver coordinates
+are `(GNM X,Z,Y)*100`, matching the Character's +Y-facing template; this rotates
+the target and camera together without changing the saved +X-facing static preview.
+It commits face/body state, hashes the saved package and removes temporary RGBA
+pixels. It makes no cloud, texture-synthesis or rig request.
+
+Job `73508d43f43540eaafa792c527abc083` saved a real Character in 81.375 seconds
+of native execution, tracked 16 curves and survived a separate editor reload.
+This is its actual reloaded face geometry rendered as clay, **not** the original
+GNM mesh and not a final material/eye/rig preview:
+
+![Reloaded native Character head, unapproved clay review](images/conformed-native-head.png)
+
+The fit is coherent, but eye/eyelid detail, surface refinement and likeness
+remain unapproved. Optional Core Data is still missing: installed-engine logs
+disable skin editing, but Character creation/editing and the local solve work.
+
+**Hair can be added or replaced later.** Keep it separate while finalizing the
+head. For skinned hair, create a Groom Binding targeting the final skeletal head,
+then validate deformation and LODs; the static GNM preview is not that target.
+See Epic's [binding workflow](https://dev.epicgames.com/documentation/unreal-engine/setting-up-bindings-for-grooms-in-unreal-engine).
+The local Alembic did create a real unbound Groom, but reload inspection reports
+**28,000 curves versus 14,000 intended Blender strands**. That discrepancy and
+axis/scale/root alignment are unresolved; this groom is not approved for binding.
+Evidence: `data\arka\unreal\native-review.json` and the retained import log.
 
 Acceptance means `awaiting_human_likeness_review`, never automatic likeness
 approval. Landmark agreement can improve while anatomy or resemblance remains
 wrong. See [research, evidence and performance](dev.readme.md).
 The [MetaHuman workflow investigation](../generation/metahuman-workflow-investigation.md)
 recommends UE 5.8's head-only Custom Mesh experiment, not passing GNM topology
-to From Template. A textured static head is now imported locally; head conform,
+to From Template. Static import and a first native head fit now exist; refinement,
 rigging, assembly and final likeness validation are not complete. Creator Core
 Data remains absent; see the linked investigation before attempting production
 MetaHuman appearance work.

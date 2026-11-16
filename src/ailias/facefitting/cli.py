@@ -18,6 +18,7 @@ def add_parser(commands):
         ("appearance", "Bake photo colour and render approximate hair on approved clay geometry"),
         ("appearance-status", "Inspect an appearance revision and its retained dependencies"),
         ("unreal-import", "Import a hair-free textured appearance head, not a finished MetaHuman"),
+        ("unreal-conform", "Create a new local head-only Character draft from a verified import ID"),
     ):
         action = actions.add_parser(name, help=description)
         action.add_argument("alias")
@@ -26,9 +27,9 @@ def add_parser(commands):
             action.add_argument("group")
             action.add_argument("--fit-config", type=Path, default=DEFAULT_CONFIG)
             action.add_argument("--generation-config", type=Path, default=DEFAULT_GENERATION_CONFIG)
-        if name in {"status", "appearance", "appearance-status", "unreal-import"}:
+        if name in {"status", "appearance", "appearance-status", "unreal-import", "unreal-conform"}:
             action.add_argument("job")
-        if name == "unreal-import":
+        if name in {"unreal-import", "unreal-conform"}:
             action.add_argument("--editor", type=Path, required=True)
             action.add_argument("--project", type=Path, required=True)
             action.add_argument("--generation-config", type=Path, default=DEFAULT_GENERATION_CONFIG)
@@ -57,6 +58,11 @@ def execute(args, data_root):
         if args.facefitting_action == "models":
             return {"assets": model_assets(store, install=True)}, 0
         generation, tools_root = load_settings(args.generation_config)
+        if args.facefitting_action == "unreal-conform":
+            from ailias.facefitting.unreal_conform import conform_head
+            result = conform_head(store, args.job, args.editor, args.project, generation,
+                                  NativeTools(tools_root, generation.timeout_seconds))
+            return result, 0 if result["status"] == "head_conformed_awaiting_review" else 2
         if args.facefitting_action == "unreal-import":
             from ailias.facefitting.unreal_handoff import import_appearance
             result = import_appearance(store, args.job, args.editor, args.project,

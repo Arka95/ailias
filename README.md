@@ -15,7 +15,10 @@ HEIC support and face-specific quality filtering. **geometry** compares aligned
 complete GNM head using dense observations and batched CUDA optimization, then
 adds photo-derived colour and explicitly approximate hair after clay approval.
 A textured, upright static head is verified in the owned UE 5.8.4 review project;
-MetaHuman Creator Core Data is missing and actual conversion remains unverified.
+a native head-only MetaHuman Character draft is also saved and reload-checked.
+Final likeness, appearance transfer, rigging and assembly remain unvalidated.
+Optional Creator Core Data is missing: skin editing is disabled, but local
+Character creation and conform have succeeded without it.
 See [Unreal readiness](docs/generation/README.md#unreal-explicit-installation-and-manual-identity-solve).
 Native tools share one
 workspace-level installation, not another Python/CUDA environment.

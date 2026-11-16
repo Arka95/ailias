@@ -16,6 +16,7 @@
 | `semantics_worker.py` | Fresh OpenCV CUDA segmentation in a process separate from Torch; portrait-grid face boxes, not full-source boxes |
 | `appearance_worker.py` | UV/photo material, transparent generic eye shells, approximate hair cap/strands, new scene/renders and separate head export |
 | `unreal_handoff.py` | Real hair-free head import, native package hashes and imported coordinate/bounds checks; not MetaHuman creation |
+| `unreal_conform.py`, `unreal_conform_worker.py`, `tracking_worker.py` | New local Character fits from verified imports, matched perspective tracking, native +Y target/camera conversion, state commit and package verification; no rig/cloud |
 
 ## Research decisions in plain language
 
@@ -140,14 +141,36 @@ The imported candidate excludes the separate hair cap/strands. Initial trials
 found and fixed Windows OBJ texture links, Unreal Array JSON serialization,
 valid hyphenated package names and the importer's axis convention. Export
 materials must resolve to the adjacent retained texture; only actual saved
-packages count as a successful handoff. No Character asset/conform, rig/cloud
-request, MetaHuman skin bake or groom validation has been performed.
+packages count as a successful static handoff.
+
+Native head-only job `73508d43f43540eaafa792c527abc083` subsequently saved
+`/Game/Ailias/ConformedHeads/C73508d43f43540eaafa792c527abc083/HeadOnlyDraft`.
+Native execution took 81.375s; this is not an end-to-end benchmark.
+It tracked 16 facial curves, committed face and body states, and a separate
+editor process reloaded the Character and extracted its actual editing mesh.
+`data\arka\unreal\native-review.json` and `conformed-head-front.png` retain that
+post-reload evidence. The first +X-facing attempt was distorted despite the
+solver returning true. Rotating both supplied vertices and camera to native
+`(GNM X,Z,Y)*100` corrected the gross distortion: final face-landmark bounds
+are `[-8.896,-5.301,14.565]` to `[8.673,17.481,40.627]`. Landmark displacement
+includes placement and is not a likeness score. Eye/eyelid detail, surface
+refinement and final likeness remain unapproved.
+
+Factory creation/edit registration and the local solve succeeded without optional
+Core Data; engine warnings disable skin editing rather than all Character work.
+No rig/cloud request, production skin bake, assembly or animation validation ran.
+The separate Alembic imported and reloaded as a real Groom asset, with 28,000
+curves and 2,800 guides, not the intended 14,000 curves. Native inherited struct
+fields require `get_editor_property`; direct Python attributes failed in the
+initial receipt step after the package had already saved. Count discrepancy,
+axis/scale/root alignment and final skeletal-head binding remain unresolved.
 
 ## Validation and development
 
 ```powershell
 python -m unittest ailias.facefitting.tests.test_fitting ailias.facefitting.tests.test_observations -v
 python -m unittest ailias.facefitting.tests.test_texture ailias.facefitting.tests.test_appearance -v
+python -m unittest ailias.facefitting.tests.test_unreal_conform ailias.facefitting.tests.test_unreal_handoff ailias.generation.tests.test_unreal -v
 $env:AILIAS_CUDA_FITTING_TESTS = "1"
 python -m unittest discover -s src\integration_tests\facefitting -p test_cuda.py -v
 python -m unittest discover -s src\integration_tests\facefitting -p test_appearance_cuda.py -v
@@ -162,9 +185,12 @@ The fitting milestone passed **162 isolated tests** and two explicit CUDA tests.
 The appearance implementation passed **169 isolated tests**, followed by
 **21 focused appearance/Unreal regression tests** after final handoff changes.
 The new opt-in CUDA sampler test passed on a known-colour synthetic surface.
+The native Character addition passed **20 focused conform/import tests**, including
+missing packages, malformed receipts, pixel cleanup and no-cloud failure paths.
 Actual photographic/Blender runs and the saved UE assets above were verified
-separately. Mermaid rendering and MetaHuman conform/rig/groom validation were
-not run.
+separately. Local Character conform/reload and unbound Groom import were run
+as described above; final likeness, rig/binding/animation and Mermaid rendering
+were not validated.
 
 ## Primary references
 
