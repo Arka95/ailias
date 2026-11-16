@@ -1,0 +1,44 @@
+{
+  "gnm": {
+    "file": "gnm-v3.0\\gnm_head.npz",
+    "url": "https://huggingface.co/google/gnm-v3/resolve/c01e90d298d82301f9fd18f54806be751775cb7c/v3_0/gnm_head.npz",
+    "sha256": "61d78bbfb4ad8e0b38495804a4caef3214d3df00f8c3f68761e63b41ce3747eb",
+    "limit": 60000000,
+    "license": "Apache-2.0",
+    "source": "https://github.com/google/GNM/tree/dfd3e4b96bda2f0061c6013a458b435cf3cb519f"
+  },
+  "landmarker": {
+    "file": "mp-face-landmarker-v1\\face_landmarker.task",
+    "url": "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+    "sha256": "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff",
+    "limit": 5000000,
+    "license": "Apache-2.0",
+    "source": "https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker"
+  },
+  "correspondence": {
+    "file": "gnm-mp468-v2\\head_dense_468.txt",
+    "url": "https://gist.githubusercontent.com/pundirmr/ecf0c0bb5c93fc1a9534083a8b6d255e/raw/7e80687436d71cd2e6d0f326e57113d1af46ee75/head_dense_468.txt",
+    "sha256": "553b1a334db0cb7a69e8c9f4799ad4743242853679b4be051308766df18dbe8b",
+    "limit": 50000,
+    "license": "Apache-2.0; unofficial community correspondence, not Google",
+    "source": "https://gist.github.com/pundirmr/ecf0c0bb5c93fc1a9534083a8b6d255e"
+  },
+  "gnm_license": {
+    "file": "gnm-v3.0\\LICENSE.txt",
+    "url": "https://raw.githubusercontent.com/google/GNM/dfd3e4b96bda2f0061c6013a458b435cf3cb519f/LICENSE",
+    "sha256": "ba12fffb7f905c67daa3e0d9656e8638d3a0d0eee70862ec17da7db429be19f0",
+    "limit": 30000
+  },
+  "landmarker_license": {
+    "file": "mp-face-landmarker-v1\\LICENSE.txt",
+    "url": "https://raw.githubusercontent.com/google-ai-edge/mediapipe/v0.10.32/LICENSE",
+    "sha256": "8707eef0533987efc5b155d64761eeb6e20793f50b9bd1a68dad1cf4719d0ed8",
+    "limit": 30000
+  },
+  "correspondence_readme": {
+    "file": "gnm-mp468-v2\\README.md",
+    "url": "https://gist.githubusercontent.com/pundirmr/ecf0c0bb5c93fc1a9534083a8b6d255e/raw/2ff52e46f73af8d11c686398e723a2995e26bca0/README.md",
+    "sha256": "da0699b0cd88d506d14b1012aff3dbba9af604e6ce375f7a11a252b40a558d94",
+    "limit": 30000
+  }
+}

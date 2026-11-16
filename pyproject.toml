@@ -18,6 +18,8 @@ imageprocessing = [
 ]
 gpu = ["numpy>=2,<3", "pillow-heif>=1,<2"]
 matting-tools = ["onnx>=1.19,<2", "onnxsim>=0.4.36,<0.7", "onnxruntime>=1.23,<2"]
+facefitting = ["numpy>=2,<3", "scipy>=1.15,<2", "mediapipe==0.10.32"]
+facefitting-cuda = ["torch==2.13.0+cu126"]
 
 [project.scripts]
 ailias = "ailias.cli:main"

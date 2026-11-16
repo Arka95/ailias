@@ -100,8 +100,9 @@ No new dependency, model download, environment or external image request is used
 ## Research decisions in plain language
 
 Updated November 16, 2026. Selection/cleansing additions do not establish a
-successful real-head reconstruction. Proposed dense analysis is
-not installed. This module owns image observations, not the fitted head.
+successful real-head reconstruction. Dense MediaPipe analysis and a coherent
+GNM baseline now exist in the separate [facefitting module](../facefitting/dev.readme.md).
+This module owns cleansing/image observations, not the fitted head.
 
 ### 1. Problem Statement
 
@@ -118,7 +119,7 @@ image points, not eye contours, ears or a detailed face surface.
 | Keep conservative stored groups; associate across them separately | Requiring every pair to agree reduces accidental identity mixing but can split one person across poses. Fixed seed examples allow broader selection without a chain of increasingly weak matches | Implemented in `subjects.py:associate_subject`; two independent seed-photo supports and co-occurrence exclusions |
 | Estimate view independently of identity | Five points plus a generic face proxy estimate camera direction. Trying several focal lengths exposes some ambiguity; uncertain fits remain "unknown" | Implemented in `views.py:estimate_view`; approximate, not calibrated anatomy |
 | Prefer frontal coverage without throwing away sides | Fronts anchor layout; other angles provide complementary observations. Generic pose-fit confidence is not portrait usefulness: a person's real proportions can fit the generic proxy less closely | Implemented in `subjects.py:view_rank` / `select_views`; quality/light warnings, within-bin pose suitability, face resolution/detail, lighting penalty, then pose confidence as a tiebreaker; coverage/registration anchors preserved |
-| Add dense landmarks and expression/visibility assessment next | MediaPipe offers 478 facial landmarks and expression outputs. This is richer evidence, but predicted relative depth is not a measured scan, and dense face landmarks do not solve the whole head | Proposed; no MediaPipe runtime/model adopted |
+| Separate dense observations from cleansing | MediaPipe offers 478 facial landmarks and expression outputs. This is richer evidence, but predicted relative depth is not a measured scan, and dense face landmarks do not solve the whole head | Implemented in `facefitting`; foreground/exterior/normal heuristics are not measured visibility |
 | Add conservative white-balance/exposure harmonization | ICC-to-sRGB conversion standardizes colour interpretation, not illumination. Estimate a cast from scene-neutral evidence; never make skin itself grey or force every person to an average skin tone | Implemented in `cleansing.py`; bounded gains and subject-relative exposure, explicit skips, separate derivatives |
 | Extract head-only foreground using semantics and opacity | Person matting deliberately keeps shirts. **Semantic labels** distinguish face/hair/ears from neck/clothes; MODNet then preserves soft outer hair edges | Implemented in `faceparsing.py` and `matting.py`, CUDA/explicit CPU; separate RGBA assets, unchanged review crops |
 | Stabilize analysis coordinates without changing camera evidence | Level the eye axis, position its midpoint at `(256,204.8)` on a 512-square canvas, and target 133.12-pixel eye spacing; reduce scale if needed to fit the complete observed alpha. Turning a profile into a frontal image would instead invent hidden information | Implemented in `observations.py:align_head`; uniform similarity only, premultiplied-alpha interpolation, reversible portrait/source transforms; native RGB/alpha are not warped |

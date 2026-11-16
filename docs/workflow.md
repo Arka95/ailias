@@ -76,9 +76,10 @@ information gain, camera distance or regional reconstruction confidence.
 ## 3. Reconstruct and review
 
 Use ailias's experimental COLMAP adapter or benchmark another suitable backend.
-The current 31-photo candidate set fails verified-overlap gates; no human head
-has been reconstructed. Do not equate synthetic integration success with facial
-accuracy. Preserve mesh, texture, recovered cameras, measured reprojection errors
+The native candidate sets fail reliable overlap or produce fragments.
+The separate [GNM fitter](facefitting/README.md) now produces a coherent neutral
+head, not a calibrated scan, texture or likeness approval. Do not equate tool
+success with facial accuracy. Preserve mesh, texture, recovered cameras, measured reprojection errors
 and tool settings/runtime/VRAM measurements.
 
 Attach a non-empty OBJ/PLY/FBX mesh, readable texture and `cameras.json`:

@@ -1,8 +1,8 @@
 # ailias
 
 Local, geometry-first photo-to-MetaHuman preparation with experimental native
-reconstruction and editor adapters. **A real human head/MetaHuman has not yet been
-produced or validated.** The source plan's manual-first end-to-end milestone
+reconstruction and editor adapters. **A photo-conditioned head baseline exists;
+MetaHuman conversion and likeness remain unvalidated.** The source plan's manual-first end-to-end milestone
 remains open; a successful tool call is not a likeness or production certificate.
 
 Implemented: image intake, heuristic quality checks, manual angle/expression
@@ -11,8 +11,10 @@ artifact integrity checks, downstream invalidation and three-view comparison she
 Optional **imageprocessing** adds local face grouping, portrait/body extraction,
 HEIC support and face-specific quality filtering. **geometry** compares aligned
 2D/3D landmarks and optional 3D surface samples.
-**generation** runs installed CUDA COLMAP and Blender; the UE 5.8 adapter remains
-blocked locally because Unreal is not installed. Native tools share one
+**generation** runs installed CUDA COLMAP and Blender. **facefitting** fits a
+complete GNM head using dense observations and batched CUDA optimization.
+UE 5.8.4 is installed; project/API execution and MetaHuman conversion remain
+unverified. Native tools share one
 workspace-level installation, not another Python/CUDA environment.
 
 ## Setup
@@ -36,7 +38,7 @@ python -m ailias status first-face
 Default session artifacts go in Git-ignored `data`. Configure thresholds in
 `config\settings.json`; these are initial heuristics, not calibrated likeness
 criteria. No network service or GPU work starts automatically. Only the explicit
-`imageprocessing models` command downloads the pinned analysis/cleansing models.
+`imageprocessing models` and `facefitting models` commands download their pinned models.
 
 ## Clean and group a photo folder
 
@@ -128,10 +130,18 @@ for Blender inspection; **not a complete head**. Default gates remain unchanged.
 See [generation](docs/generation/README.md)
 for gates, actual validation evidence and the remaining manual Identity solve.
 
+For the separate coherent-head baseline, use
+`python -m ailias facefitting fit arka RUN_ID face-001 --generation-config config\generation-poc.json`.
+Its fresh 63-view CUDA trial took **42.187s versus 372.859s CPU** (8.84x faster),
+with slightly better held-out landmark agreement. This is not a likeness score,
+personalized texture or finished MetaHuman. See [setup and limitations](docs/facefitting/README.md)
+and the [researched UE 5.8 route](docs/generation/metahuman-workflow-investigation.md).
+
 | Document | Dev guide | Purpose |
 |---|---|---|
 | [Workflow](docs/workflow.md) | [Development](docs/dev.readme.md) | CLI contracts, capture and manual handoffs |
 | [Imageprocessing](docs/imageprocessing/README.md) | [Module internals](docs/imageprocessing/dev.readme.md) | Portrait/body extraction and reviewable face aliases |
 | [Geometry metrics](docs/geometry/README.md) | [Metric internals](docs/geometry/dev.readme.md) | Identity similarity versus actual geometric errors |
 | [Generation](docs/generation/README.md) | [Native adapters and validation](docs/generation/dev.readme.md) | COLMAP, Blender, guarded UE 5.8 handoffs and honest failure states |
+| [Head fitting](docs/facefitting/README.md) | [Fit internals and measured evidence](docs/facefitting/dev.readme.md) | Dense photo observations, shared identity/expression fitting and CUDA review baseline |
 | [Implementation scope](docs/analysis.md) | [Remaining work](docs/todo/README.md) | Decisions, source and deferred functionality |

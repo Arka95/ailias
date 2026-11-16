@@ -20,9 +20,11 @@ def parser() -> argparse.ArgumentParser:
     from ailias.imageprocessing.cli import add_parser as add_imageprocessing
     from ailias.geometry.cli import add_parser as add_geometry
     from ailias.generation.cli import add_parser as add_generation
+    from ailias.facefitting.cli import add_parser as add_facefitting
     add_imageprocessing(commands)
     add_geometry(commands)
     add_generation(commands)
+    add_facefitting(commands)
     for name, help_text in (
         ("init", "Create a session without replacing existing data"),
         ("intake", "Reference and quality-check photos from a folder or selection.json"),
@@ -62,13 +64,15 @@ def parser() -> argparse.ArgumentParser:
 
 def execute(args) -> tuple[dict, int]:
     policy, configured_root = load_settings(args.config)
-    if args.command in {"imageprocessing", "geometry", "generation"}:
+    if args.command in {"imageprocessing", "geometry", "generation", "facefitting"}:
         if args.command == "imageprocessing":
             from ailias.imageprocessing.cli import execute as run_processing
         elif args.command == "geometry":
             from ailias.geometry.cli import execute as run_processing
-        else:
+        elif args.command == "generation":
             from ailias.generation.cli import execute as run_processing
+        else:
+            from ailias.facefitting.cli import execute as run_processing
         return run_processing(args, args.data_root or configured_root)
     store = Store(args.data_root or configured_root, args.session)
     if args.command == "status":

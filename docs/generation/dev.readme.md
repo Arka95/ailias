@@ -135,17 +135,20 @@ generic matching also would not supply a human-head shape prior.
 The v4 upstream audit (`20261116T142059Z-a7a6adf8`) now supplies 166 reversible
 aligned analysis heads and lighting evidence, with all three owner-nominated
 fronts in the selected 64 and the recovered close-up chosen as baseline.
-This fixes missed evidence/preparation, **not** the missing template fitter.
+This fixes missed evidence/preparation, not COLMAP's missing shape prior.
+The separate [facefitting module](../facefitting/dev.readme.md) now implements a
+coherent GNM baseline with shared identity and per-photo pose/expression.
 COLMAP remains exhaustive: it does not yet consume those fields as pair gates
 or facial deformation constraints. Do not describe metadata as an implemented
 joint shape/expression/lighting solver.
 
 ### 4. Task Breakdown
 
-Next sequence: validate dense image observations; choose a complete baseline
-with usable asset terms; implement joint camera/identity/expression fitting and
-uncertainty-aware completion; then add albedo estimation and matched-camera
-review. Blender remains cleanup/export/rendering, not the missing fitter.
+Dense observations and joint camera/identity/expression fitting are now
+implemented separately. Next: independent silhouette/surface checks, human
+geometry review, [native UE 5.8 head-only handoff](metahuman-workflow-investigation.md),
+then appearance estimation and matched-camera post-conform review.
+Blender remains cleanup/export/rendering, not the fitter.
 
 ### 5. Reference Links
 
@@ -208,7 +211,7 @@ Verified on November 16, 2026:
 | Isolated regression | 143 functional units, including head-only cleansing, cross-group selection, saved-external-package verification and receipt-without-asset failure; no model, hardware, editor or network execution in discovery |
 | Head-only upstream integration | Job `20261116T134753Z-c7f222a0`: 165 ready / 14 review; input audit selected 64 from 18 groups and verified every corrected-RGB hardlink and native mask against published head alpha; no new native reconstruction replay |
 | PoC policy regression | 26 focused generation/Unreal units passed, including explicit native option forwarding, policy provenance, unchanged non-production/likeness flags and invalid-angle/support rejection |
-| Unreal | No registered/common-path engine was found; `unreal-doctor`/import correctly blocked without launching, collecting credentials, downloading engine content or making placeholder assets |
+| Unreal | Earlier absence correctly blocked the adapter. UE 5.8.4 and Character plugin metadata are now verified installed; no project/API execution or conform success is claimed |
 
 The real-photo result applies to that selected set, not every possible subject,
 view combination or face-reconstruction model. Sparse correspondences are not a

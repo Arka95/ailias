@@ -142,11 +142,14 @@ Committed cleanup outputs are immutable revisions, not overwritten by retries.
 
 ## Unreal: explicit installation and manual Identity solve
 
-Unreal is not installed locally. Install UE 5.8 using Epic's distribution and its
-required MetaHuman content; create a project with PythonScriptPlugin and
+UE 5.8.4 is installed locally, with the MetaHuman Character plugin; editor/project
+execution and required content readiness are not yet verified. Create a project with PythonScriptPlugin and
 MetaHumanCharacter enabled. The adapter checks engine/project/plugin metadata and
 refuses a mismatched numeric engine association rather than silently upgrading it.
 No Epic credentials are collected or stored by ailias.
+The commands below target native generation jobs and an already-solved Identity,
+not the new GNM fitting jobs. For arbitrary head topology, the researched next
+experiment is [UE 5.8 head-only Custom Mesh](metahuman-workflow-investigation.md).
 
 ```powershell
 python -m ailias generation unreal-doctor `
