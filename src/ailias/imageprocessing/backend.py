@@ -1,3 +1,8 @@
+"""Define the image-analysis backend contract and the CPU OpenCV implementation.
+
+Provides face detection/recognition and person segmentation, not head reconstruction.
+"""
+
 from dataclasses import dataclass
 from importlib.metadata import version
 from typing import Protocol

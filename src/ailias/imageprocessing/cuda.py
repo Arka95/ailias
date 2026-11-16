@@ -1,3 +1,8 @@
+"""Run image-analysis models on the requested OpenCV CUDA device.
+
+Checks actual DNN graph execution rather than assuming CUDA availability proves use.
+"""
+
 import re
 from collections import Counter
 from importlib.metadata import version

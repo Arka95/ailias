@@ -1,3 +1,8 @@
+"""Persist session manifests, source hashes and managed artifact references.
+
+Owns writer locks, atomic JSON updates and downstream stage invalidation.
+"""
+
 import hashlib
 import json
 import os

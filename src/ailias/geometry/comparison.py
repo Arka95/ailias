@@ -1,3 +1,8 @@
+"""Compare referenced geometry or detected faces and retain auditable input snapshots.
+
+Recognition similarity remains separate from geometric error measurements.
+"""
+
 import json
 from pathlib import Path
 

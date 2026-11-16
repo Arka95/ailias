@@ -1,3 +1,8 @@
+"""Validate ordered manual handoffs and produce three-view baseline comparisons.
+
+Receipts record human decisions; they do not certify automated reconstruction.
+"""
+
 import io
 import json
 import math

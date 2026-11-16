@@ -1,3 +1,8 @@
+"""Orchestrate fresh photo-conditioned fits, quality gates and neutral review outputs.
+
+Retains fit/source provenance without completing manual likeness or MetaHuman stages.
+"""
+
 import json
 import time
 import uuid

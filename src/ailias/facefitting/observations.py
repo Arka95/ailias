@@ -1,3 +1,8 @@
+"""Predict CPU dense-face landmarks and map aligned points back to source pixels.
+
+MediaPipe outputs are image evidence, not measured depth or calibrated visibility.
+"""
+
 import numpy as np
 from PIL import Image
 

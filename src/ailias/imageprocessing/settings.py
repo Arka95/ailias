@@ -1,3 +1,5 @@
+"""Load and validate image-processing thresholds and model/backend configuration."""
+
 import json
 import math
 from dataclasses import dataclass, fields

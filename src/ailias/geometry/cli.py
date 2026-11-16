@@ -1,3 +1,5 @@
+"""Expose geometric comparisons and detected-face diagnostics through the CLI."""
+
 from pathlib import Path
 
 from ailias.storage import Store

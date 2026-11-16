@@ -1,3 +1,8 @@
+"""Align corresponding landmarks and measure landmark or sampled-surface errors.
+
+Distinguishes metric units from scale-invariant fits and rejects reflected alignment.
+"""
+
 import math
 
 

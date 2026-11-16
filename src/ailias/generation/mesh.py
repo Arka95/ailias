@@ -1,3 +1,5 @@
+"""Inspect native PLY output and convert textured meshes without losing UV seams."""
+
 import math
 from pathlib import Path
 

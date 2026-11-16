@@ -19,6 +19,10 @@ photos, network, external tools or GPU probing. See the imageprocessing guide
 for explicitly invoked real-directory validation, separate from units.
 No linter/formatter has been added.
 
+Production Python modules start with a short module docstring explaining their
+responsibility and any important boundary. Keep command details and architecture
+in the linked guides; avoid restating imports or narrating individual statements.
+
 ## Research decision guide
 
 Read the plain-language module notes for what is implemented, what is proposed,

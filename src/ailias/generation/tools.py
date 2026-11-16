@@ -1,3 +1,5 @@
+"""Probe and run shared native tools with explicit timeouts and bounded logs."""
+
 import json
 import os
 import re

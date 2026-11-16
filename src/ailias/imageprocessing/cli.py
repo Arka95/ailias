@@ -1,3 +1,5 @@
+"""Wire model setup, scanning, cleansing, curation and cleanup into CLI commands."""
+
 import json
 import sys
 from contextlib import ExitStack

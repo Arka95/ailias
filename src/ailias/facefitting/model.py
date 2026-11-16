@@ -1,3 +1,8 @@
+"""Load pinned GNM assets and validate landmark-to-surface correspondences.
+
+The head prior supplies unobserved anatomy; it is not an independent 3D scan.
+"""
+
 import json
 from pathlib import Path
 

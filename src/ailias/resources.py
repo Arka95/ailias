@@ -1,3 +1,5 @@
+"""Clean unreferenced files within one owned job while protecting retained artifacts."""
+
 from pathlib import Path
 
 from ailias.storage import Store

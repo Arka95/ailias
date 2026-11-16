@@ -1,3 +1,5 @@
+"""Validate head-fitting devices, identity/expression modes and solver budgets."""
+
 import json
 import math
 import re

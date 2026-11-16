@@ -1,3 +1,8 @@
+"""Accelerate shared-identity head fitting with batched CUDA autodiff and Schur/LM.
+
+Keeps camera/expression blocks per view and never silently falls back to CPU.
+"""
+
 import math
 import time
 

@@ -1,3 +1,8 @@
+"""Compute face-quality evidence, embedding groups, subject crops and review sheets.
+
+Embedding similarity groups candidates; it does not measure facial geometry.
+"""
+
 import math
 from dataclasses import asdict
 

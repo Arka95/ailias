@@ -1,3 +1,8 @@
+"""Prepare cameras and visibility heuristics, fit heads and score held-out views.
+
+Owns the SciPy CPU reference and explicit dispatch to the CUDA fitting backend.
+"""
+
 import math
 import time
 

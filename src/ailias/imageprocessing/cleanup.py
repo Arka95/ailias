@@ -1,3 +1,8 @@
+"""Reclaim unreferenced generated assets and migrate verified legacy source copies.
+
+Protects curated and downstream-referenced results rather than deleting by age alone.
+"""
+
 import json
 import os
 import re

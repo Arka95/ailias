@@ -1,3 +1,8 @@
+"""Convert explicit human crop decisions into conservative keep/reject/review filters.
+
+Automatic positive matches do not become new human-approved training exemplars.
+"""
+
 import json
 import re
 from collections import Counter

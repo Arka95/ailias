@@ -1,3 +1,5 @@
+"""Read COLMAP cameras and restore source-image coordinates from portrait crops."""
+
 import math
 from pathlib import Path
 

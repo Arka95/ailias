@@ -1,3 +1,8 @@
+"""Run gated native reconstruction and Blender cleanup as retained generation jobs.
+
+Owns failure diagnostics, artifact checks and job-local resource finalization.
+"""
+
 import json
 import shutil
 import time

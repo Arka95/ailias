@@ -1,3 +1,5 @@
+"""Expose native reconstruction, Blender cleanup and guarded Unreal CLI operations."""
+
 from pathlib import Path
 
 from ailias.generation.settings import DEFAULT_GENERATION_CONFIG, GenerationPolicy, load_settings

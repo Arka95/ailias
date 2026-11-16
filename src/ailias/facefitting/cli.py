@@ -1,3 +1,5 @@
+"""Expose explicit head-model setup, photo fitting and job-integrity CLI commands."""
+
 from dataclasses import replace
 from pathlib import Path
 

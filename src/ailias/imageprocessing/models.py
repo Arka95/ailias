@@ -1,3 +1,5 @@
+"""Explicitly download pinned image-analysis models and verify local model integrity."""
+
 import os
 import tempfile
 import urllib.request

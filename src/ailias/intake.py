@@ -1,3 +1,8 @@
+"""Reference input photos, assess image quality and record human capture reviews.
+
+Coverage validation uses reviewed capture evidence, not automatic face matches.
+"""
+
 import json
 import math
 import warnings

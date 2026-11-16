@@ -1,3 +1,8 @@
+"""Check UE 5.8 prerequisites and orchestrate guarded mesh/Identity handoffs.
+
+Reports missing Creator content separately; editor readiness is not a solved rig.
+"""
+
 import json
 import re
 import shutil

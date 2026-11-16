@@ -1,3 +1,8 @@
+"""Prepare hash-verified native inputs from human-curated portraits and head masks.
+
+Preserves source provenance and selects supported reconstruction anchors.
+"""
+
 import hashlib
 import json
 import math

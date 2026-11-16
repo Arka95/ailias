@@ -1,3 +1,5 @@
+"""Load and validate capture-quality policy and the configured session data root."""
+
 import json
 import math
 from dataclasses import dataclass, fields

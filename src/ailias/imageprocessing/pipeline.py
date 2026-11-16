@@ -1,3 +1,8 @@
+"""Scan external photos and publish reusable crops, candidate groups and selections.
+
+Preserves source references and applies reviewed curation without confirming identity.
+"""
+
 import hashlib
 import io
 import json

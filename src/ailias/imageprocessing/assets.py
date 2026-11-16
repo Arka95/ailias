@@ -1,3 +1,5 @@
+"""Encode and publish content-addressed PNG assets for reuse across processing runs."""
+
 import hashlib
 import io
 import os
