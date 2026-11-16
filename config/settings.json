@@ -1,0 +1,10 @@
+{
+  "data_root": "..\\data",
+  "min_photos": 8,
+  "max_photos": 15,
+  "min_short_side": 1024,
+  "min_edge_energy": 18.0,
+  "max_dark_fraction": 0.6,
+  "max_bright_fraction": 0.6,
+  "angle_tolerance": 10.0
+}

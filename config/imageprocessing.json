@@ -1,0 +1,14 @@
+{
+  "detection_score": 0.85,
+  "detection_max_side": 1600,
+  "cpu_threads": 2,
+  "min_face_size": 256,
+  "min_laplacian_variance": 40.0,
+  "max_dark_fraction": 0.5,
+  "max_bright_fraction": 0.5,
+  "identity_cosine_threshold": 0.5,
+  "identity_ambiguity_margin": 0.05,
+  "portrait_side_margin": 0.6,
+  "portrait_top_margin": 0.75,
+  "portrait_bottom_margin": 1.0
+}
