@@ -1,3 +1,4 @@
+import hashlib
 import io
 import json
 import re
@@ -11,7 +12,8 @@ from pathlib import Path
 from PIL import Image, ImageCms, ImageOps
 
 from ailias.imageprocessing.backend import Backend
-from ailias.imageprocessing.assets import store_png
+from ailias.imageprocessing.assets import encode_png, store_png, store_png_bytes
+from ailias.imageprocessing.curation import CurationError, load_filter
 from ailias.imageprocessing.features import (
     GROUPING_METHOD, contact_sheet, face_quality, group_faces, normalize_embedding,
     overlaps_other, portrait_box, subject_bodies,
@@ -125,6 +127,7 @@ def _scan(store: Store, source: Path, policy: ProcessingPolicy, backend: Backend
         files = files[:limit]
     if not files:
         raise ValueError("No supported images found in input")
+    portrait_filter = load_filter(store, backend.provenance, policy)
     relative = Path("imageprocessing") / "runs" / run_id
     root = store.resolve(str(relative))
     root.mkdir(parents=True, exist_ok=False)
@@ -137,6 +140,10 @@ def _scan(store: Store, source: Path, policy: ProcessingPolicy, backend: Backend
         "policy": asdict(policy), "backend": backend.provenance,
         "grouping_method": GROUPING_METHOD,
         "sources": {}, "faces": {}, "groups": [], "file_errors": [],
+        "curation": ({"method": portrait_filter.profile["method"],
+                      "profile_sha256": portrait_filter.fingerprint,
+                      "reviewed_examples": len(portrait_filter.examples)}
+                     if portrait_filter else {"status": "not_configured"}),
         "limitations": [
             "Groups are identity candidates, not confirmed names",
             "No neutral-expression, occlusion, or 3D likeness certification",
@@ -177,10 +184,29 @@ def _scan(store: Store, source: Path, policy: ProcessingPolicy, backend: Backend
                     quality["reasons"].append("portrait_contains_other_face")
                 embedding = normalize_embedding(face.embedding)
                 scratch = root / "work"
-                crop_path = store_png(store, image.crop(bounds), "portraits", scratch, created_assets)
-                products = {"portrait": crop_path}
+                decision = (portrait_filter.classify(embedding, quality, source_id, bounds)
+                            if portrait_filter else {"decision": "unfiltered"})
+                portrait = None
+                if decision.get("reason") != "human_reviewed_crop":
+                    portrait = encode_png(image.crop(bounds))
+                    if portrait_filter:
+                        decision = portrait_filter.classify(
+                            embedding, quality, source_id, bounds, hashlib.sha256(portrait).hexdigest())
+                products = {}
+                if decision["decision"] != "reject":
+                    if decision["decision"] == "accept" and "reviewed_portrait_sha256" in decision:
+                        artifact = portrait_filter.hashes[decision["reviewed_portrait_sha256"]]["artifact"]
+                        if not store.verify(artifact):
+                            raise CurationError("Reviewed portrait changed during scan; run curate again")
+                        products["portrait"] = artifact["path"]
+                    else:
+                        role = "review" if decision["decision"] == "review" else "portraits"
+                        products["portrait"] = store_png_bytes(
+                            store, portrait, role, scratch, created_assets)
                 body_info = {key: value for key, value in subject.items() if key != "mask"}
-                if subject["status"] == "visible_subject_only":
+                if decision["decision"] == "reject":
+                    body_info = {"status": "rejected_portrait"}
+                elif subject["status"] == "visible_subject_only":
                     cutout = image.convert("RGBA")
                     cutout.putalpha(subject["mask"])
                     products["body"] = store_png(
@@ -193,22 +219,25 @@ def _scan(store: Store, source: Path, policy: ProcessingPolicy, backend: Backend
                     "portrait_bounds": list(bounds), "score": face.score,
                     "landmarks_5": face.landmarks, "embedding": embedding,
                     "quality": quality, "eligible": not quality["reasons"],
-                    "body": body_info, "products": products,
-                    "requires_capture_review": True,
+                    "body": body_info, "products": products, "curation": decision,
+                    "requires_capture_review": True, "identity_ambiguous": True,
                 }
+                if decision["decision"] in {"reject", "review"}:
+                    report["faces"][face_id]["eligible"] = False
                 record["faces"].append(face_id)
             record["status"] = "detected" if detected else "no_face"
         except (OSError, ValueError, Image.DecompressionBombWarning,
                 Image.DecompressionBombError) as error:
             from ailias.imageprocessing.cuda import CudaUnavailable
-            if isinstance(error, CudaUnavailable):
+            if isinstance(error, (CudaUnavailable, CurationError)):
                 raise
             report["file_errors"].append({"input_file": str(path), "error": type(error).__name__})
         finally:
             atomic_json(manifest, report)
             if progress:
                 progress({"processed": index + 1, "total": len(files), "faces": len(report["faces"])})
-    report["groups"] = group_faces(list(report["faces"].values()), policy)
+    report["groups"] = group_faces(
+        [face for face in report["faces"].values() if "portrait" in face["products"]], policy)
     for group in report["groups"]:
         members = [report["faces"][face_id] for face_id in group["members"]]
         group["contact_sheets"] = []
@@ -246,6 +275,7 @@ def _scan(store: Store, source: Path, policy: ProcessingPolicy, backend: Backend
         "eligible_faces": sum(group["eligible"] for group in report["groups"]),
         "quality_reasons": dict(reasons),
         "body_status": dict(Counter(face["body"]["status"] for face in report["faces"].values())),
+        "portrait_filter": dict(Counter(face["curation"]["decision"] for face in report["faces"].values())),
     }
     atomic_json(manifest, report)
     return {"run": run_id, "manifest": str(manifest), "overview": str(store.resolve(str(overview_path))),
@@ -288,6 +318,13 @@ def _select_group(store: Store, run: str, group_id: str, selection_id: str) -> d
         raise ValueError("Unknown group")
     faces = [report["faces"][key] for key in group["members"]]
     faces = [face for face in faces if face["eligible"] and not face["identity_ambiguous"]]
+    portrait_filter = load_filter(store, report["backend"], ProcessingPolicy(**report["policy"]))
+    if portrait_filter:
+        faces = [
+            face for face in faces if portrait_filter.classify(
+                face["embedding"], face["quality"], face["source_id"], face["portrait_bounds"],
+            )["decision"] == "accept"
+        ]
     if not faces:
         raise ValueError("Group has no eligible unambiguous portrait candidates")
     relative = Path("imageprocessing") / "selections" / selection_id

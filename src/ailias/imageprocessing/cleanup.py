@@ -9,7 +9,8 @@ from ailias.storage import Store, atomic_json, digest
 
 
 def _documents(store: Store):
-    paths = [store.path, store.resolve(str(Path("imageprocessing") / "selection.json"))]
+    paths = [store.path, store.resolve(str(Path("imageprocessing") / "selection.json")),
+             store.resolve(str(Path("imageprocessing") / "curation.json"))]
     for collection in ("runs", "selections", "comparisons"):
         root = store.resolve(str(Path("imageprocessing") / collection))
         if root.exists():
@@ -17,6 +18,9 @@ def _documents(store: Store):
     geometry = store.resolve("geometry")
     if geometry.exists():
         paths.extend(geometry.rglob("*.json"))
+    generation = store.resolve("generation")
+    for collection, filename in (("runs", "manifest.json"), ("inputs", "sources.json")):
+        paths.extend((generation / collection).glob(f"*\\{filename}"))
     for path in paths:
         if path.is_file():
             # Unknown or malformed metadata is not safe to garbage-collect around.
@@ -148,7 +152,7 @@ def cleanup_alias(store: Store, keep_run: str | None = None,
             result[key] += removed[key]
     assets = store.resolve(str(Path("imageprocessing") / "assets"))
     if assets.exists():
-        for category in ("portraits", "bodies", "masks"):
+        for category in ("portraits", "review", "bodies", "masks"):
             folder = assets / category
             if not folder.exists():
                 continue

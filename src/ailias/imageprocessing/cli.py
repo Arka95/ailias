@@ -35,6 +35,12 @@ def add_parser(commands):
     cleanup.add_argument("--prune-superseded", action="store_true",
                          help="Also remove unselected obsolete runs; requires --keep-run")
     cleanup.add_argument("--keep-run", help="Complete run to retain when pruning")
+    curate = actions.add_parser("curate", help="Learn from a manually reviewed portrait folder; never deletes originals")
+    curate.add_argument("alias")
+    curate.add_argument("run", help="Completed extraction run whose portraits were manually reviewed")
+    curate.add_argument("--removed-are-rejected", action="store_true",
+                        help="Confirm kept portraits are valid and manually removed ones are invalid")
+    curate.add_argument("--processing-config", type=Path, default=DEFAULT_PROCESSING_CONFIG)
 
 
 def execute(args, data_root: Path):
@@ -72,5 +78,9 @@ def execute(args, data_root: Path):
             from ailias.imageprocessing.cleanup import cleanup_alias
             result = cleanup_alias(store, args.keep_run, args.prune_superseded)
             return result, 2 if result["errors"] else 0
+        if args.image_action == "curate":
+            from ailias.imageprocessing.curation import capture_curation
+            return capture_curation(store, args.run, load_policy(args.processing_config),
+                                    args.removed_are_rejected), 0
         from ailias.geometry.comparison import compare_detected_faces
         return compare_detected_faces(store, args.run, args.first, args.second), 0

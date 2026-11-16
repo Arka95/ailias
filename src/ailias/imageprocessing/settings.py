@@ -22,6 +22,10 @@ class ProcessingPolicy:
     portrait_side_margin: float = 0.6
     portrait_top_margin: float = 0.75
     portrait_bottom_margin: float = 1.0
+    curation_accept_cosine: float = 0.5
+    curation_reject_cosine: float = 0.6
+    curation_reject_positive_ceiling: float = 0.35
+    curation_score_margin: float = 0.1
 
     def __post_init__(self):
         for field in fields(self):
@@ -35,11 +39,17 @@ class ProcessingPolicy:
         if self.detection_max_side < 320:
             raise ValueError("detection_max_side must be at least 320")
         for name in ("detection_score", "max_dark_fraction", "max_bright_fraction",
-                     "identity_cosine_threshold", "identity_ambiguity_margin"):
+                     "identity_cosine_threshold", "identity_ambiguity_margin",
+                     "curation_accept_cosine", "curation_reject_cosine",
+                     "curation_reject_positive_ceiling", "curation_score_margin"):
             if not 0 <= getattr(self, name) <= 1:
                 raise ValueError(f"{name} must be between 0 and 1")
         if self.identity_cosine_threshold == 0:
             raise ValueError("identity_cosine_threshold must be positive")
+        if not 0 < self.curation_reject_positive_ceiling < self.curation_accept_cosine:
+            raise ValueError("Curation reject-positive ceiling must be positive and below accept cosine")
+        if self.curation_reject_cosine == 0 or self.curation_score_margin == 0:
+            raise ValueError("Curation rejection and margin thresholds must be positive")
 
 
 def load_policy(path: Path = DEFAULT_PROCESSING_CONFIG) -> ProcessingPolicy:

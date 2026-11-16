@@ -10,5 +10,9 @@
   "identity_ambiguity_margin": 0.05,
   "portrait_side_margin": 0.6,
   "portrait_top_margin": 0.75,
-  "portrait_bottom_margin": 1.0
+  "portrait_bottom_margin": 1.0,
+  "curation_accept_cosine": 0.5,
+  "curation_reject_cosine": 0.6,
+  "curation_reject_positive_ceiling": 0.35,
+  "curation_score_margin": 0.1
 }

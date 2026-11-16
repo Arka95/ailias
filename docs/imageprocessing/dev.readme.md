@@ -10,9 +10,10 @@
 | `cuda.py` | Existing CUDA OpenCV DNN, same model preprocessing, no CPU retry, post-forward graph verification |
 | `features.py` | Crop geometry, face quality, complete-link grouping, component association, contact sheets |
 | `assets.py` | Canonical generated PNGs, content hashing and cross-run reuse |
+| `curation.py` | Explicit reviewed-gallery capture, compatible exemplar features, three-way decisions and source-held-out diagnostic |
 | `cleanup.py` | Verified legacy migration, protected-run pruning and unused generated assets |
 | `pipeline.py` | Source references, decoding, run manifests, exports, selection metadata |
-| `cli.py` | `models`, `scan`, `select`, `compare`, `cleanup` command contracts |
+| `cli.py` | `models`, `scan`, `select`, `compare`, `cleanup`, `curate` command contracts |
 
 Public processing boundary:
 `scan(store, source, policy, backend, recursive=False, body=True, limit=None,
@@ -57,6 +58,38 @@ either. Crop provenance refers to oriented pixels; users retain originals for
 later camera calibration. It does not update intrinsics automatically:
 for an unscaled crop `(x0,y0,...)`, principal point becomes `(cx-x0,cy-y0)`.
 
+## Curated filtering
+
+`capture_curation(store, run, policy, removed_are_rejected=True)` is an explicit
+human-label operation under the alias lock. It merges reviewed labels/features,
+verifies unchanged kept PNGs, and stores no image copies. Merely running `scan`
+never changes training examples. Unreviewed files in `assets\review` are skipped
+until moved to portraits or removed during an explicit review.
+
+`load_filter` validates alias, model/revision, feature dimensions and kept-file
+integrity before a new run is created. The scan records the profile SHA256.
+Classification combines exact source/crop and content-hash decisions with nearest
+normalized positive/negative SFace cosine scores and quality gates. Encoder bytes
+are reused for publication, not encoded a second time for hashing. Explicitly
+kept files are reused directly, preventing a concurrent manual deletion from
+being silently recreated. A model/dimension/stale-reference error is terminal.
+Exact reviewed source/crop matches need no PNG re-encoding; unseen crops are
+encoded once so identical reviewed pixels are also recognized across changed
+original metadata or filenames.
+
+Rejected detections retain metadata but have no exported products and are
+excluded from visual grouping. Unknown/conflicting candidates retain a portrait
+under `assets\review` and are ineligible for selection. Old-run selection also
+checks the current curated gallery, so deleted old portraits are not reopened.
+Bodies/masks for rejected detections are not exported. Segmentation association
+still considers all detected faces, preventing rejected neighboring people from
+being accidentally assigned to an accepted person's body.
+
+Cleanup reads `curation.json` as a reference root and includes the review asset
+category. Frozen kept examples survive pruning of their original scan; negative
+examples retain features/hashes without retaining deleted pixels.
+No new dependency, model download, environment or external image request is used.
+
 ## Validation
 
 ```powershell
@@ -67,6 +100,9 @@ Fixtures cover duplicate/corrupt/no-face input, native crop pixels, EXIF/HEIC,
 source preservation, body ambiguity, grouping bridge/tie/co-occurrence behavior,
 quality exclusion, fresh inference with asset reuse, external source integrity,
 zero-copy selection/intake, legacy migration and protected-run pruning.
+Curated-filter units cover keep/delete labels, unseen similarity, conflict and
+unknown abstention, original metadata changes, no automatic self-training,
+manual approval, model/dimension failures and concurrent manual deletion.
 Real-directory runs are separate opt-in CLI operations, not part of unit discovery.
 The initial implementation was also exercised on the owner's requested folder;
 see the current validation record in [research](research.md).

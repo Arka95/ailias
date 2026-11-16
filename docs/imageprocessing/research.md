@@ -139,3 +139,56 @@ Requested cleanup reduced generated data from 3,324,003,748 to 1,167,994,803 byt
 An empty superseded run directory, `20261116T100507Z-275b19a8`, remains held open
 by Windows; its files are gone, and cleanup reports it in `retained_empty_runs`.
 The app-local venv and empty starter alias were removed.
+
+## Curated portrait filtering
+
+Research checked November 16, 2026 against primary sources:
+
+| Candidate | Decision / tradeoff | Evidence |
+|---|---|---|
+| Existing normalized SFace features + cosine | Chosen for exemplar comparisons; reuses the already pinned recognizer and CUDA stack without more models | [OpenCV 4.13 face-recognition tutorial](https://docs.opencv.org/4.13.0/d0/dd4/tutorial_dnn_face.html), [SFace paper](https://arxiv.org/abs/2205.12010) |
+| Single averaged face/centroid | Not chosen; retaining individual reviewed examples preserves pose and subject variation instead of collapsing the gallery | Engineering choice; no claimed centroid-versus-gallery accuracy benchmark |
+| Five-landmark geometry error | Not used as a validity/identity classifier; projected sparse shape does not establish a correct human portrait | Existing geometry module's explicitly limited contract |
+| MagFace / QMagFace quality-aware features | Considered, deferred: separate trained representations and model-specific quality behavior, not a property to assume for normalized SFace | [MagFace](https://arxiv.org/abs/2103.06627), [QMagFace](https://arxiv.org/abs/2111.13475) |
+| Score thresholds with an abstention band | Chosen rather than forced binary deletion; unknown and conflicting examples require review | [Decision scores versus decision thresholds](https://scikit-learn.org/stable/modules/classification_threshold.html); implementation does not add scikit-learn |
+
+OpenCV reports different recognition thresholds for different datasets; its
+LFW cosine value of 0.363 is not a universal portrait-quality or alias threshold.
+SFace is an identity representation, not a general invalid-content/blur detector.
+MagFace learns quality-related embedding magnitudes with its own training loss;
+the magnitude of an already normalized SFace vector is not a quality score.
+
+The implemented classifier is therefore deliberately limited: exact reviewed
+keep/delete decisions are remembered, while **new** crops need agreement between
+nearest kept/rejected examples and existing quality gates. Strong rejected
+matches with weak positive support are suppressed; unknown or conflicting crops
+are separated under `assets\review`. Human-kept crops are preserved even when
+they fail downstream reconstruction-quality gates. Automatic predictions never
+become new labels without explicit human review.
+
+The owner had retained **182** and removed **28** of the original 210 portraits
+when the reviewed profile was captured. Those 210 feature/quality records were
+reused from the completed manifest; no deleted portrait was regenerated to
+learn its rejected label. Labels describe valid/invalid crops, not verified
+identity names.
+
+With each entire source photo held out and exact-crop overrides disabled,
+the diagnostic classified kept examples as 112 accept / 70 review / 0 reject,
+and removed examples as 0 accept / 26 review / 2 reject. This illustrates both
+the safety preference and limited generalization: similarity alone does **not**
+automatically identify every invalid portrait. These are diagnostics on the
+reviewed collection, not an independent future-data accuracy claim.
+
+Actual CUDA replay `20261116T111557Z-809037c5` processed all 192 original photos:
+210 detections, **182 accepted and 28 rejected**, no file errors. All kept hashes
+remained unchanged; none of the 28 removed portrait paths was recreated.
+Rejected detections exported no portrait/body/mask products. There were 30
+candidate groups and 24 quality/ambiguity-eligible faces; curation does not certify
+identity or reconstruction readiness.
+
+Final-code CUDA checks on kept/rejected source photos also passed, including
+verified execution of all three models; their temporary run folders were removed.
+All 192 source hashes, accepted output references and the profile fingerprint
+verified successfully. **86 functional unit tests passed**, and `git diff --check`
+reported no whitespace errors. Units use synthetic images/fake inference; the
+real GPU replay is separate opt-in validation, not a held-out accuracy evaluation.

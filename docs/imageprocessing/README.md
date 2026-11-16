@@ -65,6 +65,7 @@ for inspection, but require a new scan with the corrected grouping before export
 |---|---|
 | `imageprocessing\models\REVISION` | Verified weights, upstream licenses, model provenance |
 | `imageprocessing\assets\portraits\SHA256.png` | Reusable native-resolution head/shoulder crops |
+| `imageprocessing\assets\review\SHA256.png` | Uncertain new crops, separate from accepted portraits |
 | `imageprocessing\assets\bodies\SHA256.png` | Reusable RGBA visible-person crops when association is unambiguous |
 | `imageprocessing\assets\masks\SHA256.png` | Reusable corresponding binary masks |
 | `imageprocessing\runs\RUN\groups\face-NNN` | Group-specific review contact sheets, not copied crops |
@@ -72,6 +73,7 @@ for inspection, but require a new scan with the corrected grouping before export
 | `imageprocessing\selections\SELECTION\selection.json` | Selected-candidate references and hashes, no copied images |
 | `imageprocessing\selection.json` | Pointer/details of latest selection |
 | `imageprocessing\comparisons` | Optional identity-versus-2D-landmark reports |
+| `imageprocessing\curation.json` | Explicit human labels, frozen feature exemplars and validation diagnostic; no photo copies |
 
 Original source folders are never written or cloned. Manifests keep absolute
 source paths and hashes; moved, missing or changed originals fail integrity
@@ -101,8 +103,10 @@ Override with `scan --processing-config FILE.json`; no environment overrides.
   across **every** pair before merging groups. Co-occurring detections cannot
   share a group. Near-ties are flagged after clustering and excluded from
   selection, not used as competing anchors for later assignments.
-- Every detected face remains available for review. Selection excludes failed
-  quality gates and ambiguous identities.
+- Every detection retains its features/decision in the manifest. With curation
+  enabled, rejected portrait/body/mask files are not published; uncertain crops
+  are separated for review. Selection excludes quality failures, uncertain
+  identities and curation decisions other than accept.
 - PP-HumanSeg supplies visible-person foreground, not pose/body reconstruction.
   Components are associated with face locations; a component containing multiple
   detected faces is marked ambiguous and no individual body is exported.
@@ -112,6 +116,55 @@ probability**. Viewpoint, glasses, lighting, mirrors, expression, lookalikes and
 missed detections can split or mix groups. Similar-looking people require manual
 inspection. Body masks are low-resolution model estimates, not hair-quality alpha
 matting; connected/touching people may not be separable.
+
+## Learn from manual portrait review
+
+1. Finish reviewing a completed run's `assets\portraits` folder: retain valid crops and remove invalid ones.
+2. Explicitly record that review with `curate`; missing files are treated as rejection **only in this command**, never inferred during an ordinary scan.
+3. Run normal scans; the per-alias profile is loaded automatically before extraction.
+
+```powershell
+python -m ailias imageprocessing curate arka RUN_ID --removed-are-rejected
+python -m ailias imageprocessing scan arka C:\photos --device cuda
+```
+
+The profile keeps each reviewed SFace feature vector rather than averaging all
+poses/people into one centroid. Its labels mean **valid/invalid crops as reviewed
+by you**, not independently certified person identities.
+
+| Candidate | Pipeline behavior |
+|---|---|
+| Exact reviewed source/crop or pixel-content hash | Honor the human label; never regenerate a rejected portrait |
+| Reviewed kept crop | Reuse its existing verified file; do not overwrite or recreate it |
+| New crop close to kept examples with clear margin, passing quality checks | Save to `assets\portraits` |
+| Strong rejected-example match, weak kept-example match and clear margin | Suppress portrait/body/mask exports; retain metadata and reason |
+| Unknown, conflicting or quality-uncertain new crop | Save portrait to `assets\review`; selection remains blocked |
+
+Defaults in `config\imageprocessing.json`:
+`curation_accept_cosine=0.50`, `curation_reject_cosine=0.60`,
+`curation_reject_positive_ceiling=0.35`, `curation_score_margin=0.10`.
+New rejection requires negative score >=0.60, positive score <0.35 and
+negative-minus-positive >=0.10. Acceptance requires positive >=0.50,
+positive-minus-negative >=0.10 and no quality flags. These are conservative
+engineering gates, **not probabilities or universally calibrated thresholds**.
+Exact human labels take priority; an explicitly kept low-resolution crop is
+preserved but can still fail reconstruction-quality/selection gates.
+
+Review uncertain files separately. To approve one, move its unchanged
+`SHA256.png` from `assets\review` to `assets\portraits`; to reject it, delete it.
+Then run `curate` against that completed run with the confirmation flag.
+The command merges explicit decisions with the existing profile, skips review
+files still awaiting a decision, and does not learn from automatic predictions.
+Subsequent manual deletions of a kept reference require another `curate` before
+scanning; the pipeline fails closed rather than restoring that file. References
+must remain unchanged, and the recognizer model/revision must match.
+
+Capture also reports **leave-one-source-photo-out** accept/reject/review counts.
+All crops from the held-out photo are excluded, and exact-match shortcuts are
+disabled. This is a conservative diagnostic, not independent future-data accuracy.
+Similarity alone cannot certify blur, anatomy, identity or reconstruction
+readiness; same-person bad crops and unfamiliar valid poses often need review.
+See the [research and actual validation](research.md#curated-portrait-filtering).
 
 ## Use selected candidates
 
