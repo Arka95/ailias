@@ -7,6 +7,75 @@ portraits. It is separate from COLMAP and does not declare a MetaHuman, calibrat
 scan or verified likeness. Dense observations use MediaPipe CPU on Windows;
 the configured fitting backend is explicitly CUDA, with no silent CPU fallback.
 
+## Approved clay baseline
+
+These are actual Blender Cycles renders from job
+`20261116T153125Z-44390de9`, not reference photos or generated concept art.
+The owner approved this **clay geometry** on November 16, 2026; photographic
+skin, hair, MetaHuman conversion and final likeness are separate stages.
+
+| Front | Three-quarter | Profile |
+|---|---|---|
+| ![Approved fitted clay head, front view](images/approved-clay-front.png) | ![Approved fitted clay head, 45-degree view](images/approved-clay-three-quarter.png) | ![Approved fitted clay head, profile view](images/approved-clay-profile.png) |
+
+The images are documentation copies of retained renders. The original model and
+review scene remain unchanged under the job's Git-ignored data directory.
+
+## Blender stages and appearance handoff
+
+The current Blender worker builds and reviews the fitted geometry; it does not
+perform the head fitting itself. Photo-texture projection/blending belongs to
+Python preparation, followed by UV/material assignment and appearance review in
+Blender. **The clay pipeline is implemented; the appearance and Unreal branches
+below remain planned until their outputs are generated and validated.**
+
+```mermaid
+flowchart TB
+    INPUT["Python outputs: prior and fitted vertices, triangles, part groups"]:::store
+    PHOTOS["Cleansed photos, fitted cameras/expressions and GNM UV coordinates"]:::store
+    subgraph CLAY["Blender - implemented clay review"]
+        LOAD["Build prior and fitted mesh objects from retained geometry"]:::svc
+        MATERIAL["Assign clay and generic eye/teeth materials"]:::svc
+        SETUP["Set lights and upright Y-up review cameras"]:::svc
+        RENDER["Cycles CUDA renders: front, 45 degrees and profile"]:::svc
+        SAVE["Save independent review scene, images and runtime metadata"]:::store
+        LOAD --> MATERIAL --> SETUP --> RENDER --> SAVE
+    end
+    INPUT --> LOAD
+    PHOTOS -.-> BAKE["Planned Python stage: visibility-aware photo projection, UV blending and coverage map"]:::unknown
+    subgraph APPEARANCE["Blender - remaining appearance work"]
+        UV["Planned: assign UVs and photo-derived skin material"]:::unknown
+        HAIR["Planned: add separately labelled hair/groom approximation"]:::unknown
+        REVIEW["Planned: inspect seams, eyes, lips, hair and multi-view likeness"]:::unknown
+        EXPORT["Planned: save new textured scene and export mesh plus texture assets"]:::unknown
+        UV -.-> HAIR -.-> REVIEW -.-> EXPORT
+    end
+    SAVE -.->|Owner-approved geometry; preserve original scene| UV
+    BAKE -.-> UV
+    EXPORT -.-> UE["Planned Unreal stage: head-only conform, appearance transfer, rig and validation"]:::unknown
+    UE ~~~ CAPTION
+    CAPTION["Read top to bottom. Blue: implemented steps; green: retained inputs/outputs; dashed red: not implemented. Blender review is not a finished MetaHuman."]:::caption
+    classDef svc fill:#cfe3ff,stroke:#2b6cb0,color:#0b2545
+    classDef store fill:#d6f5df,stroke:#2f855a,color:#12351f
+    classDef unknown fill:#fde2e2,stroke:#c53030,color:#611a15,stroke-dasharray:4 3
+    classDef caption fill:#f7f7f7,stroke:#999,color:#222,font-size:16px
+```
+
+**Backed by:** `src\ailias\facefitting\pipeline.py` (`render_review`, `run_fit`),
+`blender_worker.py` (`main`), the pinned model's `triangle_uvs`, and retained
+`cameras.json`. Dashed nodes describe pending work, not existing code or a
+successful UE solve. Mermaid rendering has not been checked.
+
+The clay worker owns mesh creation/materials, lighting/cameras, six GPU renders
+and an independent `.blend`; Python invokes it synchronously through
+`NativeTools.run` using JSON plus NPZ files and collects the outputs. The planned
+texture preparation will produce a UV image and coverage evidence, not claim
+lighting-free albedo. Planned hair remains distinct from skin pixels. Blender
+will consume those assets in a new scene, leaving the approved clay scene intact.
+Unreal is a separate downstream editor process, not another Blender operation.
+The [native generation module](../generation/README.md) has a different Blender
+cleanup worker for COLMAP meshes; it is not the photo-conditioned head fitter.
+
 ## Setup and use
 
 Use the existing shared workspace Python. The CUDA extra pins the official
