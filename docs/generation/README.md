@@ -145,7 +145,9 @@ Committed cleanup outputs are immutable revisions, not overwritten by retries.
 UE 5.8.4 and the MetaHuman Character plugin are installed. A real NullRHI
 commandlet loaded the head-conforming Python APIs in the owned
 `data\arka\unreal\AiliasReview\AiliasReview.uproject`; it did not create assets or
-request cloud work. Actual import/conform is still unverified.
+request cloud work. The separate [head-fitting appearance handoff](../facefitting/README.md)
+has now imported a textured static head and verified upright bounds plus eight
+saved native packages. Character/Identity conform and rigging remain unverified.
 **MetaHuman Creator Core Data is missing**: the editor logged its limited-features
 warning, and its Optional texture-model/body-texture folders are absent.
 Install that component through Epic Games Launcher -> UE 5.8 -> Options ->

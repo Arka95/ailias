@@ -214,6 +214,10 @@ class UnrealWorkerContractTests(unittest.TestCase):
         self.assertFalse(result["rig_verified"])
 
     def test_static_mesh_import_is_not_reported_as_metahuman_generation(self):
+        class NativeArray:
+            def __iter__(self):
+                return iter(("/Game/Fixture/Head", "/Game/Fixture/Texture"))
+
         class Mesh:
             pass
 
@@ -221,7 +225,7 @@ class UnrealWorkerContractTests(unittest.TestCase):
             pass
 
         library = Mock()
-        library.list_assets.side_effect = [[], ["/Game/Fixture/Head", "/Game/Fixture/Texture"]]
+        library.list_assets.side_effect = [[], NativeArray()]
         assets = {"/Game/Fixture/Head": Mesh(), "/Game/Fixture/Texture": Texture()}
         unreal = SimpleNamespace(
             SystemLibrary=SimpleNamespace(get_engine_version=lambda: "5.8.0-fixture"),
@@ -235,6 +239,8 @@ class UnrealWorkerContractTests(unittest.TestCase):
         self.assertEqual(result["status"], "mesh_imported")
         self.assertTrue(result["requires_manual_identity_solve"])
         self.assertFalse(result["assembled"])
+        self.assertEqual(json.loads(json.dumps(result))["assets"],
+                         ["/Game/Fixture/Head", "/Game/Fixture/Texture"])
 
 
 if __name__ == "__main__":

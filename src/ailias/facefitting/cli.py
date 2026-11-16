@@ -15,6 +15,9 @@ def add_parser(commands):
         ("models", "Download/verify pinned public head assets and retained license provenance"),
         ("fit", "Run fresh CPU dense observations, shared shape fitting and configured Blender renders"),
         ("status", "Verify a head-fitting job and its retained source/output dependencies"),
+        ("appearance", "Bake photo colour and render approximate hair on approved clay geometry"),
+        ("appearance-status", "Inspect an appearance revision and its retained dependencies"),
+        ("unreal-import", "Import a hair-free textured appearance head, not a finished MetaHuman"),
     ):
         action = actions.add_parser(name, help=description)
         action.add_argument("alias")
@@ -23,8 +26,16 @@ def add_parser(commands):
             action.add_argument("group")
             action.add_argument("--fit-config", type=Path, default=DEFAULT_CONFIG)
             action.add_argument("--generation-config", type=Path, default=DEFAULT_GENERATION_CONFIG)
-        if name == "status":
+        if name in {"status", "appearance", "appearance-status", "unreal-import"}:
             action.add_argument("job")
+        if name == "unreal-import":
+            action.add_argument("--editor", type=Path, required=True)
+            action.add_argument("--project", type=Path, required=True)
+            action.add_argument("--generation-config", type=Path, default=DEFAULT_GENERATION_CONFIG)
+        if name == "appearance":
+            action.add_argument("--appearance-config", type=Path,
+                                default=DEFAULT_CONFIG.with_name("appearance.json"))
+            action.add_argument("--generation-config", type=Path, default=DEFAULT_GENERATION_CONFIG)
 
 
 def execute(args, data_root):
@@ -38,10 +49,24 @@ def execute(args, data_root):
     if args.facefitting_action == "status":
         result = inspect_fit(store, args.job)
         return result, 2 if result["integrity_problems"] else 0
+    if args.facefitting_action == "appearance-status":
+        from ailias.facefitting.appearance import inspect_appearance
+        result = inspect_appearance(store, args.job)
+        return result, 2 if result["integrity_problems"] else 0
     with store.lock():
         if args.facefitting_action == "models":
             return {"assets": model_assets(store, install=True)}, 0
         generation, tools_root = load_settings(args.generation_config)
+        if args.facefitting_action == "unreal-import":
+            from ailias.facefitting.unreal_handoff import import_appearance
+            result = import_appearance(store, args.job, args.editor, args.project,
+                                       NativeTools(tools_root, generation.timeout_seconds))
+            return result, 0 if result["status"] == "static_head_imported_for_review" else 2
+        if args.facefitting_action == "appearance":
+            from ailias.facefitting.appearance import load_appearance_policy, run_appearance
+            result = run_appearance(store, args.job, load_appearance_policy(args.appearance_config),
+                                    generation, NativeTools(tools_root, generation.timeout_seconds))
+            return result, 0 if result["status"] == "awaiting_appearance_review" else 2
         result = run_fit(store, args.run, args.group, load_policy(args.fit_config),
                          replace(generation, use_cleansed_portraits=True),
                          NativeTools(tools_root, generation.timeout_seconds))

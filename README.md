@@ -12,8 +12,9 @@ Optional **imageprocessing** adds local face grouping, portrait/body extraction,
 HEIC support and face-specific quality filtering. **geometry** compares aligned
 2D/3D landmarks and optional 3D surface samples.
 **generation** runs installed CUDA COLMAP and Blender. **facefitting** fits a
-complete GNM head using dense observations and batched CUDA optimization.
-UE 5.8.4 is installed and its Python API loads in an owned review project;
+complete GNM head using dense observations and batched CUDA optimization, then
+adds photo-derived colour and explicitly approximate hair after clay approval.
+A textured, upright static head is verified in the owned UE 5.8.4 review project;
 MetaHuman Creator Core Data is missing and actual conversion remains unverified.
 See [Unreal readiness](docs/generation/README.md#unreal-explicit-installation-and-manual-identity-solve).
 Native tools share one
@@ -135,8 +136,10 @@ for gates, actual validation evidence and the remaining manual Identity solve.
 For the separate coherent-head baseline, use
 `python -m ailias facefitting fit arka RUN_ID face-001 --generation-config config\generation-poc.json`.
 Its fresh 63-view CUDA trial took **42.187s versus 372.859s CPU** (8.84x faster),
-with slightly better held-out landmark agreement. This is not a likeness score,
-personalized texture or finished MetaHuman. See [setup and limitations](docs/facefitting/README.md)
+with slightly better held-out landmark agreement. This is not a likeness score.
+The separate appearance command now generates a textured Blender preview and
+hair approximation without changing approved geometry.
+See [renders, Blender stages, commands and limitations](docs/facefitting/README.md)
 and the [researched UE 5.8 route](docs/generation/metahuman-workflow-investigation.md).
 
 | Document | Dev guide | Purpose |
@@ -145,5 +148,5 @@ and the [researched UE 5.8 route](docs/generation/metahuman-workflow-investigati
 | [Imageprocessing](docs/imageprocessing/README.md) | [Module internals](docs/imageprocessing/dev.readme.md) | Portrait/body extraction and reviewable face aliases |
 | [Geometry metrics](docs/geometry/README.md) | [Metric internals](docs/geometry/dev.readme.md) | Identity similarity versus actual geometric errors |
 | [Generation](docs/generation/README.md) | [Native adapters and validation](docs/generation/dev.readme.md) | COLMAP, Blender, guarded UE 5.8 handoffs and honest failure states |
-| [Head fitting](docs/facefitting/README.md) | [Fit internals and measured evidence](docs/facefitting/dev.readme.md) | Dense photo observations, shared identity/expression fitting and CUDA review baseline |
+| [Head fitting](docs/facefitting/README.md) | [Fit internals and measured evidence](docs/facefitting/dev.readme.md) | CUDA head fitting, photographic preview, approximate hair and verified static-head UE import |
 | [Implementation scope](docs/analysis.md) | [Remaining work](docs/todo/README.md) | Decisions, source and deferred functionality |

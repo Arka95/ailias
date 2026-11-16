@@ -31,13 +31,24 @@ def run(request, unreal):
         options.static_mesh_import_data.combine_meshes = True
         task.options = options
         unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([task])
-        paths = unreal.EditorAssetLibrary.list_assets(destination, recursive=True, include_folder=False)
+        paths = [str(path) for path in unreal.EditorAssetLibrary.list_assets(
+            destination, recursive=True, include_folder=False)]
         assets = [unreal.load_asset(path) for path in paths]
         if (not any(isinstance(asset, unreal.StaticMesh) for asset in assets)
                 or not any(isinstance(asset, unreal.Texture2D) for asset in assets)):
             raise RuntimeError("A textured static mesh was not imported; inspect the editor log")
         result.update(status="mesh_imported", assets=paths, metric_scale_verified=False,
                       requires_manual_identity_solve=True)
+        if request.get("report_geometry"):
+            result["mesh_geometry"] = []
+            for path, asset in zip(paths, assets):
+                if isinstance(asset, unreal.StaticMesh):
+                    bounds = asset.get_bounding_box()
+                    result["mesh_geometry"].append({
+                        "asset": path,
+                        "bounds_min_xyz": [float(bounds.min.x), float(bounds.min.y), float(bounds.min.z)],
+                        "bounds_max_xyz": [float(bounds.max.x), float(bounds.max.y), float(bounds.max.z)],
+                    })
         result["completed_operations"].append("textured_static_mesh_import")
         return result
 

@@ -51,7 +51,8 @@ flowchart TB
         IMG -->|Human-kept artifacts; explicit command| GEN
         GEN --> COL["COLMAP 4.2.1 CUDA"]:::ext
         GEN --> BL["Blender 4.5.15 CUDA"]:::ext
-        GEN -.->|Guarded adapter; not locally verified| UE["UE 5.8.4 installed; integration unverified"]:::unknown
+        GEN -.->|Legacy Identity conform unverified| UE["UE 5.8.4: static import verified; conform unfinished"]:::ext
+        FIT -->|Hair-free textured head import verified| UE
         IN --> GATE{"Quality and coverage"}:::gate
         GATE -->|ready| HAND["Manual handoff receipts"]:::svc
         HAND --> BASE["Three-view baseline"]:::svc
@@ -63,7 +64,7 @@ flowchart TB
         GEN --> DATA
     end
     MAIN ~~~ SUM
-    SUM["Figure - Implemented ailias flow. How to read: top to bottom; blue logic, yellow gate, green storage, purple native tools, dashed red unverified editor. Summary: a fitted head exists; MetaHuman and likeness remain unvalidated. Manual attestations are separate. Backed by: cli.py, imageprocessing/cli.py, facefitting/pipeline.py, geometry/cli.py, generation/pipeline.py, generation/unreal.py, intake.py, workflow.py, storage.py."]:::caption
+    SUM["Figure - Implemented ailias flow. How to read: top to bottom; blue logic, yellow gate, green storage, purple native tools; dashed conform path is unverified. Summary: a fitted/textured head exists; MetaHuman and final likeness remain unvalidated. Manual attestations are separate. Backed by: cli.py, imageprocessing/cli.py, facefitting/pipeline.py, facefitting/unreal_handoff.py, geometry/cli.py, generation/pipeline.py, generation/unreal.py, intake.py, workflow.py, storage.py."]:::caption
     style MAIN fill:none,stroke:none
     classDef svc fill:#cfe3ff,stroke:#2b6cb0,color:#0b2545
     classDef gate fill:#fff3bf,stroke:#d69e2e,color:#4a3608
@@ -80,7 +81,8 @@ flowchart TB
 `generation\unreal.py` (`run_unreal`) and `facefitting\pipeline.py` (`run_fit`).
 Diagram syntax was authored without a Mermaid render check.
 COLMAP/Blender are locally verified native dependencies; Unreal is an
-installed engine with an implemented but locally unverified adapter.
+installed engine with verified fitted-head static import. Character/Identity
+conform, production appearance transfer and rigging remain unverified.
 
 | Module | Responsibility |
 |---|---|
@@ -93,7 +95,7 @@ installed engine with an implemented but locally unverified adapter.
 | `imageprocessing` | Explicit CPU or CUDA in the shared environment, reusable crops/masks, grouping, zero-copy selections |
 | `geometry` | Aligned landmark errors and optional sampled-surface distances, not an identity classifier |
 | `generation` | Experimental native reconstruction, minimal Blender cleanup, guarded Unreal handoffs; [internals and tests](generation/dev.readme.md) |
-| `facefitting` | Dense observations, shared head identity, per-photo cameras/expressions, batched CUDA solver and neutral review outputs; [internals and tests](facefitting/dev.readme.md) |
+| `facefitting` | Dense observations, CUDA head fit/photo projection, approved-geometry appearance/hair previews and verified static-head Unreal handoff; [internals and tests](facefitting/dev.readme.md) |
 | `tests` | Focused observable pipeline behavior and failure tests |
 
 Artifacts are immutable by content identity, not filesystem permissions. Changes
@@ -120,5 +122,6 @@ camera/texture provenance, reuses hardlinked canonical input views and removes
 transient databases/depth/maps in finalizers. Isolated units use fake tools;
 authorized real CUDA checks live in `src\integration_tests\generation`, excluded
 from discovery/package installation. Unreal API execution still requires actual
-installed-version validation. A photo-conditioned head exists; no MetaHuman has
-been generated or likeness approved.
+installed-version validation for Character conform and rigging. Fitted-head
+static import is verified separately. Clay geometry is owner-approved;
+photographic appearance/final likeness are not, and no MetaHuman is complete.

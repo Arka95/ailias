@@ -78,7 +78,7 @@ def readiness(editor: Path | None, project: Path | None) -> dict:
 
 
 def asset_path(value: str) -> str:
-    if not re.fullmatch(r"/Game/[A-Za-z0-9_]+(?:/[A-Za-z0-9_]+)*(?:\.[A-Za-z0-9_]+)?", value):
+    if not re.fullmatch(r"/Game/[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*(?:\.[A-Za-z0-9_-]+)?", value):
         raise ValueError("Unreal asset must be an explicit /Game/... package/object path")
     return value
 

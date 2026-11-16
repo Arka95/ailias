@@ -11,6 +11,11 @@
 | `cuda.py` | Batched CUDA deformation/projection/loss, forward-mode derivatives and block-sparse Levenberg-Marquardt with a Schur complement |
 | `pipeline.py` | Fresh jobs, immutable dependencies, candidate selection, all-view refit, OBJ/overlays and render invocation |
 | `blender_worker.py` | Prior/fitted neutral-clay views and independent review scene, not fabricated SfM output |
+| `appearance.py`, `config\appearance.json` | Geometry-approval gate, bounded new appearance jobs, texture assembly, export/integrity checks and temporary photo cleanup |
+| `texture.py`, `texture_cuda.py` | Per-corner UV rasterization/view ranking; CUDA projection, linear-light blending, depth-splat/semantic coverage and hair evidence |
+| `semantics_worker.py` | Fresh OpenCV CUDA segmentation in a process separate from Torch; portrait-grid face boxes, not full-source boxes |
+| `appearance_worker.py` | UV/photo material, transparent generic eye shells, approximate hair cap/strands, new scene/renders and separate head export |
+| `unreal_handoff.py` | Real hair-free head import, native package hashes and imported coordinate/bounds checks; not MetaHuman creation |
 
 ## Research decisions in plain language
 
@@ -100,12 +105,52 @@ held-out split match exactly. The retained comparison record is
 
 See the [researched MetaHuman route and remaining gates](../generation/metahuman-workflow-investigation.md).
 
+## Appearance evidence and limits
+
+The owner approved only clay geometry. Revision `20261116T163340Z-14973ca7`
+used 16 selected photos, fresh verified OpenCV CUDA graph execution, Torch CUDA
+UV projection and Blender Cycles GPU rendering. Its persisted total was
+49.297 seconds, including source/model integrity checks and four 768-pixel views;
+this is not a benchmark against the earlier fitting jobs.
+It preserves the approved scene/OBJ hashes; Blender's float32 copy differs by at
+most `1.49e-8` model units. Its new eye material reveals the existing iris/pupil
+geometry through the previously opaque outer shell, not new measured eyes.
+
+Photo projection uses each view's expression-deformed head and source camera,
+subtracts the full-source portrait offset, then applies the actual resize ratio.
+Semantic parsing instead consumes `entry.box_xywh`, which is already in the
+portrait grid: subtracting the source offset twice was found and regression-tested.
+Visibility is front-facing normal plus dense UV-sample minimum-depth splatting,
+**not** exact triangle rasterization. Require near-opaque supported labels;
+exclude glasses, background, scalp hair and the mouth interior from skin colour.
+The neck below the chin is deliberately unmeasured/neutral, avoiding face-colour
+spill from unconstrained neck projections. RGB gains are bounded, blending uses
+linear light, and eight-texel seam padding does not increase reported coverage.
+
+Hair votes also require foreground semantics and the depth test. Smoothed
+photo-supported scalp roots are extended into explicitly inferred unobserved
+scalp; deterministic procedural strands approximate volume, not individual hairs.
+Generic eye optics, roughness, unobserved skin and hidden anatomy remain priors.
+Do not treat UV coverage or a successful render as likeness/albedo approval.
+
+UE import `99504db87d434eceb922b52cf96b02f7` saved eight native packages,
+including static head and photo texture, in 16.438 seconds. Bounds verify the
+declared upright mapping `UE=(GNM Z,-X,Y)*100`; absolute scale is uncalibrated.
+The imported candidate excludes the separate hair cap/strands. Initial trials
+found and fixed Windows OBJ texture links, Unreal Array JSON serialization,
+valid hyphenated package names and the importer's axis convention. Export
+materials must resolve to the adjacent retained texture; only actual saved
+packages count as a successful handoff. No Character asset/conform, rig/cloud
+request, MetaHuman skin bake or groom validation has been performed.
+
 ## Validation and development
 
 ```powershell
 python -m unittest ailias.facefitting.tests.test_fitting ailias.facefitting.tests.test_observations -v
+python -m unittest ailias.facefitting.tests.test_texture ailias.facefitting.tests.test_appearance -v
 $env:AILIAS_CUDA_FITTING_TESTS = "1"
 python -m unittest discover -s src\integration_tests\facefitting -p test_cuda.py -v
+python -m unittest discover -s src\integration_tests\facefitting -p test_appearance_cuda.py -v
 ```
 
 Units use synthetic geometry/fake observations and never import Torch or probe
@@ -113,8 +158,13 @@ hardware. The separate explicit CUDA tests compare projection with the CPU
 reference, check gradients and recover known identity/opposing expressions.
 Actual full-photo trials remain separate from units. A likeness sign-off,
 silhouette/surface calibration and rig/animation validation remain open.
-The complete isolated suite passed **162 tests** after this implementation;
-the two explicit real-CUDA tests also passed separately.
+The fitting milestone passed **162 isolated tests** and two explicit CUDA tests.
+The appearance implementation passed **169 isolated tests**, followed by
+**21 focused appearance/Unreal regression tests** after final handoff changes.
+The new opt-in CUDA sampler test passed on a known-colour synthetic surface.
+Actual photographic/Blender runs and the saved UE assets above were verified
+separately. Mermaid rendering and MetaHuman conform/rig/groom validation were
+not run.
 
 ## Primary references
 

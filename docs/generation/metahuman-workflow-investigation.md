@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | Owner | Arka |
-| Status | GPU benchmark passed; native head-only Unreal experiment remains open |
+| Status | GPU fitting and photographic preview verified; static UE head imported; MetaHuman conform remains open |
 | Last updated | 2026-11-16 |
 | Scope | Photo-conditioned head, UE 5.8 head fitting, appearance and runtime performance |
 | Reviewer | Owner likeness review pending |
@@ -18,9 +18,9 @@ all 17,821 vertices, ears, skin detail or hidden anatomy
 (`facefitting\model.py:HeadModel.audit`, `facefitting\observations.py:observe`).
 **Gap B:** CPU numerical derivatives consumed about 90% of a 372.859s run
 ([measured evidence](../facefitting/dev.readme.md#evidence)).
-**Gap C:** Existing Unreal code targets an already-solved Identity; it neither
-creates one nor exercises UE 5.8's new custom-mesh route
-(`generation\unreal.py:run_unreal`).
+**Gap C:** The legacy Unreal conform code targets an already-solved Identity.
+The new `facefitting\unreal_handoff.py` imports a hair-free custom-head candidate,
+but does not create/conform a MetaHuman Character.
 
 Local metadata verifies UE **5.8.4**, including the Character plugin and its
 editor subsystem header. A subsequent real NullRHI commandlet loaded the
@@ -32,6 +32,10 @@ Epic's required **MetaHuman Creator Core Data** is absent [10]: the installed
 plugin's Optional/TextureSynthesis and Optional/BodyTextures directories are
 missing. This limits Creator/skin functionality; it is not evidence that
 plain mesh import is impossible. The doctor now reports this separately.
+A later real import saved eight packages and verified upright head bounds:
+appearance `20261116T163340Z-14973ca7`, handoff
+`99504db87d434eceb922b52cf96b02f7`. This confirms static mesh/texture import,
+not the still-open MetaHuman solve.
 No other owning team/on-call is involved in this local single-owner workflow.
 Accuracy, explicit cloud controls, source preservation and human approval remain
 load-bearing gates; speed will not substitute for them.
@@ -72,7 +76,7 @@ revisions so conform-induced shape drift can be checked.
 |---|---|---|
 | 1: identity geometry | Face outline/width/height, jaw/chin, cheek/nose profile, eye spacing, eyelid and lip boundaries | Dense 2D fitting exists; silhouette, surface and independent depth validation do not |
 | 2: neutral and deformation | Separate smile/blink/jaw pose from identity; check eyelid closure, lip seal and mouth corners after rigging | Per-photo expression fitting exists; animation checks remain open |
-| 3: trustworthy appearance | Skin colour under lighting, UV texture transfer, eyebrows, facial hair, scars | Harmonized image colour is not intrinsic albedo; no personalized texture/hair yet |
+| 3: trustworthy appearance | Skin colour under lighting, UV texture transfer, eyebrows, facial hair, scars | Photo-derived UV colour and approximate hair now exist; residual lighting/seams remain, and MetaHuman appearance transfer is unfinished |
 | 4: uncertain anatomy | Ears, rear head, throat/neck, teeth and eyeballs | Prior-driven; do not invent measured accuracy or use demographic defaults as evidence |
 | 5: UE runtime | Assemble UE Optimized at an appropriate quality; then profile LODSync, grooms and texture cost [7,8] | Not implemented/benchmarked locally; keep high-quality close-up review separate from runtime optimization |
 
@@ -129,9 +133,9 @@ behaviour from labels or silently enable a cloud operation.
 | ID | Deliverable | Dependency / state |
 |---|---|---|
 | MH-1 | Complete compatible CUDA runtime, full-photo speed/accuracy benchmark and provenance | Done; 162 isolated units and two explicit CUDA tests passed; both jobs verified |
-| MH-2 | Validate custom-mesh head-only API and compare with Identity handoff in an owned UE project | Python API exposure verified by real commandlet; Core Data missing; import/conform remains open |
+| MH-2 | Validate custom-mesh head-only API and compare with Identity handoff in an owned UE project | API exposure and upright textured static-head import verified; Core Data missing; Character conform remains open |
 | MH-3 | Add regional/silhouette checks and post-conform drift evidence | After MH-2; avoid treating hair silhouette as bare skull |
-| MH-4 | Add appearance transfer and rig/LOD validation with a close-up reference baseline | After geometry review; do not optimize away identity cues |
+| MH-4 | Add appearance transfer and rig/LOD validation with a close-up reference baseline | Blender photographic preview/hair approximation generated after clay approval; MetaHuman transfer/rig/LOD and owner appearance approval remain open |
 
 These are delivery themes, not measured duration estimates; split the unproven UE
 and appearance work into 1-2 week items after the first real project benchmark.
