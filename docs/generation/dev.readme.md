@@ -6,7 +6,7 @@
 |---|---|
 | `settings.py` | Validated workload/quality policy and workspace tool root |
 | `tools.py` | Direct executable calls, process-local DLL paths, timeouts, bounded stderr/stdout logs and installed-version probes |
-| `inputs.py` | Current human-label/source integrity, quality filtering, canonical hardlink views and ellipse masks |
+| `inputs.py` | Current human-label/source integrity, cross-group/view selection, reusable hardlinks, masks and audit previews |
 | `matching.py` | Read-only native SQLite view-graph measurements; deterministic connection closure |
 | `cameras.py` | Hamilton world-to-camera poses, crop-offset intrinsics and actual observation reprojection errors |
 | `mesh.py` | COLMAP ASCII textured-PLY conversion preserving per-corner UV seams |
@@ -45,7 +45,7 @@ installed engine before production use.
 ## Configuration and gates
 
 `config\generation.json` is the policy source; relative `tools_root` resolves
-against that config file. Defaults bound input count (32), threads (4), GPU index
+against that config file. Defaults bound input count (64), threads (4), GPU index
 (0), per-command time (1,200 seconds), feature side (2,000), dense side (1,200),
 Poisson depth (9), trim (5), and render size/samples (768/16).
 
@@ -70,6 +70,67 @@ estimated, not physical calibration. The camera exporter supports only pinhole
 models and refuses unhandled distortion. Blender's reference camera converts
 OpenCV axes to Blender axes and preserves reference up during orbiting. Texture
 atlases contain photographed lighting; they are not extracted intrinsic albedo.
+
+## Research decisions in plain language
+
+Updated November 16, 2026. **A personalised complete-head fitter is still
+missing.** Selection additions exist in the working tree; they are not evidence
+that a better head has been generated.
+
+### 1. Problem Statement
+
+COLMAP starts from matching photograph details and reconstructs their positions.
+It has no built-in concept of "this is the owner's nose/ear." It was useful for
+testing the native pipeline, but is the wrong primary strategy for the requested
+"start with a human head, then fit my features" workflow. The existing output
+has 13 fragments; increasing its polygon count does not recover missing anatomy.
+
+### 2. Implementation
+
+| Decision | Why chosen / tradeoff | State |
+|---|---|---|
+| Widen selection across compatible groups and directions | More varied evidence becomes available instead of treating one recognition cluster as all photos of a person; uncertain identities still need review | Working tree: up to 64 photos, selection audit and retained five-point observations |
+| Retain previously registered photo anchors when still eligible | Pose-ranked diversity alone can discard photos that already matched geometrically. Anchors protect some known tracking evidence, not guaranteed connectivity | Working tree; corrected selection has not had a native replay |
+| Fit one complete template jointly across views | A **template** is a baseline mesh with known anatomy; fitting changes its shape to explain the photos. Share identity shape, but allow each image its own camera/expression, rather than averaging inconsistent 3D predictions | Recommended next backend, not implemented; more complex than generic photogrammetry |
+| Weight evidence by region and visibility | Proposed: fronts constrain facial layout; profiles help constrain nose projection and side contours. A view useful for the nose need not be useful for the far ear | Proposed; current selection weights/landmarks are metadata, **not COLMAP facial fitting constraints** |
+| Fill gaps using weak symmetry and a shape prior | A **prior** is a plausible starting shape, not an observation. Prefer real evidence; use reversible symmetry only without contradictory observations; leave unseen rear-head anatomy generic | Proposed; preserves completeness but cannot certify unseen likeness |
+| Estimate skin reflectance separately from lighting | **Albedo** means base surface colour before illumination/reflections. Copying a shadow into a texture makes it look like permanent skin colour | Proposed; DECA informs separation of shape/expression/albedo/light, not an adopted model |
+| Consume real subject masks and colour-corrected appearance derivatives | A transparent portrait alone changes nothing if native tools ignore alpha. Feature extraction, stereo/fusion and texture selection must explicitly use correctly aligned masks; colour harmonization is still not albedo recovery | Proposed; current feature/fusion masks are face ellipses, not head outlines, and portraits are not white-balanced |
+| Keep raw surface evidence as well as a mesh | Mesh interpolation can add polygons unsupported by photos. The working tree retains fused samples after successful native meshing, alongside cameras, for later inspection/fitting | Implemented in working tree; does not promise retention if the meshing command itself fails |
+
+MakeHuman core assets are a researched CC0 baseline candidate, **not a downloaded
+or fitted dependency**. MediaPipe is a candidate observation source, not a
+full-head solver. DECA/MICA/FLAME research does not mean their models/assets have
+been adopted or their licensing checked for this application.
+
+### 3. Success Criteria
+
+Require a coherent head and multi-view overlay review, not only a successful
+Blender export. Report measured, prior-supported and generic regions separately.
+Keep metric scale unverified until calibrated, and separate skin-colour estimates
+from photographed lighting. Optional age/gender/height/weight/background must not
+be treated as measured facial dimensions; no such morphing/profile controls exist.
+
+The initial 64-photo replay (`20261116T130010Z-e60844a8`) found only two verified
+pairs, largest connected component two, and blocked before mapping. This proves
+that selection expansion alone did not fix the current backend, **not** that the
+photo collection cannot support a semantic fitter.
+
+### 4. Task Breakdown
+
+Next sequence: validate dense image observations; choose a complete baseline
+with usable asset terms; implement joint camera/identity/expression fitting and
+uncertainty-aware completion; then add albedo estimation and matched-camera
+review. Blender remains cleanup/export/rendering, not the missing fitter.
+
+### 5. Reference Links
+
+Code: `inputs.py:prepare_inputs` / `registration_anchors`,
+`pipeline.py:reconstruct`, `cameras.py:read_model`
+(`semantic_facial_constraints_used=False`).
+[Research evidence and completion options](selection-research.md) contains the
+primary sources and selection audit. [Geometry's measurement contract](../geometry/dev.readme.md#research-decisions-in-plain-language)
+explains dimensions, units and uncertainty.
 
 ## Tests
 

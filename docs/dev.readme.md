@@ -19,6 +19,15 @@ photos, network, external tools or GPU probing. See the imageprocessing guide
 for explicitly invoked real-directory validation, separate from units.
 No linter/formatter has been added.
 
+## Research decision guide
+
+Read the plain-language module notes for what is implemented, what is proposed,
+why each approach was chosen, its limitations and the evidence needed next:
+[image observations and grouping](imageprocessing/dev.readme.md#research-decisions-in-plain-language),
+[head fitting, completion and skin appearance](generation/dev.readme.md#research-decisions-in-plain-language),
+and [dimensions, scale and geometry errors](geometry/dev.readme.md#research-decisions-in-plain-language).
+Detailed primary references live in the linked module research records.
+
 ## Implemented architecture
 
 ```mermaid

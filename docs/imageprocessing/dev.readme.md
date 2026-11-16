@@ -11,6 +11,7 @@
 | `features.py` | Crop geometry, face quality, complete-link grouping, component association, contact sheets |
 | `assets.py` | Canonical generated PNGs, content hashing and cross-run reuse |
 | `curation.py` | Explicit reviewed-gallery capture, compatible exemplar features, three-way decisions and source-held-out diagnostic |
+| `subjects.py`, `views.py` | Generation's seed-subject association and approximate view selection; do not rewrite stored groups |
 | `cleanup.py` | Verified legacy migration, protected-run pruning and unused generated assets |
 | `pipeline.py` | Source references, decoding, run manifests, exports, selection metadata |
 | `cli.py` | `models`, `scan`, `select`, `compare`, `cleanup`, `curate` command contracts |
@@ -89,6 +90,77 @@ Cleanup reads `curation.json` as a reference root and includes the review asset
 category. Frozen kept examples survive pruning of their original scan; negative
 examples retain features/hashes without retaining deleted pixels.
 No new dependency, model download, environment or external image request is used.
+
+## Research decisions in plain language
+
+Updated November 16, 2026. Selection additions below exist in the working tree;
+their broader reconstruction validation is pending. Proposed dense analysis is
+not installed. This module owns image observations, not the fitted head.
+
+### 1. Problem Statement
+
+"Does this look like the same person?", "is this a useful crop?" and "what shape
+is their nose?" are different questions. SFace supplies an **embedding**, a list
+of numbers for recognition, not anatomical measurements. YuNet supplies five
+image points, not eye contours, ears or a detailed face surface.
+
+### 2. Implementation
+
+| Decision | Plain-language reason and tradeoff | State |
+|---|---|---|
+| Learn explicit keep/delete decisions; quarantine uncertain new crops | A blurry crop can still strongly resemble the right person. Avoid deleting useful unfamiliar angles merely because recognition is uncertain | Implemented in `curation.py`; thresholds remain heuristics |
+| Keep conservative stored groups; associate across them separately | Requiring every pair to agree reduces accidental identity mixing but can split one person across poses. Fixed seed examples allow broader selection without a chain of increasingly weak matches | Working-tree `subjects.py:associate_subject`; two independent seed-photo supports and co-occurrence exclusions |
+| Estimate view independently of identity | Five points plus a generic face proxy estimate camera direction. Trying several focal lengths exposes some ambiguity; uncertain fits remain "unknown" | Working-tree `views.py:estimate_view`; approximate, not calibrated anatomy |
+| Prefer frontal coverage without throwing away sides | Fronts anchor layout; other angles provide complementary observations. Current selection weights favour fronts, not a claim that fronts are best for every feature | Working-tree `subjects.py:select_views`; coverage and ranking heuristics, not learned accuracy |
+| Add dense landmarks and expression/visibility assessment next | MediaPipe offers 478 facial landmarks and expression outputs. This is richer evidence, but predicted relative depth is not a measured scan, and dense face landmarks do not solve the whole head | Proposed; no MediaPipe runtime/model adopted |
+| Add conservative white-balance/exposure harmonization | Existing ICC-to-sRGB conversion standardizes colour interpretation, not illumination. Estimate a colour cast from a trusted neutral reference or scene evidence; do not make skin itself grey or force every face to an average skin tone | Missing; proposed as a versioned appearance derivative, not an overwrite of reviewed crops |
+| Remove portrait backgrounds with an alpha matte | An **alpha matte** describes foreground opacity, including fractional hair edges. Current PP-HumanSeg produces coarse binary person/body masks; exported RGB portraits retain their backgrounds | Missing for portraits; a dedicated matting backend such as MODNet is a research candidate, not installed or selected |
+
+Why not blindly colour-neutralize every crop? Gray-world white balance assumes
+average scene colour is grey; applying that assumption to a skin-dominated crop
+can mistake real skin colour for a lighting cast. White balance also does not
+remove spatial shadows or recover lighting-free albedo. Keep full-scene
+illumination evidence before background removal, use conservative corrections
+with review/abstention, and retain source RGB alongside any proposed derivative.
+
+The proposed cleansing contract includes **both colour consistency and portrait
+background removal**, not just cropping. Preserve approved portrait bytes and
+curation hashes; generate separately versioned corrected RGB, transparent RGBA
+and aligned alpha/mask products without changing their pixel geometry. Keep
+other people out of the selected subject; ambiguous/touching people and missing
+or occluded anatomy need review, not fabricated foreground. Do not promise
+perfect hair/glasses edges on every photograph.
+
+### 3. Success Criteria
+
+Preserve human-reviewed exclusions, unchanged originals and fixed seed identity
+evidence. Audit chosen/review contact sheets and view coverage; **more selected
+images is not proof of more accurate reconstruction**. Validate future dense
+landmarks against visible features before using them to deform a head.
+For cleansing, inspect alpha edges against light/dark/checkerboard backgrounds,
+check hair/ears/beard are retained, and verify background suppression in the
+downstream pipeline, not merely the existence of a transparent PNG. Check colour
+correction against known-reference fixtures and expose uncertain corrections.
+
+### 4. Task Breakdown
+
+Next: implement versioned foreground mattes and conservative colour correction,
+then dense observations with source coordinates, expression/occlusion
+handling and per-region visibility. Hand observations/masks to generation;
+leave dimensions/error reporting to [geometry](../geometry/dev.readme.md).
+
+### 5. Reference Links
+
+Current code: `features.py:group_faces`, `curation.py:load_filter`,
+`subjects.py:associate_subject` / `select_views`, `views.py:estimate_view`.
+See [existing model/curation evidence](research.md),
+[multi-view decisions and primary papers](../generation/selection-research.md),
+and [MediaPipe outputs](https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker).
+Colour/background code: `pipeline.py:read_image` / `_scan`,
+`backend.py:OpenCVBackend.segment`, `features.py:subject_bodies`.
+Research: [OpenCV GrayworldWB and its assumption](https://docs.opencv.org/4.13.0/d7/d71/classcv_1_1xphoto_1_1GrayworldWB.html),
+[scene context for skin/albedo estimation](https://arxiv.org/abs/2205.03962),
+[MODNet portrait matting](https://arxiv.org/abs/2011.11961).
 
 ## Validation
 
