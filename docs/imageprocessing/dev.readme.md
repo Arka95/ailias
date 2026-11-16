@@ -12,9 +12,10 @@
 | `assets.py` | Canonical generated PNGs, content hashing and cross-run reuse |
 | `curation.py` | Explicit reviewed-gallery capture, compatible exemplar features, three-way decisions and source-held-out diagnostic |
 | `subjects.py`, `views.py` | Generation's seed-subject association and approximate view selection; do not rewrite stored groups |
+| `matting.py`, `faceparsing.py`, `cleansing.py` | MODNet opacity plus face-anchored head semantics, bounded colour correction, immutable derivatives and review gates |
 | `cleanup.py` | Verified legacy migration, protected-run pruning and unused generated assets |
 | `pipeline.py` | Source references, decoding, run manifests, exports, selection metadata |
-| `cli.py` | `models`, `scan`, `select`, `compare`, `cleanup`, `curate` command contracts |
+| `cli.py` | `models`, `scan`, `cleanse`, `select`, `compare`, `cleanup`, `curate` command contracts |
 
 Public processing boundary:
 `scan(store, source, policy, backend, recursive=False, body=True, limit=None,
@@ -93,8 +94,8 @@ No new dependency, model download, environment or external image request is used
 
 ## Research decisions in plain language
 
-Updated November 16, 2026. Selection additions below exist in the working tree;
-their broader reconstruction validation is pending. Proposed dense analysis is
+Updated November 16, 2026. Selection/cleansing additions do not establish a
+successful real-head reconstruction. Proposed dense analysis is
 not installed. This module owns image observations, not the fitted head.
 
 ### 1. Problem Statement
@@ -109,12 +110,12 @@ image points, not eye contours, ears or a detailed face surface.
 | Decision | Plain-language reason and tradeoff | State |
 |---|---|---|
 | Learn explicit keep/delete decisions; quarantine uncertain new crops | A blurry crop can still strongly resemble the right person. Avoid deleting useful unfamiliar angles merely because recognition is uncertain | Implemented in `curation.py`; thresholds remain heuristics |
-| Keep conservative stored groups; associate across them separately | Requiring every pair to agree reduces accidental identity mixing but can split one person across poses. Fixed seed examples allow broader selection without a chain of increasingly weak matches | Working-tree `subjects.py:associate_subject`; two independent seed-photo supports and co-occurrence exclusions |
-| Estimate view independently of identity | Five points plus a generic face proxy estimate camera direction. Trying several focal lengths exposes some ambiguity; uncertain fits remain "unknown" | Working-tree `views.py:estimate_view`; approximate, not calibrated anatomy |
-| Prefer frontal coverage without throwing away sides | Fronts anchor layout; other angles provide complementary observations. Current selection weights favour fronts, not a claim that fronts are best for every feature | Working-tree `subjects.py:select_views`; coverage and ranking heuristics, not learned accuracy |
+| Keep conservative stored groups; associate across them separately | Requiring every pair to agree reduces accidental identity mixing but can split one person across poses. Fixed seed examples allow broader selection without a chain of increasingly weak matches | Implemented in `subjects.py:associate_subject`; two independent seed-photo supports and co-occurrence exclusions |
+| Estimate view independently of identity | Five points plus a generic face proxy estimate camera direction. Trying several focal lengths exposes some ambiguity; uncertain fits remain "unknown" | Implemented in `views.py:estimate_view`; approximate, not calibrated anatomy |
+| Prefer frontal coverage without throwing away sides | Fronts anchor layout; other angles provide complementary observations. Current selection weights favour fronts, not a claim that fronts are best for every feature | Implemented in `subjects.py:select_views`; coverage and ranking heuristics, not learned accuracy |
 | Add dense landmarks and expression/visibility assessment next | MediaPipe offers 478 facial landmarks and expression outputs. This is richer evidence, but predicted relative depth is not a measured scan, and dense face landmarks do not solve the whole head | Proposed; no MediaPipe runtime/model adopted |
-| Add conservative white-balance/exposure harmonization | Existing ICC-to-sRGB conversion standardizes colour interpretation, not illumination. Estimate a colour cast from a trusted neutral reference or scene evidence; do not make skin itself grey or force every face to an average skin tone | Missing; proposed as a versioned appearance derivative, not an overwrite of reviewed crops |
-| Remove portrait backgrounds with an alpha matte | An **alpha matte** describes foreground opacity, including fractional hair edges. Current PP-HumanSeg produces coarse binary person/body masks; exported RGB portraits retain their backgrounds | Missing for portraits; a dedicated matting backend such as MODNet is a research candidate, not installed or selected |
+| Add conservative white-balance/exposure harmonization | ICC-to-sRGB conversion standardizes colour interpretation, not illumination. Estimate a cast from scene-neutral evidence; never make skin itself grey or force every person to an average skin tone | Implemented in `cleansing.py`; bounded gains and subject-relative exposure, explicit skips, separate derivatives |
+| Extract head-only foreground using semantics and opacity | Person matting deliberately keeps shirts. **Semantic labels** distinguish face/hair/ears from neck/clothes; MODNet then preserves soft outer hair edges | Implemented in `faceparsing.py` and `matting.py`, CUDA/explicit CPU; separate RGBA assets, unchanged review crops |
 
 Why not blindly colour-neutralize every crop? Gray-world white balance assumes
 average scene colour is grey; applying that assumption to a skin-dominated crop
@@ -123,8 +124,8 @@ remove spatial shadows or recover lighting-free albedo. Keep full-scene
 illumination evidence before background removal, use conservative corrections
 with review/abstention, and retain source RGB alongside any proposed derivative.
 
-The proposed cleansing contract includes **both colour consistency and portrait
-background removal**, not just cropping. Preserve approved portrait bytes and
+The cleansing contract includes **both colour consistency and head-only
+background/clothing removal**, not just cropping. Preserve approved portrait bytes and
 curation hashes; generate separately versioned corrected RGB, transparent RGBA
 and aligned alpha/mask products without changing their pixel geometry. Keep
 other people out of the selected subject; ambiguous/touching people and missing
@@ -144,8 +145,8 @@ correction against known-reference fixtures and expose uncertain corrections.
 
 ### 4. Task Breakdown
 
-Next: implement versioned foreground mattes and conservative colour correction,
-then dense observations with source coordinates, expression/occlusion
+Next: improve matting/colour confidence calibration and review controls, then
+dense observations with source coordinates, expression/occlusion
 handling and per-region visibility. Hand observations/masks to generation;
 leave dimensions/error reporting to [geometry](../geometry/dev.readme.md).
 
@@ -161,6 +162,43 @@ Colour/background code: `pipeline.py:read_image` / `_scan`,
 Research: [OpenCV GrayworldWB and its assumption](https://docs.opencv.org/4.13.0/d7/d71/classcv_1_1xphoto_1_1GrayworldWB.html),
 [scene context for skin/albedo estimation](https://arxiv.org/abs/2205.03962),
 [MODNet portrait matting](https://arxiv.org/abs/2011.11961).
+
+Implementation details: the official dynamic ONNX export fails OpenCV shape
+import. Explicit model setup specializes it to `[1,3,512,512]` with ONNX Simplifier
+and checks source/output equivalence on a generated input. ONNX/ONNX Runtime/
+Simplifier are optional preparation tools, not the image-inference backend;
+runtime matting stays on requested OpenCV CPU/CUDA. The original weights are
+removed after successful preparation. Provenance retains original SHA256,
+upstream revision, conversion recipe/tool versions and prepared model hash.
+CUDA requires a completed forward plus backend graph evidence; no CPU retry.
+
+The face parser is the pinned `yakhyo/face-parsing` ResNet18 BiSeNet ONNX
+release (53,205,364 bytes; upstream MIT repository license retained).
+Its 19 labels include neck/clothes as well as face parts. Runtime uses official
+RGB/ImageNet normalization, argmax and nearest-neighbour label restoration.
+The upstream repository license is recorded; training-data/commercial suitability
+has not been established by this prototype.
+
+Passing the whole tall head/shoulder crop initially still mislabelled neck/shirts
+in several actual photos. Parsing now focuses on detector-anchored head context:
+0.7 face-heights above the box, 0.1 below, and half-width at least 0.9 face-heights.
+This is an inference crop, not a deformation or replacement mask; restored labels
+retain native coordinates. Keep the connected head with most face-core overlap.
+Only hair receives a narrow external fringe, intersected with MODNet opacity;
+explicit neck/clothes/hat/jewellery labels are never restored by fringe growth.
+If the semantic head reaches the context's lower boundary, flag review rather
+than publish an apparently complete head clipped across the neck. These remain
+heuristics: hair accessories, occlusions and ambiguous boundaries need review.
+
+Primary implementation/reference:
+[pinned inference](https://github.com/yakhyo/face-parsing/blob/4f0632b17a3e729a7871683aab7c89b6a595da9f/onnx_inference.py),
+[class map](https://github.com/yakhyo/face-parsing/blob/4f0632b17a3e729a7871683aab7c89b6a595da9f/utils/common.py).
+
+Cleansing manifests are independent of extraction manifests. Only completed
+jobs advance the run pointer; failed jobs preserve recorded evidence and do not
+replace a prior successful pointer. A changed curation fingerprint requires a
+fresh cleansing run before generation. Cleanup follows these manifests as
+reference roots, protecting originals, approved crops and shared derivatives.
 
 ## Validation
 
@@ -178,6 +216,22 @@ manual approval, model/dimension failures and concurrent manual deletion.
 Real-directory runs are separate opt-in CLI operations, not part of unit discovery.
 The initial implementation was also exercised on the owner's requested folder;
 see the current validation record in [research](research.md).
+
+Head-only validation on November 16, 2026:
+
+| Check | Evidence |
+|---|---|
+| Real curated run | Cleansing job `20261116T134753Z-c7f222a0`: 179 processed, 165 ready, 14 review; 3 multi-face crops excluded before processing |
+| Review is not deletion | 12 masks reached the lower context boundary; 2 failed foreground/face coverage. All 182 reviewed portraits and the curation fingerprint remained unchanged |
+| GPU execution | Completed OpenCV forwards: 95 CUDA/CUDA face-parser layers; MODNet 242 CUDA/CUDA plus one reported OCV/CUDA entry; RTX 4070 SUPER, no CPU retry |
+| Colour abstention | 27 scene-neutral estimates, 148 ambiguous/excessive casts skipped, 4 insufficient-reference skips; exposure 70 harmonized, 40 clipping skips, 69 without references |
+| Downstream proof | 64 photos from 18 groups; every RGB input verified as a hardlink and every binary native mask checked against published head alpha; all 495 products and their source/crop hashes verified |
+| Functional regression | 143 isolated units passed, including head/ear/hair preservation, shirt/neck removal, soft hair fringe, missing/malformed labels, lower-boundary leakage review, native mask forwarding and immutable curation |
+
+The ready preview was inspected: shoulders/shirts from the person-matting trial
+are removed. This is not a guarantee of perfect accessory/ear/hair boundaries;
+some hats/equipment can still be mislabelled. No new native head reconstruction
+or personalized template fit was run for this cleansing milestone.
 
 ## CUDA backend
 

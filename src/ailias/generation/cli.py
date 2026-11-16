@@ -11,6 +11,7 @@ def add_parser(commands):
     for name, description in (
         ("doctor", "Probe shared native tools without inference or downloads"),
         ("reconstruct", "Benchmark one curated candidate group; recover geometry, then run Blender"),
+        ("select-inputs", "Audit frontal-prioritized cross-group inputs without reconstruction or GPU work"),
         ("status", "Inspect a generation job and verify retained artifacts"),
         ("clean-mesh", "Retry Blender after a successful reconstruction stage"),
     ):
@@ -18,7 +19,7 @@ def add_parser(commands):
         action.add_argument("--generation-config", type=Path, default=DEFAULT_GENERATION_CONFIG)
         if name != "doctor":
             action.add_argument("alias")
-        if name == "reconstruct":
+        if name in {"reconstruct", "select-inputs"}:
             action.add_argument("run")
             action.add_argument("group")
         elif name in {"status", "clean-mesh"}:
@@ -59,6 +60,11 @@ def execute(args, data_root: Path):
         }}, 0 if all(probe["ready"] for probe in result.values()) else 2
     store = Store(data_root, args.alias)
     with store.lock():
+        if args.generation_action == "select-inputs":
+            from ailias.generation.inputs import prepare_inputs
+            result = prepare_inputs(store, args.run, args.group, policy)
+            return {"manifest": str(store.resolve(result["manifest"])),
+                    "selection": result["selection"], "previews": result.get("previews", {})}, 0
         if args.generation_action in {"unreal-import", "unreal-conform"}:
             from ailias.generation.unreal import run_unreal
             result = run_unreal(
@@ -70,6 +76,14 @@ def execute(args, data_root: Path):
             result = inspect_job(store, args.job)
             return result, 2 if result["integrity_problems"] else 0
         if args.generation_action == "reconstruct":
+            if policy.use_cleansed_portraits:
+                from ailias.imageprocessing.cleansing import cleanse_run, load_policy as cleansing_policy
+                from ailias.imageprocessing.matting import MattingBackend
+                matting = MattingBackend(store, "cuda", policy.cpu_threads, policy.gpu_index)
+                try:
+                    cleanse_run(store, args.run, cleansing_policy(), matting, args.group)
+                finally:
+                    matting.close()
             result = reconstruct(store, args.run, args.group, tools, policy)
             return result, 0 if result["status"] == "complete" else 2
         report, path = load_job(store, args.job)

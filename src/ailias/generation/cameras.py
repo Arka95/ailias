@@ -102,6 +102,9 @@ def read_model(directory: Path, inputs: dict) -> dict:
                 "portrait_size": [width, height],
                 "reprojection_error_px": sum(errors)/len(errors),
                 "observation_count": len(errors),
+                "facial_landmarks_source": entry.get("landmarks_5_source", []),
+                "view": entry.get("view", {"category": "unknown"}),
+                "selection_weight": entry.get("selection_weight"),
             }
     return {
         "schema_version": 1, "convention": "OpenCV x-right, y-down, z-forward; world-to-camera",
@@ -113,4 +116,5 @@ def read_model(directory: Path, inputs: dict) -> dict:
         "mean_reprojection_error_px": sum(all_errors)/len(all_errors) if all_errors else None,
         "unregistered_images": sorted(set(entries) - names),
         "calibration_verified": False, "likeness_verified": False,
+        "semantic_facial_constraints_used": False,
     }

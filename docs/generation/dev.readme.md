@@ -74,7 +74,7 @@ atlases contain photographed lighting; they are not extracted intrinsic albedo.
 ## Research decisions in plain language
 
 Updated November 16, 2026. **A personalised complete-head fitter is still
-missing.** Selection additions exist in the working tree; they are not evidence
+missing.** Selection/cleansing additions are not evidence
 that a better head has been generated.
 
 ### 1. Problem Statement
@@ -89,13 +89,13 @@ has 13 fragments; increasing its polygon count does not recover missing anatomy.
 
 | Decision | Why chosen / tradeoff | State |
 |---|---|---|
-| Widen selection across compatible groups and directions | More varied evidence becomes available instead of treating one recognition cluster as all photos of a person; uncertain identities still need review | Working tree: up to 64 photos, selection audit and retained five-point observations |
+| Widen selection across compatible groups and directions | More varied evidence becomes available instead of treating one recognition cluster as all photos of a person; uncertain identities still need review | Implemented: up to 64 photos, selection audit and retained five-point observations |
 | Retain previously registered photo anchors when still eligible | Pose-ranked diversity alone can discard photos that already matched geometrically. Anchors protect some known tracking evidence, not guaranteed connectivity | Working tree; corrected selection has not had a native replay |
 | Fit one complete template jointly across views | A **template** is a baseline mesh with known anatomy; fitting changes its shape to explain the photos. Share identity shape, but allow each image its own camera/expression, rather than averaging inconsistent 3D predictions | Recommended next backend, not implemented; more complex than generic photogrammetry |
 | Weight evidence by region and visibility | Proposed: fronts constrain facial layout; profiles help constrain nose projection and side contours. A view useful for the nose need not be useful for the far ear | Proposed; current selection weights/landmarks are metadata, **not COLMAP facial fitting constraints** |
 | Fill gaps using weak symmetry and a shape prior | A **prior** is a plausible starting shape, not an observation. Prefer real evidence; use reversible symmetry only without contradictory observations; leave unseen rear-head anatomy generic | Proposed; preserves completeness but cannot certify unseen likeness |
 | Estimate skin reflectance separately from lighting | **Albedo** means base surface colour before illumination/reflections. Copying a shadow into a texture makes it look like permanent skin colour | Proposed; DECA informs separation of shape/expression/albedo/light, not an adopted model |
-| Consume real subject masks and colour-corrected appearance derivatives | A transparent portrait alone changes nothing if native tools ignore alpha. Feature extraction, stereo/fusion and texture selection must explicitly use correctly aligned masks; colour harmonization is still not albedo recovery | Proposed; current feature/fusion masks are face ellipses, not head outlines, and portraits are not white-balanced |
+| Consume real head masks and colour-corrected appearance derivatives | Person masks retain clothing. SIFT/fusion need aligned face/ear/hair masks, and texture inputs must exclude scene/clothes/neck; harmonization is still not albedo recovery | Implemented when `use_cleansed_portraits=true` (supplied profiles): fresh CUDA semantic head cleansing, corrected RGB and binary alpha masks. Review/stale/tampered derivatives fail closed; raw ellipse path remains an explicit legacy opt-out |
 | Keep raw surface evidence as well as a mesh | Mesh interpolation can add polygons unsupported by photos. The working tree retains fused samples after successful native meshing, alongside cameras, for later inspection/fitting | Implemented in working tree; does not promise retention if the meshing command itself fails |
 
 MakeHuman core assets are a researched CC0 baseline candidate, **not a downloaded
@@ -131,6 +131,15 @@ Code: `inputs.py:prepare_inputs` / `registration_anchors`,
 [Research evidence and completion options](selection-research.md) contains the
 primary sources and selection audit. [Geometry's measurement contract](../geometry/dev.readme.md#research-decisions-in-plain-language)
 explains dimensions, units and uncertainty.
+
+Cleansing is an upstream stage, not a reconstruction result. The CLI refreshes
+it before `reconstruct`; `select-inputs` only validates/uses published derivatives.
+Input view identity includes stable product hashes/policy, not the ephemeral
+cleansing job ID, so unchanged bytes still reuse hardlinks/masks. The dataclass
+retains legacy raw-input defaults for direct callers/tests; supplied JSON
+profiles opt into cleansing. Native texturing has no mask option; it receives
+masked RGB, so unsupported surface/atlas areas may be black or inpainted.
+No calibrated per-texel visibility or full-head/hair reconstruction is implied.
 
 ## Tests
 
@@ -172,7 +181,8 @@ Verified on November 16, 2026:
 | Actual Blender CUDA integration | Textured six-vertex/eight-face synthetic octahedron; unchanged exported vertex positions/topology, preserved camera-up orientation, three non-flat PNGs and a `.blend`/OBJ/material produced using RTX 4070 SUPER; 3.172 seconds on the recorded run; fixture files removed |
 | Full actual native integration | Synthetic eight-view textured sphere; GPU extraction/matching and CUDA stereo through meshing/texturing/Blender CUDA; all 8 cameras, 977 sparse points, mean 0.2983 px reprojection error, 12,722 fused points, 67,241 faces; three non-flat renders and hashed outputs; 56.031 native seconds; 58,009,622 transient bytes removed with zero errors, temporary fixture removed |
 | Visual diagnostic | Retained synthetic comparison inspected: partial open surface, texture brightening under new lighting and unsupported profile coverage remain visible; execution success is not watertightness, measured albedo or photometric fidelity |
-| Isolated regression | 111 functional units, including saved-external-package verification and receipt-without-asset failure; no model, hardware, editor or network execution in discovery |
+| Isolated regression | 143 functional units, including head-only cleansing, cross-group selection, saved-external-package verification and receipt-without-asset failure; no model, hardware, editor or network execution in discovery |
+| Head-only upstream integration | Job `20261116T134753Z-c7f222a0`: 165 ready / 14 review; input audit selected 64 from 18 groups and verified every corrected-RGB hardlink and native mask against published head alpha; no new native reconstruction replay |
 | PoC policy regression | 26 focused generation/Unreal units passed, including explicit native option forwarding, policy provenance, unchanged non-production/likeness flags and invalid-angle/support rejection |
 | Unreal | No registered/common-path engine was found; `unreal-doctor`/import correctly blocked without launching, collecting credentials, downloading engine content or making placeholder assets |
 

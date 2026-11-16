@@ -20,7 +20,8 @@ have been incorporated into ailias.
 | Zielonka et al., [MICA](https://arxiv.org/abs/2204.06607), ECCV 2022 | Perspective creates depth/scale ambiguity; metric face prediction needs additional learned or measured information | Report relative proportions until owner-specific scale is supported; validate inferred metric dimensions independently | A model's metric coordinate system is not proof of accurate owner measurements; no MICA model installed |
 | Azinovic et al., [High-Res Facial Appearance Capture from Polarized Smartphone Images](https://arxiv.org/abs/2212.01160), CVPR 2023 | Controlled polarized capture and inverse rendering can separate diffuse/specular reflectance and surface detail | Prefer lighting-separated albedo to a single average photographed skin colour; controlled capture is a later quality option | Not implemented; casual existing photos are not equivalent to their polarized capture protocol |
 | Feng et al., [Towards Racially Unbiased Skin Tone Estimation via Scene Disambiguation](https://arxiv.org/abs/2205.03962), ECCV 2022 | Full-scene illumination information helps disentangle skin reflectance from illumination | Preserve original scene evidence even when deriving background-free portraits; do not normalize all skin to one colour | Research reference only; no TRUST model adopted |
-| [OpenCV GrayworldWB](https://docs.opencv.org/4.13.0/d7/d71/classcv_1_1xphoto_1_1GrayworldWB.html) and Ke et al., [MODNet](https://arxiv.org/abs/2011.11961), AAAI 2022 | White balance has scene assumptions; portrait matting estimates foreground opacity rather than only binary person labels | Proposed conservative colour correction and dedicated portrait alpha mattes as separate versioned cleansing products | Neither is implemented for portraits; existing sRGB conversion/body masks/face ellipses must not be presented as these features |
+| [OpenCV GrayworldWB](https://docs.opencv.org/4.13.0/d7/d71/classcv_1_1xphoto_1_1GrayworldWB.html) and Ke et al., [MODNet](https://arxiv.org/abs/2011.11961), AAAI 2022 | White balance has scene assumptions; portrait matting estimates foreground opacity rather than only binary person labels | Implemented bounded scene-neutral colour correction, subject-relative exposure and dedicated portrait alpha derivatives; original crops remain immutable | Colour estimates can abstain and are not albedo; alpha quality checks require review for ambiguous foreground and do not guarantee perfect fine edges |
+| [BiSeNet face parsing: pinned inference and labels](https://github.com/yakhyo/face-parsing/tree/4f0632b17a3e729a7871683aab7c89b6a595da9f) | Face-part semantics separate face/ears/hair from neck/clothing; person opacity alone does not | Implemented face-anchored semantic head selection intersected with MODNet; generation consumes the resulting masks, not full-person alpha | Predicted labels can be wrong; lower-context leakage/insufficient face coverage requires review, not a whole-person fallback |
 
 The explicit frontal preference is a product choice, not a universal optimum
 claimed by these papers. Frontal observations anchor facial layout; side views
@@ -129,6 +130,13 @@ only two image pairs with a largest connected component of two, and blocked
 before mapping. It removed 17,350,656 transient bytes with zero cleanup errors.
 No denser head or multi-view template fit was produced. Later anchor-preserving
 selection retains the same bin totals above, but native replay remains pending.
+
+After head-only cleansing job `20261116T134753Z-c7f222a0`, 165 candidates are
+ready and 14 require review; 3 multi-face crops were excluded before inference.
+The refreshed audit selects 64 across 18 groups, with the same view-bin totals
+and three eligible registration anchors. All 64 native hardlinks and binary
+head-alpha masks were checked against their canonical products. This supersedes
+the whole-person cleansing audit, not the unresolved native reconstruction result.
 
 For compact explanations by owner module, see [image observations](../imageprocessing/dev.readme.md#research-decisions-in-plain-language),
 [generation](dev.readme.md#research-decisions-in-plain-language) and

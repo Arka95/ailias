@@ -1,0 +1,10 @@
+{
+  "neutral_saturation_max": 0.2,
+  "neutral_min_fraction": 0.005,
+  "white_balance_gain_limit": 1.18,
+  "exposure_ev_limit": 0.35,
+  "alpha_background_cutoff": 0.02,
+  "alpha_foreground_cutoff": 0.98,
+  "native_mask_threshold": 0.5,
+  "min_face_coverage": 0.9
+}

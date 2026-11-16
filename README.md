@@ -36,7 +36,7 @@ python -m ailias status first-face
 Default session artifacts go in Git-ignored `data`. Configure thresholds in
 `config\settings.json`; these are initial heuristics, not calibrated likeness
 criteria. No network service or GPU work starts automatically. Only the explicit
-`imageprocessing models` command downloads the pinned CPU analysis models.
+`imageprocessing models` command downloads the pinned analysis/cleansing models.
 
 ## Clean and group a photo folder
 
@@ -52,6 +52,21 @@ referenced by path and SHA256; generated crops/masks are shared across runs.
 Inspect groups before selecting one;
 largest does not necessarily mean the intended person. No face restoration,
 warping or invented detail is applied. [Imageprocessing guide](docs/imageprocessing/README.md).
+
+Normal scans also create separate **head-only** cutouts (face, ears and hair,
+not shirts/torso/neck) and
+conservatively colour-harmonized native inputs; approved crops stay unchanged.
+First prepare the optional conversion tools with
+`python -m pip install -e ".[matting-tools]"`, then `imageprocessing models`.
+To cleanse an existing reviewed run without detection/recognition again:
+
+```powershell
+python -m ailias imageprocessing cleanse arka RUN_ID --device cuda
+```
+
+Inspect the resulting alpha/colour preview. Missing colour evidence is explicitly
+skipped and unreliable mattes require review; neither colour nor edge accuracy
+is certified. See [cleansing behaviour and configuration](docs/imageprocessing/README.md#portrait-background-removal-and-colour-consistency).
 
 For GPU runs, use that same shared environment:
 

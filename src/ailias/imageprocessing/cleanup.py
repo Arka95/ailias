@@ -11,7 +11,7 @@ from ailias.storage import Store, atomic_json, digest
 def _documents(store: Store):
     paths = [store.path, store.resolve(str(Path("imageprocessing") / "selection.json")),
              store.resolve(str(Path("imageprocessing") / "curation.json"))]
-    for collection in ("runs", "selections", "comparisons"):
+    for collection in ("runs", "selections", "comparisons", "cleansing"):
         root = store.resolve(str(Path("imageprocessing") / collection))
         if root.exists():
             paths.extend(root.rglob("*.json"))
@@ -152,7 +152,7 @@ def cleanup_alias(store: Store, keep_run: str | None = None,
             result[key] += removed[key]
     assets = store.resolve(str(Path("imageprocessing") / "assets"))
     if assets.exists():
-        for category in ("portraits", "review", "bodies", "masks"):
+        for category in ("portraits", "review", "bodies", "masks", "cleansed", "cutouts", "alphas"):
             folder = assets / category
             if not folder.exists():
                 continue

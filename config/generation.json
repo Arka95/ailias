@@ -1,7 +1,8 @@
 {
   "tools_root": "..\\..\\tools",
   "policy": {
-    "max_images": 32,
+    "use_cleansed_portraits": true,
+    "max_images": 64,
     "min_registered_images": 5,
     "min_registered_fraction": 0.6,
     "min_sparse_points": 100,

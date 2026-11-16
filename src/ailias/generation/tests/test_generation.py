@@ -182,6 +182,34 @@ class GenerationTests(unittest.TestCase):
         result = prepare_inputs(self.store, RUN, "face-001", self.policy)
         self.assertNotIn(face["source_id"], [e["source_id"] for e in result["inputs"]["entries"]])
 
+    def test_cross_group_selection_uses_reviewed_support_and_keeps_view_provenance(self):
+        ids = list(self.report["faces"])
+        self.report["groups"] = [{"id": "face-001", "members": ids[:2]},
+                                 {"id": "face-002", "members": ids[2:]}]
+        atomic_json(self.run_path, self.report)
+        result = prepare_inputs(self.store, RUN, "face-001", self.policy)
+        self.assertIn("face-002", result["selection"]["groups_used"])
+        self.assertEqual(result["selection"]["associated_count"], 4)
+        self.assertTrue(all("view" in entry and "selection_weight" in entry
+                            for entry in result["inputs"]["entries"]))
+        self.assertEqual(result["selection"]["seed_group"], "face-001")
+        seed_only = replace(self.policy, selection_expand_groups=False, min_registered_images=3)
+        with self.assertRaisesRegex(ValueError, "Too few"):
+            prepare_inputs(self.store, RUN, "face-001", seed_only)
+
+    def test_explicit_warning_policy_widens_reviewed_inputs_without_hiding_quality(self):
+        for face in self.report["faces"].values():
+            face["quality"]["native_short_side"] = 128
+        warned = next(iter(self.report["faces"].values()))
+        warned["quality"]["reasons"] = ["face_underexposed"]
+        atomic_json(self.run_path, self.report)
+        result = prepare_inputs(self.store, RUN, "face-001",
+                                replace(self.policy, max_images=4, selection_allow_quality_warnings=True))
+        entry = next(entry for entry in result["inputs"]["entries"] if entry["face_id"] == warned["id"])
+        self.assertEqual(entry["quality_warnings"], ["face_underexposed"])
+        self.assertLess(entry["selection_weight"], max(e["selection_weight"]
+                                                       for e in result["inputs"]["entries"]))
+
     def test_failed_input_publication_removes_its_partial_files(self):
         with patch("ailias.generation.inputs.os.link", side_effect=OSError("hardlinks unavailable")):
             with self.assertRaises(OSError):
@@ -202,6 +230,7 @@ class GenerationTests(unittest.TestCase):
         result = reconstruct(self.store, RUN, "face-001", FakeTools(), self.policy)
         self.assertEqual(result["status"], "complete", result)
         self.assertIn("cleaned_mesh", result["artifacts"])
+        self.assertTrue(self.store.verify(result["artifacts"]["observed_surface"]))
         self.assertEqual(inspect_job(self.store, result["job"])["integrity_problems"], [])
         self.assertFalse((Path(result["manifest"]).parent / "work").exists())
         self.assertFalse(self.store.path.exists())

@@ -11,7 +11,10 @@ TOOL_SPECS = PROJECT_ROOT / "config" / "generation-tools.json"
 
 @dataclass(frozen=True)
 class GenerationPolicy:
-    max_images: int = 32
+    max_images: int = 64
+    selection_expand_groups: bool = True
+    selection_allow_quality_warnings: bool = False
+    use_cleansed_portraits: bool = False
     min_registered_images: int = 5
     min_registered_fraction: float = 0.6
     min_sparse_points: int = 100
@@ -39,6 +42,11 @@ class GenerationPolicy:
                   "mapper_init_min_tri_angle"}
         for field in fields(self):
             value = getattr(self, field.name)
+            if field.name in {"selection_expand_groups", "selection_allow_quality_warnings",
+                              "use_cleansed_portraits"}:
+                if not isinstance(value, bool):
+                    raise ValueError(f"{field.name} must be a boolean")
+                continue
             if field.name == "blender_device":
                 if value not in {"CUDA", "OPTIX", "CPU"}:
                     raise ValueError("blender_device must be CUDA, OPTIX or explicitly CPU")

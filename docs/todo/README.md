@@ -8,7 +8,7 @@ All items below are open; none is implied complete by a manual handoff receipt.
 |---|---|---|
 | 1 | Prove source plan's manual milestone | Real photo set, reconstructed/cleaned head, MetaHuman and three-view human baseline |
 | 2 | Benchmark reconstruction candidates | Experimental native COLMAP benchmark implemented; 31 real portraits fail overlap gates; select a viable human-head backend and measure accuracy/runtime/VRAM |
-| 3 | Complete cleansing and extend photo analysis | Add versioned portrait background removal with hair-aware alpha and conservative white-balance/exposure correction; preserve approved crops and scene context; wire masks into generation. Five-point view bins are approximate, not dense geometry; expression/occlusion assessment and calibration remain open |
+| 3 | Calibrate cleansing and extend photo analysis | Versioned semantic head-only alpha plus MODNet edges, bounded scene-white-balance/subject-exposure and generation-mask integration implemented. Improve review/edge/colour calibration; five-point view bins are approximate, not dense geometry; expression/occlusion assessment remains open |
 | 4 | Prove reconstruction adapter on a real head | Full pipeline and explicit permissive PoC implemented; real photos now produce inspectable textured fragments, but a coherent head remains unproven |
 | 5 | Finish Blender and Unreal integration | Blender CUDA cleanup/export/renders verified; UE 5.8 guarded adapter implemented but engine absent; real Identity solve/conform, assembly and editor-lifetime checks still open |
 | 6 | Complete multi-signal validation | Aligned 2D/3D landmark and sampled-surface primitives implemented; true mesh-surface, silhouette, matched-camera and calibrated regional checks still open |

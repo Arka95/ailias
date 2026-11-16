@@ -19,6 +19,12 @@ python -m ailias imageprocessing select arka RUN_ID face-001
 
 `models` explicitly downloads about 45 MB of SHA256-pinned YuNet, SFace and
 PP-HumanSeg weights plus licenses into `data\arka\imageprocessing\models`.
+It also prepares the roughly 26 MB official MODNet portrait-matting model.
+Head-only selection additionally uses a pinned 53 MB BiSeNet face-part parser.
+One-time preparation needs `python -m pip install -e ".[matting-tools]"` in the
+shared environment; it specializes the pinned ONNX graph and checks equivalent
+outputs. Only the prepared weights remain. No Torch or CUDA stack is installed.
+Use `models --no-cleanse` to omit matting setup.
 Use `--no-body` on both model installation and scan to omit segmentation.
 `scan` never downloads models. Image inference is local; no image,
 embedding or crop is sent to a service.
@@ -116,6 +122,69 @@ probability**. Viewpoint, glasses, lighting, mirrors, expression, lookalikes and
 missed detections can split or mix groups. Similar-looking people require manual
 inspection. Body masks are low-resolution model estimates, not hair-quality alpha
 matting; connected/touching people may not be separable.
+
+## Portrait background removal and colour consistency
+
+Normal CLI `scan` now also publishes separately versioned portrait appearance
+derivatives. It checks both models before scanning, uses the explicitly
+chosen CPU/CUDA device and never downloads weights during processing.
+`scan --no-cleanse` explicitly retains the previous analysis-only behaviour.
+Existing extraction runs can be cleansed without detection/recognition again:
+
+```powershell
+python -m ailias imageprocessing cleanse arka RUN_ID --device cuda
+python -m ailias imageprocessing cleanse arka RUN_ID --group face-001 --device cuda
+```
+
+`--group` expands a fixed seed-subject hypothesis across supported groups, using
+one shared exposure reference; without it, exposure references stay within each
+original candidate group. Neither confirms the person's identity.
+
+Cleansing targets **the head, not the entire person**. A face-part parser selects
+facial skin/features, ears and hair near the detected face; MODNet supplies soft
+outer opacity. Neck, clothes/torso, hats and jewellery are excluded. Glasses
+remain visible occluders, not recovered eye detail. Person matting alone was the
+wrong target: it intentionally retained shirts. No ellipse substitutes for
+missing semantic evidence.
+
+| Output under `imageprocessing` | Purpose |
+|---|---|
+| `assets\cutouts\SHA256.png` | Colour-corrected head-only RGBA; transparent background/clothing RGB is zeroed |
+| `assets\cleansed\SHA256.png` | Corrected RGB with background outside the configured alpha threshold blacked out for native tools |
+| `assets\alphas\SHA256.png` | Native-size grayscale opacity, including fractional edge values |
+| `cleansing\JOB_ID\manifest.json` | Source/crop hashes, policy, model/device evidence, colour decisions, quality/review outcomes and preview |
+| `cleansing\RUN_ID.json` | Hash-verified pointer to the most recent completed cleansing job for that extraction run |
+
+Originals, approved portrait PNGs, embeddings and `curation.json` are not modified.
+Repeated cleansing performs fresh inference but identical derived pixels reuse
+canonical assets. MODNet uses aspect-preserving 512-square letterboxing; the
+face parser uses a detected-face context resized to 512, then restores class labels
+to the native grid. Products retain the original crop dimensions/coordinates;
+only contact-sheet tiles crop transparent borders for readability.
+This does not recover detail absent from that model/input resolution.
+Approved `assets\portraits` are still the unchanged review crops, not the
+cleaned output folder. Inspect `assets\cutouts` or the new cleansing preview.
+
+Colour settings live in `config\cleansing.json`, optionally overridden with
+`--cleansing-config FILE` on `scan`/`cleanse`. White balance uses consistent
+low-saturation scene pixels outside detected faces, with bounded gains; insufficient
+or ambiguous evidence is explicitly skipped. Exposure is bounded relative to
+the median of at least three clean estimated-frontal photos in the same subject
+scope. It is not a universal target skin colour, calibrated colour measurement,
+shadow removal or intrinsic albedo recovery.
+
+Near-empty/opaque masks, poor face-core coverage, or semantic foreground reaching
+the lower face-context boundary are marked `review`, not
+silently replaced by an ellipse. Crops containing another detected face are
+excluded. Inspect the preview and transparent PNGs: hair, glasses, similar-colour
+backgrounds, touching people and missed detections can still be wrong. These
+heuristics do not certify perfect edges. Generation's configured cleansing path
+excludes review/missing derivatives and refuses stale or changed products.
+The head-only method revision invalidates earlier whole-person cleansing jobs.
+
+The generation CLI refreshes cleansing before native reconstruction; its input
+audit uses the latest completed, current-curation derivatives without inference.
+See [generation integration](../generation/README.md).
 
 ## Learn from manual portrait review
 

@@ -28,12 +28,36 @@ part of Blender, not another application venv. No engine, service or model is
 downloaded by `doctor`, `status`, or a generation job.
 
 `reconstruct` requires a completed imageprocessing run and an explicitly captured
-curation profile. It takes up to 32 distinct photos from the specified group,
-ranked by native face resolution/detail, excluding quality-rejected and
-not-explicitly-kept crops. Candidate identity ambiguity is recorded, not silently
+curation profile. It takes up to 64 distinct photos from the seed-subject
+hypothesis across supported groups, with approximate frontal preference and
+complementary directions, excluding not-explicitly-kept crops. Candidate
+identity ambiguity is recorded, not silently
 converted into an identity/capture attestation.
 
-The job runs GPU SIFT extraction/matching with face-ellipse masks, then checks the
+The supplied generation profiles enable `use_cleansed_portraits`. `reconstruct`
+first performs fresh CUDA head-only cleansing from `config\cleansing.json`,
+without redoing detection/recognition or modifying approved crops. Native tools
+receive corrected RGB with scene/clothes/neck zeroed and thresholded head-alpha
+masks, not face ellipses. SIFT and foreground fusion explicitly receive the mask
+directory; texturing receives the background-suppressed RGB. The pinned native
+texturer has no separate mask option, so unsupported surface areas can still
+receive black/inpainted texture; no per-texel visibility or true albedo is claimed.
+Review/missing mattes are excluded; stale/changed derivative hashes fail closed.
+Legacy benchmarks can explicitly set `use_cleansed_portraits=false`.
+
+Audit prepared inputs without running models/native reconstruction:
+
+```powershell
+python -m ailias imageprocessing cleanse arka RUN_ID --group face-001 --device cuda
+python -m ailias generation select-inputs arka RUN_ID face-001
+```
+
+The audit includes selected/review contact sheets and selection provenance.
+See [image cleansing details](../imageprocessing/README.md#portrait-background-removal-and-colour-consistency)
+and [research decisions](selection-research.md).
+
+The job runs GPU SIFT extraction/matching with aligned head masks (face ellipses
+only for the explicit legacy opt-out), then checks the
 verified view graph before running SfM, CUDA stereo, foreground fusion, Poisson
 meshing and photograph-atlas texturing. Recovered cameras must meet registration,
 point-count and measured reprojection gates. CPU mapping/meshing is intentional;
@@ -53,7 +77,7 @@ The stricter default is not required for an early visual experiment:
 python -m ailias generation reconstruct arka RUN_ID face-001 --generation-config config\generation-poc.json
 ```
 
-This explicit profile permits three registered photos (9% of the selected set),
+This explicit profile permits at least three registered photos and 4% of the selected set,
 20 sparse points, 8 px mean reprojection error, 50 fused points and 50 faces.
 It lowers mapper initialization to 20 inliers/0.5-degree triangulation, absolute
 pose support to 15 inliers, dense consistency to one supporting source view and
@@ -61,6 +85,9 @@ fusion to two pixels. Defaults retain the previous native 100/16-degree/30/2/5
 settings. It can expose fragments rather than blocking early, but does not certify
 camera accuracy, complete anatomy or likeness. It does not relax portrait
 curation, original-file integrity or cleanup isolation.
+It allows explicitly kept soft blur/exposure/size warnings, but excludes faces
+below 64 pixels and crops flagged as containing another face. Dense side is
+1,200 and Poisson depth 10; these cannot manufacture observed facial detail.
 
 On November 16, job `20261116T122845Z-ed50db97` produced real photo-derived
 geometry: 3 registered photos, 4,263 fused samples and 6,164 textured faces.
@@ -92,8 +119,9 @@ portraits, sources, models, other jobs and external Unreal projects are never
 deleted. Imageprocessing cleanup honors generation references.
 
 Successful reconstruction retains a textured OBJ/material, one photograph atlas,
-raw sparse model text, and recovered camera JSON. Cameras preserve unknown SfM
-scale and restore portrait crop offsets for full-source intrinsics. These are
+raw sparse model text, recovered camera JSON and, after successful meshing, the
+raw fused observed surface. Cameras preserve unknown SfM scale and restore
+portrait crop offsets for full-source intrinsics. These are
 **not** calibrated metric cameras and cannot be attached to the manual workflow
 without independently establishing scale/conventions and accepted-photo coverage.
 

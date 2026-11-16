@@ -121,6 +121,7 @@ def reconstruct(store: Store, run: str, group: str, tools, policy: GenerationPol
         "curation": {"path": str(Path("imageprocessing") / "curation.json"),
                      "sha256": inputs["inputs"]["curation_sha256"]},
         "policy": asdict(policy), "tools": readiness, "steps": [], "artifacts": {},
+        "selection": inputs.get("selection", {}),
         "identity_confirmed": False, "capture_conditions_reviewed": False,
         "metahuman": {"status": "not_started"},
         "production_ready": False, "likeness_verified": False,
@@ -251,6 +252,9 @@ def reconstruct(store: Store, run: str, group: str, tools, policy: GenerationPol
             "PoissonMeshing.trim": policy.poisson_trim,
             "PoissonMeshing.num_threads": policy.cpu_threads,
         })
+        observed_surface = output / "observed-surface.ply"
+        fused.replace(observed_surface)
+        report["artifacts"]["observed_surface"] = store.reference_artifact(observed_surface)
         report["reconstruction"]["meshed_faces"] = ply_header(surface)["elements"].get("face", 0)
         if report["reconstruction"]["meshed_faces"] < policy.min_mesh_faces:
             raise ReconstructionBlocked("Meshed surface is too small to treat as a head candidate")
