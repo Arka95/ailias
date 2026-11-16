@@ -24,7 +24,7 @@ def store_png(store: Store, image: Image.Image, role: str, scratch: Path,
 
 def store_png_bytes(store: Store, content: bytes, role: str, scratch: Path,
                     created: list[str]) -> str:
-    if role not in {"portraits", "review", "bodies", "masks", "cleansed", "cutouts", "alphas"}:
+    if role not in {"portraits", "review", "bodies", "masks", "cleansed", "cutouts", "alphas", "aligned"}:
         raise ValueError("Unsupported generated image role")
     checksum = hashlib.sha256(content).hexdigest()
     relative = str(Path("imageprocessing") / "assets" / role / f"{checksum}.png")

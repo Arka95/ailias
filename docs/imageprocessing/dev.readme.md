@@ -12,6 +12,7 @@
 | `assets.py` | Canonical generated PNGs, content hashing and cross-run reuse |
 | `curation.py` | Explicit reviewed-gallery capture, compatible exemplar features, three-way decisions and source-held-out diagnostic |
 | `subjects.py`, `views.py` | Generation's seed-subject association and approximate view selection; do not rewrite stored groups |
+| `observations.py` | Reversible head-analysis coordinates and visible-skin, subject-relative lighting evidence; no yaw/pitch frontalization or albedo estimation |
 | `matting.py`, `faceparsing.py`, `cleansing.py` | MODNet opacity plus face-anchored head semantics, bounded colour correction, immutable derivatives and review gates |
 | `cleanup.py` | Verified legacy migration, protected-run pruning and unused generated assets |
 | `pipeline.py` | Source references, decoding, run manifests, exports, selection metadata |
@@ -25,7 +26,11 @@ Callers making changes must acquire `Store.lock()`; the CLI does this.
 Tests inject a fake backend and never load model weights.
 
 YuNet analysis is capped at 1600 pixels on the longest side by default; native
-face boxes/landmarks are recovered by separate x/y scaling. SFace receives
+face boxes/landmarks are recovered by separate x/y scaling. If no face is found,
+both CPU and CUDA paths try distinct smaller native-bounded analysis sizes:
+960, 640, then 320. Stop on the first successful scale; do not lower confidence,
+merge competing detections, upscale a small original or retry an inference error.
+SFace receives
 OpenCV's five-point alignment internally. PP-HumanSeg uses RGB input normalized
 to [-1,1], 192x192 inference, resized two-class logits and argmax, then a
 nearest-neighbor visible-foreground mask in the source coordinate system.
@@ -112,10 +117,12 @@ image points, not eye contours, ears or a detailed face surface.
 | Learn explicit keep/delete decisions; quarantine uncertain new crops | A blurry crop can still strongly resemble the right person. Avoid deleting useful unfamiliar angles merely because recognition is uncertain | Implemented in `curation.py`; thresholds remain heuristics |
 | Keep conservative stored groups; associate across them separately | Requiring every pair to agree reduces accidental identity mixing but can split one person across poses. Fixed seed examples allow broader selection without a chain of increasingly weak matches | Implemented in `subjects.py:associate_subject`; two independent seed-photo supports and co-occurrence exclusions |
 | Estimate view independently of identity | Five points plus a generic face proxy estimate camera direction. Trying several focal lengths exposes some ambiguity; uncertain fits remain "unknown" | Implemented in `views.py:estimate_view`; approximate, not calibrated anatomy |
-| Prefer frontal coverage without throwing away sides | Fronts anchor layout; other angles provide complementary observations. Current selection weights favour fronts, not a claim that fronts are best for every feature | Implemented in `subjects.py:select_views`; coverage and ranking heuristics, not learned accuracy |
+| Prefer frontal coverage without throwing away sides | Fronts anchor layout; other angles provide complementary observations. Generic pose-fit confidence is not portrait usefulness: a person's real proportions can fit the generic proxy less closely | Implemented in `subjects.py:view_rank` / `select_views`; quality/light warnings, within-bin pose suitability, face resolution/detail, lighting penalty, then pose confidence as a tiebreaker; coverage/registration anchors preserved |
 | Add dense landmarks and expression/visibility assessment next | MediaPipe offers 478 facial landmarks and expression outputs. This is richer evidence, but predicted relative depth is not a measured scan, and dense face landmarks do not solve the whole head | Proposed; no MediaPipe runtime/model adopted |
 | Add conservative white-balance/exposure harmonization | ICC-to-sRGB conversion standardizes colour interpretation, not illumination. Estimate a cast from scene-neutral evidence; never make skin itself grey or force every person to an average skin tone | Implemented in `cleansing.py`; bounded gains and subject-relative exposure, explicit skips, separate derivatives |
 | Extract head-only foreground using semantics and opacity | Person matting deliberately keeps shirts. **Semantic labels** distinguish face/hair/ears from neck/clothes; MODNet then preserves soft outer hair edges | Implemented in `faceparsing.py` and `matting.py`, CUDA/explicit CPU; separate RGBA assets, unchanged review crops |
+| Stabilize analysis coordinates without changing camera evidence | Level the eye axis, position its midpoint at `(256,204.8)` on a 512-square canvas, and target 133.12-pixel eye spacing; reduce scale if needed to fit the complete observed alpha. Turning a profile into a frontal image would instead invent hidden information | Implemented in `observations.py:align_head`; uniform similarity only, premultiplied-alpha interpolation, reversible portrait/source transforms; native RGB/alpha are not warped |
+| Assess lighting before ranking baseline observations | Visible skin's relative channel ratios, left/right brightness and clipping expose some bad references even when scene-neutral correction abstains. Do not equate lighting with intrinsic skin colour | Implemented in `observations.py:face_lighting` / `assess_lighting`; at least three clean frontal references per subject scope, robust median/MAD distance, explicit missing evidence; no per-pixel shadow removal |
 
 Why not blindly colour-neutralize every crop? Gray-world white balance assumes
 average scene colour is grey; applying that assumption to a skin-dominated crop
@@ -131,6 +138,21 @@ and aligned alpha/mask products without changing their pixel geometry. Keep
 other people out of the selected subject; ambiguous/touching people and missing
 or occluded anatomy need review, not fabricated foreground. Do not promise
 perfect hair/glasses edges on every photograph.
+
+The v4 aligned image is an additional analysis product, not a replacement for
+those native-grid outputs. Record approximate yaw/pitch separately, retaining the
+original view for later fitting. Five landmarks can still misclassify pose,
+especially with expressions, glasses and unknown focal length. Dense
+pose/expression/visibility analysis remains necessary; alignment alone does not
+make the current exhaustive COLMAP matcher pose/light-conditioned.
+
+Lighting uses a 128-square visible-skin sample inside the detected face.
+The chromaticity outlier threshold is
+`max(0.035, median_distance + 3*1.4826*MAD)`. A left/right skin-luma ratio above
+2.5 or more than 5% clipped skin generates a warning. These are engineering
+heuristics, not calibrated illuminant or fairness claims. A uniformly cast
+group, beard/semantic errors or insufficient independent reference evidence can
+defeat them. Scene-neutral gain and exposure limits remain unchanged.
 
 ### 3. Success Criteria
 
@@ -162,6 +184,8 @@ Colour/background code: `pipeline.py:read_image` / `_scan`,
 Research: [OpenCV GrayworldWB and its assumption](https://docs.opencv.org/4.13.0/d7/d71/classcv_1_1xphoto_1_1GrayworldWB.html),
 [scene context for skin/albedo estimation](https://arxiv.org/abs/2205.03962),
 [MODNet portrait matting](https://arxiv.org/abs/2011.11961).
+Alignment reference:
+[OpenCV affine image transforms](https://docs.opencv.org/4.13.0/da/d6e/tutorial_py_geometric_transformations.html).
 
 Implementation details: the official dynamic ONNX export fails OpenCV shape
 import. Explicit model setup specializes it to `[1,3,512,512]` with ONNX Simplifier
@@ -227,6 +251,25 @@ Head-only validation on November 16, 2026:
 | Colour abstention | 27 scene-neutral estimates, 148 ambiguous/excessive casts skipped, 4 insufficient-reference skips; exposure 70 harmonized, 40 clipping skips, 69 without references |
 | Downstream proof | 64 photos from 18 groups; every RGB input verified as a hardlink and every binary native mask checked against published head alpha; all 495 products and their source/crop hashes verified |
 | Functional regression | 143 isolated units passed, including head/ear/hair preservation, shirt/neck removal, soft hair fringe, missing/malformed labels, lower-boundary leakage review, native mask forwarding and immutable curation |
+
+Frontal recovery/stabilization validation on November 16, 2026:
+
+| Check | Evidence |
+|---|---|
+| Generic detector rescue | Run `20261116T141700Z-52a0fabc`, all 192 originals: no-face sources decreased from 9 to 2, detected faces increased from 210 to 217, zero errors. Known successful first-scale detections and original bytes remain unchanged |
+| Explicit review preserved | Only the recovered portrait explicitly endorsed by the owner was added using single-source review run `20261116T142024Z-69995950`; 183 kept / 28 rejected. Other automatic new detections were not promoted into human-reviewed generation evidence |
+| Real v4 cleansing | Job `20261116T142059Z-a7a6adf8`: 180 processed, 166 ready/aligned, 14 review, 3 multi-face crops excluded. All 664 products, reviewed crops and source references verified |
+| Stable coordinates | Every ready head's eye axis levelled, complete alpha retained inside its analysis canvas; largest source-coordinate roundtrip error `9.10e-13` pixels |
+| Lighting assessment | 16 relative colour outliers, 4 strong left/right skin-luma differences, 2 clipped-skin warnings; categories may overlap and are not deletions. Bounded exposure: 78 harmonized, 43 clipping skips, 59 without reference |
+| Selection and preview | 64 photos, 16 groups, 38 frontal observations after shared-seed lighting reassessment; all three owner-nominated examples selected organically and visible on preview page 1. The formerly missed close-up ranks as baseline without filename/hash rules. All 166 ready heads appear across five labelled pages |
+| Native projection | Every selected native image remains a hardlink to unwarped corrected RGB; all 64 masks checked against native alpha. Aligned images are distinct referenced analysis products |
+| Functional regression | 155 isolated units passed, including large-face scale rescue, no retry after success/error, independent coordinate restoration, reversible head alignment, foreground-preserving interpolation, lighting abstention/outliers, detail-over-pose-confidence ranking and pagination beyond 36 heads |
+
+The saved `alignment-selection-audit.json` accompanies the cleansing job.
+The source filenames are acceptance examples, never production selection keys.
+The first page and the recovered baseline cutout were visually inspected.
+Some head accessories, expressions and high/low-angle misclassifications remain;
+no full lighting-free relighting or fitted head is claimed.
 
 The ready preview was inspected: shoulders/shirts from the person-matting trial
 are removed. This is not a guarantee of perfect accessory/ear/hair boundaries;

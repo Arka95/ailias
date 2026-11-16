@@ -87,7 +87,7 @@ checks rather than being silently replaced. Keep source photos available.
 Repeated scans still run fresh inference, but identical generated PNGs reuse
 the alias-level content-addressed asset. Crops are lossless PNG without
 EXIF/XMP/GPS; originals retain their metadata. Source/crop coordinates are
-pixels in the EXIF-corrected image. No crop is enlarged, rotated to flatten pose,
+pixels in the EXIF-corrected image. No reviewed portrait is enlarged, rotated to flatten pose,
 beautified, relit, denoised, sharpened or face-restored. ICC profiles are converted
 to sRGB when valid; derived files are RGB8, so HDR originals must be retained for
 any future radiometric/texture workflow.
@@ -152,6 +152,7 @@ missing semantic evidence.
 | `assets\cutouts\SHA256.png` | Colour-corrected head-only RGBA; transparent background/clothing RGB is zeroed |
 | `assets\cleansed\SHA256.png` | Corrected RGB with background outside the configured alpha threshold blacked out for native tools |
 | `assets\alphas\SHA256.png` | Native-size grayscale opacity, including fractional edge values |
+| `assets\aligned\SHA256.png` | Separate 512-square RGBA analysis image: eye-axis level, fixed eye midpoint, uniform scale constrained to retain the observed head |
 | `cleansing\JOB_ID\manifest.json` | Source/crop hashes, policy, model/device evidence, colour decisions, quality/review outcomes and preview |
 | `cleansing\RUN_ID.json` | Hash-verified pointer to the most recent completed cleansing job for that extraction run |
 
@@ -159,11 +160,18 @@ Originals, approved portrait PNGs, embeddings and `curation.json` are not modifi
 Repeated cleansing performs fresh inference but identical derived pixels reuse
 canonical assets. MODNet uses aspect-preserving 512-square letterboxing; the
 face parser uses a detected-face context resized to 512, then restores class labels
-to the native grid. Products retain the original crop dimensions/coordinates;
-only contact-sheet tiles crop transparent borders for readability.
+to the native grid. RGB/cutout/alpha products retain the original crop
+dimensions/coordinates. The separate aligned image records forward/inverse
+3x3 transforms to both the reviewed portrait and EXIF-oriented source pixels.
+It corrects in-plane roll/position/scale, **not yaw, pitch or expression**.
+No hidden cheek/ear is synthesized. Native reconstruction still receives the
+unwarped RGB/alpha, not the aligned analysis derivative.
 This does not recover detail absent from that model/input resolution.
 Approved `assets\portraits` are still the unchanged review crops, not the
-cleaned output folder. Inspect `assets\cutouts` or the new cleansing preview.
+cleaned output folder. Inspect `assets\aligned` or the cleansing preview.
+Previews now show useful frontal heads first, label source filenames and cover
+every ready head across `manifest.json`'s `preview_pages`; they no longer hide
+everything after the first 36 records.
 
 Colour settings live in `config\cleansing.json`, optionally overridden with
 `--cleansing-config FILE` on `scan`/`cleanse`. White balance uses consistent
@@ -173,6 +181,14 @@ the median of at least three clean estimated-frontal photos in the same subject
 scope. It is not a universal target skin colour, calibrated colour measurement,
 shadow removal or intrinsic albedo recovery.
 
+Visible semantic skin also supplies uncalibrated lighting evidence: channel
+ratios, left/right brightness imbalance and clipped highlights. At least three
+clean frontal observations in the same subject hypothesis establish a robust
+relative colour reference. Outliers lower baseline suitability; missing neutral
+scene evidence alone does not. This **does not recolour skin to an assumed
+ethnicity or whiten shadows**, and a group's shared lighting cast can escape
+relative detection. `--group` shares the reference across supported groups.
+
 Near-empty/opaque masks, poor face-core coverage, or semantic foreground reaching
 the lower face-context boundary are marked `review`, not
 silently replaced by an ellipse. Crops containing another detected face are
@@ -180,7 +196,7 @@ excluded. Inspect the preview and transparent PNGs: hair, glasses, similar-colou
 backgrounds, touching people and missed detections can still be wrong. These
 heuristics do not certify perfect edges. Generation's configured cleansing path
 excludes review/missing derivatives and refuses stale or changed products.
-The head-only method revision invalidates earlier whole-person cleansing jobs.
+The aligned-head method revision invalidates earlier cleansing pointers.
 
 The generation CLI refreshes cleansing before native reconstruction; its input
 audit uses the latest completed, current-curation derivatives without inference.

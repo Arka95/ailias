@@ -50,12 +50,15 @@ Generated resources, model provenance, contact sheets, crops, masks and
 selection metadata stay under **`data\arka`**. Originals remain in place and are
 referenced by path and SHA256; generated crops/masks are shared across runs.
 Inspect groups before selecting one;
-largest does not necessarily mean the intended person. No face restoration,
-warping or invented detail is applied. [Imageprocessing guide](docs/imageprocessing/README.md).
+largest does not necessarily mean the intended person. Reviewed portraits and
+native reconstruction pixels are not geometrically warped or face-restored.
+[Imageprocessing guide](docs/imageprocessing/README.md).
 
 Normal scans also create separate **head-only** cutouts (face, ears and hair,
 not shirts/torso/neck) and
 conservatively colour-harmonized native inputs; approved crops stay unchanged.
+Cleansing also publishes separate centered, scale/roll-aligned analysis heads
+with inverse source transforms, lighting evidence and complete paginated previews.
 First prepare the optional conversion tools with
 `python -m pip install -e ".[matting-tools]"`, then `imageprocessing models`.
 To cleanse an existing reviewed run without detection/recognition again:

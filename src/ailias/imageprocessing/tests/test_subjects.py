@@ -58,6 +58,21 @@ class SubjectAssociationTests(unittest.TestCase):
 
 
 class ViewSelectionTests(unittest.TestCase):
+    def test_good_frontal_detail_is_not_overruled_by_generic_pose_fit_confidence(self):
+        good = face("good", [1, 0], confidence=.56)
+        good["quality"]["laplacian_variance"] = 250
+        less_useful = face("less-useful", [1, 0], confidence=.98)
+        less_useful["quality"]["laplacian_variance"] = 15
+        chosen, _ = select_views([less_useful, good], 1)
+        self.assertEqual(chosen[0]["id"], "good")
+
+    def test_usable_lighting_is_preferred_without_dropping_complementary_angles(self):
+        clean, cast, side = face("clean", [1, 0]), face("cast", [1, 0]), face("side", [1, 0], "left_profile")
+        cast["lighting"] = {"warnings": ["relative_subject_colour_outlier"], "baseline_penalty": .7}
+        chosen, counts = select_views([cast, clean, side], 2)
+        self.assertEqual({candidate["id"] for candidate in chosen}, {"clean", "side"})
+        self.assertEqual(counts["left_profile"], 1)
+
     def test_prioritizes_frontal_anchors_without_losing_complementary_angles(self):
         candidates = [face(f"front-{i}", [1, 0]) for i in range(60)]
         for category in ("left_oblique", "right_oblique", "left_profile", "right_profile"):

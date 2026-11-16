@@ -5,7 +5,7 @@ from importlib.metadata import version
 from PIL import Image
 
 from ailias.geometry.metrics import align
-from ailias.imageprocessing.backend import Face
+from ailias.imageprocessing.backend import Face, detect_scaled_rows
 from ailias.imageprocessing.models import REVISION, verified_models
 
 
@@ -91,6 +91,7 @@ class OpenCVCudaBackend:
                 "models": {name: str(path.relative_to(store.root)) for name, path in paths.items()},
                 "execution": "CUDA model inference; CPU decoding/alignment/cropping/grouping",
                 "cuda_device_count": cv2.cuda.getCudaEnabledDeviceCount(),
+                "detection_scales": "configured side; no-face-only 960/640/320 retries, unchanged threshold",
             }
         except BaseException:
             self.close()
@@ -111,20 +112,17 @@ class OpenCVCudaBackend:
     def detect(self, image):
         cv, np = self.cv, self.np
         original = cv.cvtColor(np.asarray(image), cv.COLOR_RGB2BGR)
-        scale = min(1.0, self.policy.detection_max_side / max(image.size))
-        small = cv.resize(original, (max(1, round(image.width * scale)),
-                                     max(1, round(image.height * scale))))
-        height, width = small.shape[:2]
-        padded = cv.copyMakeBorder(small, 0, (-height) % 32, 0, (-width) % 32,
-                                  cv.BORDER_CONSTANT, value=0)
-        predictions = self._run("yunet", cv.dnn.blobFromImage(padded))
-        rows = decode_yunet(predictions, padded.shape[1], padded.shape[0], self.policy.detection_score)
+        def infer(small):
+            height, width = small.shape[:2]
+            padded = cv.copyMakeBorder(small, 0, (-height) % 32, 0, (-width) % 32,
+                                      cv.BORDER_CONSTANT, value=0)
+            predictions = self._run("yunet", cv.dnn.blobFromImage(padded))
+            return decode_yunet(predictions, padded.shape[1], padded.shape[0], self.policy.detection_score)
+        rows = detect_scaled_rows(cv, original, self.policy.detection_max_side, infer)
         target = np.asarray([[38.2946, 51.6963], [73.5318, 51.5014], [56.0252, 71.7366],
                              [41.5493, 92.3655], [70.7299, 92.2041]], dtype=np.float64)
         faces = []
         for row in rows:
-            row[:14:2] *= image.width / width
-            row[1:14:2] *= image.height / height
             landmarks = row[4:14].reshape(5, 2)
             _, transform = align(target, landmarks.astype(np.float64), fit="similarity")
             matrix = np.column_stack((

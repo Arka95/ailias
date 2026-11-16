@@ -26,7 +26,7 @@ class FakeDetector:
     provenance = {"provider": "cleansing-fixture", "revision": "1", "models": {"sface": "fixture"}}
 
     def detect(self, image):
-        return [Face([40, 40, 80, 80], [], 0.99, [1., 0.])]
+        return [Face([40, 40, 80, 80], [[55, 60], [100, 65], [80, 80], [60, 105], [100, 110]], 0.99, [1., 0.])]
 
 
 class FakeMatting:
@@ -196,6 +196,14 @@ class CleansingPipelineTests(unittest.TestCase):
                 with Image.open(self.store.artifact_path(record["products"][name])) as image:
                     self.assertEqual(image.mode, mode)
                     self.assertEqual(list(image.size), record["size"])
+            with Image.open(self.store.artifact_path(record["products"]["aligned"])) as aligned:
+                self.assertEqual(aligned.size, (512, 512))
+                self.assertEqual(aligned.mode, "RGBA")
+            self.assertTrue(record["alignment"]["analysis_only"])
+            self.assertFalse(record["alignment"]["yaw_pitch_frontalized"])
+        shown = [key for page in result["preview_pages"] for key in page["face_ids"]]
+        self.assertEqual(set(shown), set(result["faces"]))
+        self.assertEqual(len(shown), len(set(shown)))
         self.assertEqual(result["cleanup"]["errors"], 0)
 
     def test_generation_uses_corrected_rgb_and_alpha_masks_and_reuses_input_hardlinks(self):
@@ -215,6 +223,22 @@ class CleansingPipelineTests(unittest.TestCase):
             self.assertEqual(mask.getpixel((80, 80)), 255)
             self.assertEqual(mask.getpixel((80, 140)), 0, "Person foreground is not head foreground")
         self.assertFalse(entry["cleansing"]["color"]["intrinsic_albedo"])
+        self.assertNotEqual(entry["analysis"]["aligned_cutout"]["path"], entry["image"]["path"])
+        self.assertTrue(entry["analysis"]["native_projection_preserved"])
+
+    def test_preview_paginates_every_ready_head_without_dropping_faces_after_36(self):
+        report = load_run(self.store, self.run)
+        template = next(iter(report["faces"].values()))
+        report["faces"] = {f"observation-{index}": dict(template, id=f"observation-{index}")
+                           for index in range(37)}
+        report["groups"] = [{"id": "face-001", "members": list(report["faces"])}]
+        with patch("ailias.imageprocessing.cleansing.load_run", return_value=report):
+            result = self.cleanse()
+        shown = [key for page in result["preview_pages"] for key in page["face_ids"]]
+        self.assertEqual(len(result["preview_pages"]), 2)
+        self.assertEqual(set(shown), set(report["faces"]))
+        self.assertEqual(len(shown), 37)
+        self.assertTrue(all(self.store.verify(page["artifact"]) for page in result["preview_pages"]))
 
     def test_native_stages_receive_actual_alpha_mask_directory(self):
         from ailias.generation.pipeline import reconstruct

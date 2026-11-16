@@ -152,7 +152,7 @@ def cleanup_alias(store: Store, keep_run: str | None = None,
             result[key] += removed[key]
     assets = store.resolve(str(Path("imageprocessing") / "assets"))
     if assets.exists():
-        for category in ("portraits", "review", "bodies", "masks", "cleansed", "cutouts", "alphas"):
+        for category in ("portraits", "review", "bodies", "masks", "cleansed", "cutouts", "alphas", "aligned"):
             folder = assets / category
             if not folder.exists():
                 continue

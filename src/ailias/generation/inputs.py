@@ -3,6 +3,7 @@ import json
 import math
 import os
 from collections import Counter
+from copy import deepcopy
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -12,7 +13,7 @@ from ailias.imageprocessing.curation import load_filter
 from ailias.imageprocessing.features import contact_sheet
 from ailias.imageprocessing.pipeline import component, load_run
 from ailias.imageprocessing.settings import ProcessingPolicy
-from ailias.imageprocessing.subjects import associate_subject, select_views
+from ailias.imageprocessing.subjects import associate_subject, select_views, view_rank
 from ailias.imageprocessing.views import estimate_view
 from ailias.resources import cleanup_owned_files
 from ailias.storage import Store, atomic_json, digest
@@ -90,18 +91,32 @@ def prepare_inputs(store: Store, run: str, group_id: str, policy: GenerationPoli
                 if not store.verify(artifact):
                     raise ValueError("Cleansed portrait/alpha changed; run imageprocessing cleanse again")
         source = report["sources"][face["source_id"]]
-        candidates.append({**face, "view": estimate_view(face, source.get("metadata", {}))})
+        candidates.append({**face, "view": estimate_view(face, source.get("metadata", {})),
+                           "lighting": derivative.get("lighting", {}) if cleansed is not None else {}})
     associated, decisions = associate_subject(
         candidates, report["groups"], group_id, ProcessingPolicy(**report["policy"]),
         expand=policy.selection_expand_groups)
+    lighting_reference = None
+    if cleansed is not None:
+        from ailias.imageprocessing.observations import assess_lighting
+        lighting_records = {
+            face["id"]: {"lighting": deepcopy(face["lighting"]), "subject_scope": group_id,
+                         "status": "ready", "view": face["view"],
+                         "quality_warnings": face["quality"]["reasons"]}
+            for face in associated
+        }
+        lighting_reference = assess_lighting(lighting_records)
+        associated = [dict(face, lighting=lighting_records[face["id"]]["lighting"])
+                      for face in associated]
     anchors = registration_anchors(store, run, group_id, associated, gallery.fingerprint, policy.max_images)
     chosen, counts = select_views(associated, policy.max_images, anchors)
     if len(chosen) < policy.min_registered_images:
         raise ValueError("Too few distinct, explicitly kept, quality-eligible photos in this group")
     group_ids = {key: candidate["id"] for candidate in report["groups"] for key in candidate["members"]}
     selection = {
-        "method": "seed-anchored-cross-group-frontal-multiview-v3", "seed_group": group_id,
+        "method": "seed-anchored-evidence-ranked-frontal-multiview-v4", "seed_group": group_id,
         "registration_anchors": anchors,
+        "lighting_reference": lighting_reference,
         "selection_expand_groups": policy.selection_expand_groups,
         "selection_allow_quality_warnings": policy.selection_allow_quality_warnings,
         "candidate_count": len(candidates), "associated_count": len(associated),
@@ -110,6 +125,10 @@ def prepare_inputs(store: Store, run: str, group_id: str, policy: GenerationPoli
         "selected_face_ids": [face["id"] for face in chosen],
         "identity_decisions": decisions, "excluded": excluded,
         "identity_confirmed": False, "pose_calibrated": False,
+        "baseline_face_id": max(
+            (face for face in chosen if face["view"]["category"] == "front"),
+            key=view_rank, default={"id": None})["id"],
+        "ranking": "quality/light warnings, view suitability/detail/relative lighting; pose-fit confidence is a tiebreaker",
         "limitations": [
             "Five landmarks give approximate view bins, not dense facial detail or occlusion proof",
             "Membership remains a seed-subject hypothesis; ambiguous associations require review",
@@ -134,6 +153,7 @@ def prepare_inputs(store: Store, run: str, group_id: str, policy: GenerationPoli
             "box_xywh": [x - face["portrait_bounds"][0], y - face["portrait_bounds"][1], w, h],
             "identity_ambiguous": face.get("identity_ambiguous", True),
             "group": group_ids[face["id"]], "view": face["view"],
+            "lighting": face["lighting"],
             "landmarks_5_source": face.get("landmarks_5", []),
             "selection_weight": round(
                 (1.0 if face["view"]["category"] == "front" else
@@ -149,6 +169,11 @@ def prepare_inputs(store: Store, run: str, group_id: str, policy: GenerationPoli
                 foreground_alpha=derivative["products"]["alpha"],
                 cleansing={"method": cleansed["method"], "policy": cleansed["policy"],
                            "color": derivative["color"], "quality": derivative["quality"]})
+            entries[-1]["analysis"] = {
+                "alignment": derivative["alignment"],
+                "aligned_cutout": derivative["products"].get("aligned"),
+                "native_projection_preserved": True,
+            }
     mask_method = "portrait-alpha-threshold-v1" if cleansed is not None else "face-ellipse-v1"
     payload = {"schema_version": 1, "mask": mask_method,
                "curation_sha256": gallery.fingerprint, "selection": selection, "entries": entries}

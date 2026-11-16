@@ -25,6 +25,29 @@ class Backend(Protocol):
     def segment(self, image: Image.Image) -> Image.Image: ...
 
 
+def detect_scaled_rows(cv, original, maximum, infer):
+    height, width = original.shape[:2]
+    attempted = set()
+    for side in (maximum, min(maximum, 960), min(maximum, 640), min(maximum, 320)):
+        scale = min(1., side / max(width, height))
+        size = max(1, round(width*scale)), max(1, round(height*scale))
+        if size in attempted:
+            continue
+        attempted.add(size)
+        small = cv.resize(original, size)
+        rows = infer(small)
+        if rows is None or not len(rows):
+            continue
+        mapped = []
+        for row in rows:
+            row = row.copy()
+            row[:14:2] *= width/size[0]
+            row[1:14:2] *= height/size[1]
+            mapped.append(row)
+        return mapped
+    return []
+
+
 class OpenCVBackend:
     def __init__(self, store: Store, policy: ProcessingPolicy, body: bool = True):
         paths = verified_models(store, body)
@@ -52,24 +75,19 @@ class OpenCVBackend:
             "opencv": cv2.__version__, "numpy": np.__version__,
             "pillow": version("Pillow"), "cpu_threads": policy.cpu_threads,
             "models": {name: str(path.relative_to(store.root)) for name, path in paths.items()},
+            "detection_scales": "configured side; no-face-only 960/640/320 retries, unchanged threshold",
         }
 
     def detect(self, image):
         cv, np = self.cv, self.np
         original = cv.cvtColor(np.asarray(image), cv.COLOR_RGB2BGR)
-        scale = min(1.0, self.policy.detection_max_side / max(image.size))
-        small = cv.resize(original, (max(1, round(image.width * scale)),
-                                     max(1, round(image.height * scale))))
-        self.detector.setInputSize((small.shape[1], small.shape[0]))
+        def infer(small):
+            self.detector.setInputSize((small.shape[1], small.shape[0]))
+            return self.detector.detect(small)[1]
         try:
-            _, rows = self.detector.detect(small)
-            if rows is None:
-                return []
+            rows = detect_scaled_rows(cv, original, self.policy.detection_max_side, infer)
             faces = []
-            for row in rows:
-                mapped = row.copy()
-                mapped[:14:2] *= image.width / small.shape[1]
-                mapped[1:14:2] *= image.height / small.shape[0]
+            for mapped in rows:
                 aligned = self.recognizer.alignCrop(original, mapped)
                 feature = self.recognizer.feature(aligned).flatten()
                 feature /= max(float(np.linalg.norm(feature)), 1e-12)

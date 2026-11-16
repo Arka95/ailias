@@ -13,14 +13,15 @@ from ailias.imageprocessing.curation import load_filter
 from ailias.imageprocessing.features import contact_sheet
 from ailias.imageprocessing.pipeline import component, load_run, new_id, read_image
 from ailias.imageprocessing.settings import ProcessingPolicy
-from ailias.imageprocessing.subjects import associate_subject
+from ailias.imageprocessing.observations import align_head, assess_lighting, face_lighting
+from ailias.imageprocessing.subjects import associate_subject, view_rank
 from ailias.imageprocessing.views import estimate_view
 from ailias.resources import cleanup_owned_files
 from ailias.settings import PROJECT_ROOT
 from ailias.storage import atomic_json, digest
 
 DEFAULT_CONFIG = PROJECT_ROOT / "config" / "cleansing.json"
-METHOD = "scene-neutrals-subject-exposure-head-alpha-v3"
+METHOD = "scene-neutrals-subject-exposure-aligned-head-v4"
 
 
 @dataclass(frozen=True)
@@ -254,7 +255,8 @@ def cleanse_run(store, run, policy, backend, group=None, progress=None):
                 image = opened.convert("RGB")
             alpha = backend.matte(image)
             from ailias.imageprocessing.faceparsing import head_alpha
-            alpha, semantic = head_alpha(alpha, backend.parse(image, bounds), bounds)
+            parts = backend.parse(image, bounds)
+            alpha, semantic = head_alpha(alpha, parts, bounds)
             corrected, color = appearance(image, bounds, scene_balances[face["source_id"]],
                                            policy, references.get(scope))
             products, quality = foreground(corrected, alpha, bounds, policy)
@@ -265,13 +267,28 @@ def cleanse_run(store, run, policy, backend, group=None, progress=None):
                 "portrait": store.reference_artifact(path), "source": report["sources"][face["source_id"]]["artifact"],
                 "size": list(image.size), "portrait_bounds": face["portrait_bounds"],
                 "status": quality["status"], "quality": quality, "color": color,
-                "semantic_region": semantic, "products": {},
+                "semantic_region": semantic, "products": {}, "view": face["view"],
+                "subject_scope": scope, "quality_warnings": face["quality"]["reasons"],
+                "source_name": store.artifact_path(report["sources"][face["source_id"]]["artifact"]).name,
+                "lighting": face_lighting(corrected, parts, alpha, bounds),
+                "alignment": {"status": "not_published"},
             }
             if products:
                 for name, value, category in zip(("rgb", "cutout", "alpha"), products,
                                                   ("cleansed", "cutouts", "alphas")):
                     product = store_png(store, value, category, directory / "work", created)
                     record["products"][name] = store.reference_artifact(store.resolve(product))
+                landmarks = [[point[0] - face["portrait_bounds"][0], point[1] - face["portrait_bounds"][1]]
+                             for point in face.get("landmarks_5", [])]
+                aligned, record["alignment"] = align_head(products[1], landmarks)
+                if aligned is not None:
+                    source_to_portrait = np.eye(3)
+                    source_to_portrait[:2, 2] = -np.asarray(face["portrait_bounds"][:2])
+                    source_to_aligned = np.asarray(record["alignment"]["portrait_to_aligned"]) @ source_to_portrait
+                    record["alignment"]["source_to_aligned"] = source_to_aligned.tolist()
+                    record["alignment"]["aligned_to_source"] = np.linalg.inv(source_to_aligned).tolist()
+                    product = store_png(store, aligned, "aligned", directory / "work", created)
+                    record["products"]["aligned"] = store.reference_artifact(store.resolve(product))
             result["faces"][face["id"]] = record
             atomic_json(manifest, result)
             if progress:
@@ -279,21 +296,35 @@ def cleanse_run(store, run, policy, backend, group=None, progress=None):
         for record in result["faces"].values():
             if not store.verify(record["source"]) or not store.verify(record["portrait"]):
                 raise ValueError("Source or reviewed portrait changed during cleansing")
-        tiles = []
-        for key, record in result["faces"].items():
-            if record["status"] != "ready" or len(tiles) >= 36:
-                continue
-            with Image.open(store.artifact_path(record["products"]["cutout"])) as cutout:
-                cutout = cutout.crop(cutout.getchannel("A").getbbox())
-                cutout.thumbnail((190, 195))
-                tile = Image.new("RGB", cutout.size, (85, 100, 115))
-                tile.paste(cutout, mask=cutout.getchannel("A"))
-            tiles.append((key[:12], tile))
-        if tiles:
-            preview = directory / "cleansed-preview.jpg"
+        result["lighting_references"] = assess_lighting(result["faces"])
+        ordered = sorted(
+            [dict(face, lighting=result["faces"][face["id"]]["lighting"]) for face in candidates
+             if result["faces"][face["id"]]["status"] == "ready"],
+            key=lambda face: (face["view"]["category"] == "front", view_rank(face)), reverse=True)
+        result["preview_pages"] = []
+        for offset in range(0, len(ordered), 36):
+            page = ordered[offset:offset + 36]
+            tiles = []
+            for face in page:
+                record = result["faces"][face["id"]]
+                artifact = record["products"].get("aligned", record["products"]["cutout"])
+                with Image.open(store.artifact_path(artifact)) as cutout:
+                    cutout.thumbnail((190, 195))
+                    tile = Image.new("RGB", cutout.size, (85, 100, 115))
+                    tile.paste(cutout, mask=cutout.getchannel("A"))
+                name = record["source_name"]
+                tiles.append((name[:28] + "\n" + name[28:52], tile))
+            preview = directory / ("cleansed-preview.jpg" if offset == 0 else f"cleansed-preview-{offset//36 + 1}.jpg")
             contact_sheet(tiles).save(preview, quality=88)
-            result["preview"] = store.reference_artifact(preview)
+            result["preview_pages"].append({"artifact": store.reference_artifact(preview),
+                                             "face_ids": [face["id"] for face in page]})
+        if result["preview_pages"]:
+            result["preview"] = result["preview_pages"][0]["artifact"]
         result["summary"] = dict(Counter(record["status"] for record in result["faces"].values()))
+        result["summary"]["alignment"] = dict(Counter(
+            record["alignment"]["status"] for record in result["faces"].values()))
+        result["summary"]["lighting_warnings"] = dict(Counter(
+            warning for record in result["faces"].values() for warning in record["lighting"]["warnings"]))
         result["summary"]["white_balance"] = dict(Counter(
             record["color"]["white_balance"]["status"] for record in result["faces"].values()))
         result["summary"]["exposure"] = dict(Counter(
@@ -307,6 +338,7 @@ def cleanse_run(store, run, policy, backend, group=None, progress=None):
             retained.extend(artifact["path"] for artifact in record["products"].values())
         if result.get("preview"):
             retained.append(result["preview"]["path"])
+        retained.extend(page["artifact"]["path"] for page in result.get("preview_pages", []))
         for asset in created:
             if asset not in retained:
                 store.resolve(asset).unlink(missing_ok=True)

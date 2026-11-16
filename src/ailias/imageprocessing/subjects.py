@@ -1,5 +1,7 @@
 """Seed-anchored association across candidate clusters; never confirms identities."""
 
+import math
+
 from ailias.imageprocessing.features import normalize_embedding, similarity
 from ailias.imageprocessing.views import VIEW_WEIGHTS
 
@@ -66,19 +68,30 @@ def associate_subject(faces, groups, seed_id, policy, expand=True):
     return [face for face in selected if face["source_id"] not in conflicts], decisions
 
 
+def view_rank(face):
+    quality, view = face["quality"], face["view"]
+    light = face.get("lighting", {})
+    category = view["category"]
+    target_yaw = 35 if "oblique" in category else 70 if "profile" in category else 0
+    target_pitch = 30 if category in {"up", "down"} else 0
+    pose = .5
+    if "yaw_deg" in view and "pitch_deg" in view:
+        pose = math.exp(-.5*(((abs(view["yaw_deg"]) - target_yaw)/20)**2
+                             + ((abs(view["pitch_deg"]) - target_pitch)/20)**2))
+    detail = .6*min(quality["native_short_side"]/800, 1)
+    detail += .4*min(math.log1p(max(0, quality["laplacian_variance"]))/math.log1p(400), 1)
+    score = .45*pose + .35*detail + .2*(1 - light.get("baseline_penalty", 0.))
+    return (-len(quality["reasons"]), -len(light.get("warnings", [])), score,
+            min(quality["native_short_side"], 1600), view["confidence"], face["id"])
+
+
 def select_views(faces, maximum, registration_anchors=()):
     buckets = {name: [] for name in VIEW_WEIGHTS}
     for face in faces:
         buckets[face["view"]["category"]].append(face)
 
-    def rank(face):
-        quality = face["quality"]
-        return (-len(quality["reasons"]), face["view"]["confidence"],
-                min(quality["native_short_side"], 1600),
-                min(quality["laplacian_variance"], 1000), face["id"])
-
     for bucket in buckets.values():
-        bucket.sort(key=rank, reverse=True)
+        bucket.sort(key=view_rank, reverse=True)
     selected, counts = [], dict.fromkeys(buckets, 0)
     anchors = set(registration_anchors)
     for name, bucket in buckets.items():

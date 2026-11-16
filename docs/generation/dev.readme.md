@@ -90,13 +90,14 @@ has 13 fragments; increasing its polygon count does not recover missing anatomy.
 | Decision | Why chosen / tradeoff | State |
 |---|---|---|
 | Widen selection across compatible groups and directions | More varied evidence becomes available instead of treating one recognition cluster as all photos of a person; uncertain identities still need review | Implemented: up to 64 photos, selection audit and retained five-point observations |
-| Retain previously registered photo anchors when still eligible | Pose-ranked diversity alone can discard photos that already matched geometrically. Anchors protect some known tracking evidence, not guaranteed connectivity | Working tree; corrected selection has not had a native replay |
+| Retain previously registered photo anchors when still eligible | Pose-ranked diversity alone can discard photos that already matched geometrically. Anchors protect some known tracking evidence, not guaranteed connectivity | Implemented; available only for the same extraction/curation fingerprint, not blindly transferred between rescans |
+| Rank baseline references using observed detail/light and within-bin pose | Generic five-point pose-fit confidence previously overruled genuinely sharp, frontal portraits. Use it as a tiebreaker rather than the primary quality score | Implemented in `subjects.py:view_rank`; after fixed-seed association, recompute relative-light assessment across supported groups before selection. Audit records the shared reference, `baseline_face_id` and reversible aligned analysis references; native pixels retain original projection |
 | Fit one complete template jointly across views | A **template** is a baseline mesh with known anatomy; fitting changes its shape to explain the photos. Share identity shape, but allow each image its own camera/expression, rather than averaging inconsistent 3D predictions | Recommended next backend, not implemented; more complex than generic photogrammetry |
 | Weight evidence by region and visibility | Proposed: fronts constrain facial layout; profiles help constrain nose projection and side contours. A view useful for the nose need not be useful for the far ear | Proposed; current selection weights/landmarks are metadata, **not COLMAP facial fitting constraints** |
 | Fill gaps using weak symmetry and a shape prior | A **prior** is a plausible starting shape, not an observation. Prefer real evidence; use reversible symmetry only without contradictory observations; leave unseen rear-head anatomy generic | Proposed; preserves completeness but cannot certify unseen likeness |
 | Estimate skin reflectance separately from lighting | **Albedo** means base surface colour before illumination/reflections. Copying a shadow into a texture makes it look like permanent skin colour | Proposed; DECA informs separation of shape/expression/albedo/light, not an adopted model |
 | Consume real head masks and colour-corrected appearance derivatives | Person masks retain clothing. SIFT/fusion need aligned face/ear/hair masks, and texture inputs must exclude scene/clothes/neck; harmonization is still not albedo recovery | Implemented when `use_cleansed_portraits=true` (supplied profiles): fresh CUDA semantic head cleansing, corrected RGB and binary alpha masks. Review/stale/tampered derivatives fail closed; raw ellipse path remains an explicit legacy opt-out |
-| Keep raw surface evidence as well as a mesh | Mesh interpolation can add polygons unsupported by photos. The working tree retains fused samples after successful native meshing, alongside cameras, for later inspection/fitting | Implemented in working tree; does not promise retention if the meshing command itself fails |
+| Keep raw surface evidence as well as a mesh | Mesh interpolation can add polygons unsupported by photos. Retain fused samples after successful native meshing, alongside cameras, for later inspection/fitting | Implemented; does not promise retention if the meshing command itself fails |
 
 MakeHuman core assets are a researched CC0 baseline candidate, **not a downloaded
 or fitted dependency**. MediaPipe is a candidate observation source, not a
@@ -115,6 +116,29 @@ The initial 64-photo replay (`20261116T130010Z-e60844a8`) found only two verifie
 pairs, largest connected component two, and blocked before mapping. This proves
 that selection expansion alone did not fix the current backend, **not** that the
 photo collection cannot support a semantic fitter.
+
+A subsequent head-cleansed native replay, `20261116T135710Z-45c2d5ec`,
+tested 64 photos/2,016 possible pairs: three verified pairs, largest component
+three, maximum 119 inliers. GPU SIFT ran, but mapping rejected its initial pairs
+and produced **no sparse model or mesh** (7.172 native seconds).
+Controlled matching with the same photos/settings gave four verified pairs for
+original RGB plus head masks, and three for original RGB plus legacy ellipses;
+largest component remained three in each. Therefore reverting cleansing did not
+fix this tested configuration. The job's `cleansing-ablation.json` records this;
+temporary hardlinks/databases were removed, without touching originals.
+
+A native ALIKED/LightGlue feasibility probe failed before loading weights:
+ONNX Runtime's CUDA provider requires `cublasLt64_12.dll`, absent from the existing
+CUDA 13 installations. No replacement stack or model was installed. Stronger
+generic matching also would not supply a human-head shape prior.
+
+The v4 upstream audit (`20261116T142059Z-a7a6adf8`) now supplies 166 reversible
+aligned analysis heads and lighting evidence, with all three owner-nominated
+fronts in the selected 64 and the recovered close-up chosen as baseline.
+This fixes missed evidence/preparation, **not** the missing template fitter.
+COLMAP remains exhaustive: it does not yet consume those fields as pair gates
+or facial deformation constraints. Do not describe metadata as an implemented
+joint shape/expression/lighting solver.
 
 ### 4. Task Breakdown
 
