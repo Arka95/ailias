@@ -23,4 +23,4 @@ ailias = "ailias.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-exclude = ["*.tests", "*.tests.*"]
+exclude = ["*.tests", "*.tests.*", "integration_tests", "integration_tests.*"]

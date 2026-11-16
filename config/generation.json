@@ -1,0 +1,22 @@
+{
+  "tools_root": "..\\..\\tools",
+  "policy": {
+    "max_images": 32,
+    "min_registered_images": 5,
+    "min_registered_fraction": 0.6,
+    "min_sparse_points": 100,
+    "max_reprojection_error_px": 2.5,
+    "max_feature_image_size": 2000,
+    "max_dense_image_size": 1200,
+    "min_fused_points": 1000,
+    "min_mesh_faces": 500,
+    "cpu_threads": 4,
+    "gpu_index": 0,
+    "timeout_seconds": 1200,
+    "poisson_depth": 9,
+    "poisson_trim": 5.0,
+    "render_size": 768,
+    "render_samples": 16,
+    "blender_device": "CUDA"
+  }
+}

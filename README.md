@@ -1,9 +1,9 @@
 # ailias
 
-Local, geometry-first photo-to-MetaHuman preparation. **First implementation
-increment, not an automatic MetaHuman generator.** Follows the source plan's
-manual-first milestone: prove reconstruction, cleanup and MetaHuman conversion
-on one subject before automating tools or refinement.
+Local, geometry-first photo-to-MetaHuman preparation with experimental native
+reconstruction and editor adapters. **A real human head/MetaHuman has not yet been
+produced or validated.** The source plan's manual-first end-to-end milestone
+remains open; a successful tool call is not a likeness or production certificate.
 
 Implemented: image intake, heuristic quality checks, manual angle/expression
 review, nine-view coverage gate, durable stage handoffs, camera-pose records,
@@ -11,7 +11,9 @@ artifact integrity checks, downstream invalidation and three-view comparison she
 Optional **imageprocessing** adds local face grouping, portrait/body extraction,
 HEIC support and face-specific quality filtering. **geometry** compares aligned
 2D/3D landmarks and optional 3D surface samples.
-Unreal, Blender and reconstruction backends are **not installed or executed**.
+**generation** runs installed CUDA COLMAP and Blender; the UE 5.8 adapter remains
+blocked locally because Unreal is not installed. Native tools share one
+workspace-level installation, not another Python/CUDA environment.
 
 ## Setup
 
@@ -62,6 +64,18 @@ results, original photos or models.
 Explicit `imageprocessing cleanup` migrates verified legacy source copies and
 reclaims unused generated assets. See the module guide before pruning old runs.
 
+After manually reviewing/removing portrait crops, freeze those decisions:
+
+```powershell
+python -m ailias imageprocessing curate arka RUN_ID --removed-are-rejected
+```
+
+Later scans automatically honor that alias's reviewed profile. Known rejected
+crops are not recreated; clear negative-exemplar matches are suppressed, while
+uncertain new portraits go to `assets\review`, not the accepted portrait folder.
+Existing kept portraits are never overwritten or recreated after another manual
+deletion. [Curation rules and limitations](docs/imageprocessing/README.md#learn-from-manual-portrait-review).
+
 ## Usage
 
 Use photo IDs from intake/status, with unique prefixes accepted by `review`.
@@ -76,9 +90,28 @@ python -m ailias validate first-face
 manual reconstruction/cleanup/MetaHuman work externally, then attach artifacts
 and record the baseline using the [workflow guide](docs/workflow.md).
 
+## Reconstruct and clean a candidate
+
+```powershell
+.\scripts\setup-generation-tools.ps1
+python -m ailias generation doctor
+python -m ailias generation reconstruct arka RUN_ID face-001
+python -m ailias generation status arka JOB_ID
+python -m ailias generation unreal-doctor
+```
+
+Only explicitly kept, quality-eligible portraits enter these experiments.
+Reusable hardlinks avoid photo copies; jobs discard native databases/depth caches
+after retaining their results or failure diagnostics. The current real-photo
+benchmark is blocked by insufficient verified multi-view matches, not a missing
+CUDA installation. Blender cleanup/rendering has run on a synthetic fixture;
+that is **not** a reconstructed head. See [generation](docs/generation/README.md)
+for gates, actual validation evidence and the remaining manual Identity solve.
+
 | Document | Dev guide | Purpose |
 |---|---|---|
 | [Workflow](docs/workflow.md) | [Development](docs/dev.readme.md) | CLI contracts, capture and manual handoffs |
 | [Imageprocessing](docs/imageprocessing/README.md) | [Module internals](docs/imageprocessing/dev.readme.md) | Portrait/body extraction and reviewable face aliases |
 | [Geometry metrics](docs/geometry/README.md) | [Metric internals](docs/geometry/dev.readme.md) | Identity similarity versus actual geometric errors |
+| [Generation](docs/generation/README.md) | [Native adapters and validation](docs/generation/dev.readme.md) | COLMAP, Blender, guarded UE 5.8 handoffs and honest failure states |
 | [Implementation scope](docs/analysis.md) | [Remaining work](docs/todo/README.md) | Decisions, source and deferred functionality |

@@ -10,6 +10,7 @@ def cleanup_owned_files(store: Store, directory: str, retained: list[str]) -> di
     valid_scope = (
         len(parts) == 2 and parts[0] == "geometry"
         or len(parts) == 3 and parts[0] == "imageprocessing" and parts[1] in {"runs", "selections"}
+        or len(parts) == 3 and parts[0] == "generation" and parts[1] in {"runs", "inputs"}
     )
     if relative.is_absolute() or not valid_scope or parts[-1] in {".", ".."}:
         raise ValueError("Cleanup requires a specific relative job directory")

@@ -29,6 +29,11 @@ flowchart TB
         CLI["CLI commands"]:::svc --> IN["Intake and manual review"]:::svc
         CLI -->         IMG["Imageprocessing: explicit CPU or CUDA"]:::svc
         CLI --> GEO["2D and 3D geometry errors"]:::svc
+        CLI --> GEN["Experimental generation jobs"]:::svc
+        IMG -->|Human-kept artifacts; explicit command| GEN
+        GEN --> COL["COLMAP 4.2.1 CUDA"]:::ext
+        GEN --> BL["Blender 4.5.15 CUDA"]:::ext
+        GEN -.->|Guarded adapter; not locally verified| UE["UE 5.8 - not installed"]:::unknown
         IN --> GATE{"Quality and coverage"}:::gate
         GATE -->|ready| HAND["Manual handoff receipts"]:::svc
         HAND --> BASE["Three-view baseline"]:::svc
@@ -37,21 +42,27 @@ flowchart TB
         BASE --> DATA
         IMG --> DATA
         GEO --> DATA
+        GEN --> DATA
     end
     MAIN ~~~ SUM
-    SUM["Figure - Implemented ailias flow. How to read: top to bottom; blue logic, yellow gate, green storage. Summary: local image analysis prepares candidates; reconstruction and MetaHuman receipts remain manual. Backed by: cli.py, imageprocessing/cli.py, geometry/cli.py, intake.py, workflow.py, storage.py."]:::caption
+    SUM["Figure - Implemented ailias flow. How to read: top to bottom; blue logic, yellow gate, green storage, purple native tools, dashed red unverified editor. Summary: experimental native generation remains separate from manual attestations; no real head or MetaHuman yet. Backed by: cli.py, imageprocessing/cli.py, geometry/cli.py, generation/pipeline.py, generation/unreal.py, intake.py, workflow.py, storage.py."]:::caption
     style MAIN fill:none,stroke:none
     classDef svc fill:#cfe3ff,stroke:#2b6cb0,color:#0b2545
     classDef gate fill:#fff3bf,stroke:#d69e2e,color:#4a3608
     classDef store fill:#d6f5df,stroke:#2f855a,color:#12351f
+    classDef ext fill:#e6dcff,stroke:#6b46c1,color:#2d1b52
+    classDef unknown fill:#fde2e2,stroke:#c53030,color:#611a15,stroke-dasharray:4 3
     classDef caption fill:#f7f7f7,stroke:#999,color:#222,font-size:16px
 ```
 
 **Backed by:** `src\ailias\cli.py` (`execute`), `intake.py` (`ingest`,
 `review_photo`, `validate`), `workflow.py` (`attach`, `baseline`) and `storage.py`
-(`Store`), plus `imageprocessing\cli.py` and `geometry\cli.py` (`execute`).
+(`Store`), `imageprocessing\cli.py` and `geometry\cli.py` (`execute`),
+`generation\pipeline.py` (`reconstruct`, `clean_mesh`) and
+`generation\unreal.py` (`run_unreal`).
 Diagram syntax was authored without a Mermaid render check.
-External editors are not shown because ailias does not call them.
+COLMAP/Blender are locally verified native dependencies; Unreal is an
+implemented but locally unverified adapter, not an available engine.
 
 | Module | Responsibility |
 |---|---|
@@ -63,11 +74,13 @@ External editors are not shown because ailias does not call them.
 | `cli.py` | CLI argument schema, JSON output and exit codes |
 | `imageprocessing` | Explicit CPU or CUDA in the shared environment, reusable crops/masks, grouping, zero-copy selections |
 | `geometry` | Aligned landmark errors and optional sampled-surface distances, not an identity classifier |
+| `generation` | Experimental native reconstruction, minimal Blender cleanup, guarded Unreal handoffs; [internals and tests](generation/dev.readme.md) |
 | `tests` | Focused observable pipeline behavior and failure tests |
 
 Artifacts are immutable by content identity, not filesystem permissions. Changes
 on disk are detected by hash checks. Session state uses schema version 1. There
-is no database, queue or background service. An explicit imageprocessing cleanup
+is no application database, queue or background service; native COLMAP uses a
+job-local transient SQLite database. An explicit imageprocessing cleanup
 command migrates legacy copied photos and consolidates generated assets; it is
 not a general schema migration framework. Failed operations cannot partially
 commit a manifest, but hard termination may require explicit cleanup.
@@ -82,7 +95,10 @@ This is not a Python-only architecture: the small image backend protocol is a
 boundary for another runtime if a measured need arises. No CPU/GPU stack is
 silently replaced or automatically switched.
 
-Future reconstruction adapters must keep camera/texture provenance and run only
-on explicit opt-in. Reuse the shared environment; do not introduce a separate
-backend environment without an explicit owner decision. Unreal API calls must be verified
-against the installed version before implementation.
+Native tools are shared under `C:\projectWorkspace\tools`, not per-job downloads
+or Python environments. Generation runs only on explicit commands, keeps
+camera/texture provenance, reuses hardlinked canonical input views and removes
+transient databases/depth/maps in finalizers. Isolated units use fake tools;
+authorized real CUDA checks live in `src\integration_tests\generation`, excluded
+from discovery/package installation. Unreal API execution still requires actual
+installed-version validation. No real head or MetaHuman has been generated.
