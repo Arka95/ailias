@@ -30,7 +30,7 @@ verified. A coherent photo-conditioned GNM head now exists, with
 | Reconstruction | Experimental COLMAP 4.2.1 CUDA; strict default and explicit permissive PoC profile, separate from manual workflow | Native shared tool, no new model stack; early visual output may be fragmented rather than blocked | Strict 31-photo run blocked; permissive initialization/dense consistency produced 6,164 textured faces in 13 disconnected pieces, not a complete head; [evidence](generation/dev.readme.md#validation) |
 | Blender | Shared Blender 4.5.15 LTS, minimal cleanup, preserved UVs/cameras and CUDA renders | Avoid invented anatomy, smoothing and automatic component deletion; holes/lighting/likeness still need review | Actual textured mesh export and three non-flat renders on RTX 4070 SUPER |
 | Photo-conditioned head | Pinned GNM 3.0 prior; MediaPipe CPU observations; shared identity with per-photo camera/expression; CUDA autodiff Schur/LM | Coherent prior-driven anatomy, not a calibrated scan; no personalized albedo, rig or likeness approval | Fresh 63-view pipeline 372.859s CPU -> 42.187s CUDA; held-out error slightly better; [evidence](facefitting/dev.readme.md#evidence) |
-| Unreal | Installed UE 5.8.4; existing guarded Identity adapter; prefer head-only Custom Mesh as next experiment | Arbitrary GNM topology is not From Template topology. Project, actual API execution and post-conform drift remain unverified; cloud stays opt-in | Installed engine/plugin headers verified; [workflow investigation](generation/metahuman-workflow-investigation.md) |
+| Unreal | Installed UE 5.8.4; existing guarded Identity adapter; prefer head-only Custom Mesh as next experiment | Arbitrary GNM topology is not From Template topology. Required Core Data is missing; actual import, conform and shape drift remain unverified; cloud stays opt-in | Real owned-project commandlet loaded Python conforming APIs; doctor reports content separately; [investigation](generation/metahuman-workflow-investigation.md) |
 | Baseline | Three-view contact sheet plus human note | Supports initial visual comparison; no numeric likeness score | Real image output from synthetic fixtures |
 
 The source's future pipeline additionally calls for regional confidence based on
@@ -47,7 +47,8 @@ primitives are not a completed automated MetaHuman validation loop.
 
 Official pages and native prerequisites were checked on November 16, 2026.
 Blender/COLMAP and the new CUDA fitter ran locally; UE 5.8.4 metadata and the
-MetaHuman Character plugin are now verified installed, not editor-tested. See
+MetaHuman Character plugin are installed and Python API exposure was editor-tested
+in a NullRHI commandlet. No import/conform or rig validation is claimed. See
 [generation evidence and primary references](generation/dev.readme.md) and the
 imageprocessing research log. Documentation availability is not proof of local
 engine installation or compatibility.

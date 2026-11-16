@@ -211,7 +211,7 @@ Verified on November 16, 2026:
 | Isolated regression | 143 functional units, including head-only cleansing, cross-group selection, saved-external-package verification and receipt-without-asset failure; no model, hardware, editor or network execution in discovery |
 | Head-only upstream integration | Job `20261116T134753Z-c7f222a0`: 165 ready / 14 review; input audit selected 64 from 18 groups and verified every corrected-RGB hardlink and native mask against published head alpha; no new native reconstruction replay |
 | PoC policy regression | 26 focused generation/Unreal units passed, including explicit native option forwarding, policy provenance, unchanged non-production/likeness flags and invalid-angle/support rejection |
-| Unreal | Earlier absence correctly blocked the adapter. UE 5.8.4 and Character plugin metadata are now verified installed; no project/API execution or conform success is claimed |
+| Unreal | UE 5.8.4 real NullRHI commandlet loaded the Character/conforming Python APIs in an owned project. Missing Core Data was confirmed by editor warning and absent content. No imported/conformed assets or cloud requests; see [route and evidence](metahuman-workflow-investigation.md) |
 
 The real-photo result applies to that selected set, not every possible subject,
 view combination or face-reconstruction model. Sparse correspondences are not a

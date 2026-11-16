@@ -44,6 +44,25 @@ class UnrealReadinessTests(unittest.TestCase):
         self.assertFalse(result["ready"])
         self.assertTrue(any("not silently upgrade" in blocker for blocker in result["blockers"]))
 
+    def test_missing_core_data_warns_without_blocking_plain_mesh_import_readiness(self):
+        result = readiness(self.editor, self.project)
+        self.assertTrue(result["ready"])
+        self.assertFalse(result["metahuman_core_data"]["installed"])
+        self.assertTrue(any("Core Data" in warning for warning in result["warnings"]))
+
+    def test_core_data_requires_model_and_body_texture_payloads_not_just_folders(self):
+        content = self.engine / "Plugins" / "MetaHumanCharacter" / "Content" / "Optional"
+        synthesis, body = content / "TextureSynthesis" / "models", content / "BodyTextures"
+        synthesis.mkdir(parents=True)
+        body.mkdir(parents=True)
+        self.assertFalse(readiness(self.editor, self.project)["metahuman_core_data"]["installed"])
+        (synthesis / "fixture.ar").write_bytes(b"fixture, never loaded")
+        self.assertFalse(readiness(self.editor, self.project)["metahuman_core_data"]["installed"])
+        (body / "fixture.uasset").write_bytes(b"fixture, never loaded")
+        result = readiness(self.editor, self.project)
+        self.assertTrue(result["metahuman_core_data"]["installed"])
+        self.assertEqual(result["warnings"], [])
+
     def test_missing_editor_does_not_download_or_launch_anything(self):
         with patch("ailias.generation.unreal.shutil.which", return_value=None):
             self.assertFalse(readiness(None, None)["ready"])

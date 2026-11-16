@@ -12,7 +12,7 @@ REQUIRED_PLUGINS = ("PythonScriptPlugin", "MetaHumanCharacter")
 def readiness(editor: Path | None, project: Path | None) -> dict:
     editor = editor or (Path(found) if (found := shutil.which("UnrealEditor-Cmd.exe")) else None)
     result = {"ready": False, "editor": str(editor) if editor else None,
-              "project": str(project) if project else None, "blockers": [],
+              "project": str(project) if project else None, "blockers": [], "warnings": [],
               "cloud_authentication_verified": False}
     if editor is None or not editor.is_file():
         result["blockers"].append("UnrealEditor-Cmd.exe is not installed/configured")
@@ -49,6 +49,24 @@ def readiness(editor: Path | None, project: Path | None) -> dict:
         result["plugins"][name] = {"installed": installed, "enabled": active}
         if not installed or not active:
             result["blockers"].append(f"Install/enable {name}")
+        if name == "MetaHumanCharacter" and manifest is not None:
+            content = manifest.parent / "Content" / "Optional"
+            synthesis, body = content / "TextureSynthesis", content / "BodyTextures"
+            checks = {
+                "texture_synthesis_models": synthesis.is_dir() and any(
+                    path.is_file() for path in synthesis.rglob("*.ar")),
+                "body_texture_assets": body.is_dir() and any(
+                    path.is_file() for path in body.glob("*.uasset")),
+            }
+            result["metahuman_core_data"] = {
+                "installed": all(checks.values()), "directory": str(content), "checks": checks,
+            }
+            if not all(checks.values()):
+                result["warnings"].append(
+                    "MetaHuman Creator Core Data is incomplete; Creator/skin functionality is limited. "
+                    "Install it through the engine's Epic Games Launcher Options. "
+                    "ready checks engine/project/plugins, not a successful MetaHuman solve."
+                )
     result["ready"] = not result["blockers"]
     result["editor"], result["project"] = str(editor), str(project.resolve())
     return result

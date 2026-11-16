@@ -23,8 +23,15 @@ creates one nor exercises UE 5.8's new custom-mesh route
 (`generation\unreal.py:run_unreal`).
 
 Local metadata verifies UE **5.8.4**, including the Character plugin and its
-editor subsystem header. That is not an editor execution, project/plugin
-readiness test or successful MetaHuman creation.
+editor subsystem header. A subsequent real NullRHI commandlet loaded the
+head-conforming Python APIs in an owned project. It did not create assets,
+import a head, conform or request cloud work.
+`data\arka\unreal\AiliasReview\capability-probe.json` retains the exposed
+types/signatures; the companion log confirms missing Core Data.
+Epic's required **MetaHuman Creator Core Data** is absent [10]: the installed
+plugin's Optional/TextureSynthesis and Optional/BodyTextures directories are
+missing. This limits Creator/skin functionality; it is not evidence that
+plain mesh import is impossible. The doctor now reports this separately.
 No other owning team/on-call is involved in this local single-owner workflow.
 Accuracy, explicit cloud controls, source preservation and human approval remain
 load-bearing gates; speed will not substitute for them.
@@ -122,7 +129,7 @@ behaviour from labels or silently enable a cloud operation.
 | ID | Deliverable | Dependency / state |
 |---|---|---|
 | MH-1 | Complete compatible CUDA runtime, full-photo speed/accuracy benchmark and provenance | Done; 162 isolated units and two explicit CUDA tests passed; both jobs verified |
-| MH-2 | Validate custom-mesh head-only API and compare with Identity handoff in an owned UE project | After MH-1; no successful import/conform claimed |
+| MH-2 | Validate custom-mesh head-only API and compare with Identity handoff in an owned UE project | Python API exposure verified by real commandlet; Core Data missing; import/conform remains open |
 | MH-3 | Add regional/silhouette checks and post-conform drift evidence | After MH-2; avoid treating hair silhouette as bare skull |
 | MH-4 | Add appearance transfer and rig/LOD validation with a close-up reference baseline | After geometry review; do not optimize away identity cues |
 
@@ -140,9 +147,10 @@ and appearance work into 1-2 week items after the first real project benchmark.
 7. [Epic: Assembly](https://dev.epicgames.com/documentation/metahuman/assembly?application_version=5.8)
 8. [Epic: LODSync](https://dev.epicgames.com/documentation/en-us/metahuman/lodsync-component-for-unreal-engine)
 9. [Epic: Mesh to MetaHuman overview](https://dev.epicgames.com/documentation/metahuman/mesh-to-metahuman?application_version=5.8)
+10. [Epic: install MetaHuman Creator Core Data](https://dev.epicgames.com/documentation/metahuman/getting-started-with-metahuman-creator-in-unreal-engine?application_version=5.8)
 
 Local source of truth: `src\ailias\facefitting`, `config\facefitting.json`,
 `src\ailias\generation\unreal.py`; installed
 `UE_5.8\Engine\Build\Build.version` and
-`MetaHumanCharacterEditorSubsystem.h`. No editor-launched result or quality
-comparison against commercial tools is available yet.
+`MetaHumanCharacterEditorSubsystem.h`. API exposure is not a successful solve;
+no geometry/rig result or quality comparison against commercial tools is available.

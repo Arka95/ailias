@@ -142,10 +142,22 @@ Committed cleanup outputs are immutable revisions, not overwritten by retries.
 
 ## Unreal: explicit installation and manual Identity solve
 
-UE 5.8.4 is installed locally, with the MetaHuman Character plugin; editor/project
-execution and required content readiness are not yet verified. Create a project with PythonScriptPlugin and
-MetaHumanCharacter enabled. The adapter checks engine/project/plugin metadata and
+UE 5.8.4 and the MetaHuman Character plugin are installed. A real NullRHI
+commandlet loaded the head-conforming Python APIs in the owned
+`data\arka\unreal\AiliasReview\AiliasReview.uproject`; it did not create assets or
+request cloud work. Actual import/conform is still unverified.
+**MetaHuman Creator Core Data is missing**: the editor logged its limited-features
+warning, and its Optional texture-model/body-texture folders are absent.
+Install that component through Epic Games Launcher -> UE 5.8 -> Options ->
+MetaHuman Creator Core Data -> Apply, with projects closed.
+[Epic installation instructions](https://dev.epicgames.com/documentation/metahuman/getting-started-with-metahuman-creator-in-unreal-engine?application_version=5.8).
+
+Use a project with PythonScriptPlugin and MetaHumanCharacter enabled.
+The adapter checks engine/project/plugin metadata and
 refuses a mismatched numeric engine association rather than silently upgrading it.
+`unreal-doctor` also reports `metahuman_core_data` and warnings. Its existing
+`ready` field covers engine/project/plugins, not complete content, an executed
+solve or likeness; missing skin content does not block plain static-mesh import.
 No Epic credentials are collected or stored by ailias.
 The commands below target native generation jobs and an already-solved Identity,
 not the new GNM fitting jobs. For arbitrary head topology, the researched next

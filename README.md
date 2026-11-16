@@ -13,8 +13,10 @@ HEIC support and face-specific quality filtering. **geometry** compares aligned
 2D/3D landmarks and optional 3D surface samples.
 **generation** runs installed CUDA COLMAP and Blender. **facefitting** fits a
 complete GNM head using dense observations and batched CUDA optimization.
-UE 5.8.4 is installed; project/API execution and MetaHuman conversion remain
-unverified. Native tools share one
+UE 5.8.4 is installed and its Python API loads in an owned review project;
+MetaHuman Creator Core Data is missing and actual conversion remains unverified.
+See [Unreal readiness](docs/generation/README.md#unreal-explicit-installation-and-manual-identity-solve).
+Native tools share one
 workspace-level installation, not another Python/CUDA environment.
 
 ## Setup
