@@ -1,26 +1,43 @@
-[Back to REPO_ROOT](../../README.md)
+[Back to REPO_ROOT](../../README.md) | [Development](dev.readme.md)
 
-# Facial geometry comparison
+# Geometry comparison
 
-**Identity resemblance and facial geometry are different signals.** This module
-reports geometric errors, not a learned identity or an invented likeness percentage.
-See the [research comparison](../imageprocessing/research.md).
+Compare corresponding 2D/3D landmarks and optional sampled surfaces.
+This module measures supplied geometry; it does not reconstruct, sculpt or
+recognize a face, and does not produce a likeness percentage.
+
+## Usage
 
 ```powershell
-python -m pip install -e ".[geometry]"
-python -m ailias geometry compare arka C:\measurements\reference.json C:\measurements\candidate.json
-python -m ailias geometry compare arka C:\measurements\reference.json C:\measurements\candidate.json --fit similarity
+python -m ailias geometry compare subject C:\measurements\reference.json C:\measurements\candidate.json
+python -m ailias geometry compare subject C:\measurements\reference.json C:\measurements\candidate.json --fit similarity
 ```
 
-All input snapshots and reports are saved under `data\arka\geometry\COMPARISON`.
-No model downloads, GPU execution or external services are used by this command.
+Inputs/report snapshots live under `data\ALIAS\geometry\COMPARISON`.
+NumPy is supplied by the optional `geometry` extra; no model, GPU or service is required.
 
-## Input contract
+## Configuration
 
-Both files need the **same named, corresponding landmarks**, including
-`left_eye` and `right_eye` for interocular normalization. Use consistent eye
-landmark definitions, neutral expressions and coordinate conventions.
-Coordinates below are illustrative, not measurements:
+There is **no module JSON policy**. Global `--data-root` selects storage;
+`geometry compare --fit` selects alignment. Measurement units/regions belong in
+the input JSON, not environment variables.
+
+| Setting | Default / allowed values | Meaning |
+|---|---|---|
+| `--fit` | `rigid`; optional `similarity` | Remove rotation/translation; similarity also estimates uniform scale |
+| `dimension` | Required: `2` or `3` | Coordinate dimensionality |
+| `units` | 3D: `mm`, `cm`, `m`; 2D: `pixels`, `normalized` | 3D values convert to mm; 2D inputs must use matching units |
+| `landmarks` | Required named coordinates | Same names/correspondences in both inputs, including `left_eye` and `right_eye` |
+| `regions` | Optional reference-side mapping | Named landmark groups; errors reuse the global fit |
+| `surface_points` | Optional in both 3D inputs | Same anatomical crop and reasonably comparable sampling |
+
+At least three noncollinear 2D or four noncollinear 3D landmarks are required.
+Coordinates must be finite. Surface samples are capped at 10,000 per input;
+this is an implementation bound, not a configurable sampling policy.
+
+## Input example
+
+Illustrative coordinates, not facial measurements:
 
 ```json
 {
@@ -37,34 +54,19 @@ Coordinates below are illustrative, not measurements:
 }
 ```
 
-3D requires at least four noncollinear corresponding landmarks; units `mm`,
-`cm` or `m` are converted to mm. 2D requires at least three landmarks and matching
-`pixels` or `normalized` units. Neither input can contain NaN/Inf or degenerate
-landmark geometry. Regions use the reference file's landmark definitions.
-
-Optionally include `surface_points: [[x,y,z], ...]` in **both 3D files**. These
-are sampled surface points in the same frame/units as their own landmarks.
-Limit: 10,000 points per input. Use the same anatomical crop and reasonably
-uniform, comparable sampling. This is not a full-mesh loader.
+Raw OBJ files or unrelated landmark orders cannot be passed directly.
+Extract anatomically corresponding points with consistent definitions first.
 
 ## Outputs
 
-| Field | Meaning |
+| Report field | Meaning |
 |---|---|
-| `landmark_error` | Mean, median, RMSE, p95 and max after alignment |
-| `normalized_rmse` | Landmark RMSE / reference interocular distance, lower is better |
-| `per_landmark`, `regions` | Errors by named point and region after one global fit |
-| `candidate_to_reference` | Explicit no-reflection transform and scale |
-| `sampled_surface` | Optional bidirectional nearest-sample statistics, unsquared symmetric Chamfer, Hausdorff max/p95 |
+| `landmark_error` | Aligned mean, median, RMSE, p95 and maximum |
+| `normalized_rmse` | RMSE divided by reference interocular distance |
+| `per_landmark`, `regions` | Named/region errors under one global alignment |
+| `candidate_to_reference` | No-reflection transform and scale |
+| `sampled_surface` | Optional bidirectional nearest-sample distances, unsquared symmetric Chamfer and Hausdorff max/p95 |
 
-`rigid` removes translation/rotation but preserves physical size. `similarity`
-also estimates uniform scale: useful when scale is genuinely unknown, but can
-hide a wrong head size. Do not select the better-looking score without reporting
-which fit was used.
-
-2D scores are only interpretable across matched viewpoints, expression and camera
-projection. Five detected photo points cannot establish 3D nose depth, jaw, skull
-or ear likeness. Surface sample distances are **not** triangle-surface distance,
-NoW benchmark scores, or an animation-quality test.
-
-[Developer guide](dev.readme.md)
+`rigid` preserves size; `similarity` can hide incorrect head scale.
+2D comparison requires matched viewpoint/expression/projection. Sample distances
+are not point-to-triangle errors or an animation-quality test.

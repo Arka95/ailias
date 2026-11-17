@@ -1,33 +1,28 @@
-[Back to REPO_ROOT](../../README.md)
+[Back to REPO_ROOT](../../README.md) | [Decisions](../analysis.md)
 
-# Remaining implementation
+# Implementation backlog
 
-All items below are open; none is implied complete by a manual handoff receipt.
+Open engineering work, ordered by dependency and product impact.
+Technical completion and visual quality are separate acceptance conditions.
 
-| Order | Work | Evidence needed before closing |
-|---|---|---|
-| 1 | Prove source plan's manual milestone | Real photo set, reconstructed/cleaned head, MetaHuman and three-view human baseline |
-| 2 | Compare head-generation quality | GNM baseline now produces a coherent head; fresh CUDA pipeline 42.187s versus 372.859s CPU with better held-out error. Independent silhouette/depth/likeness and competing-backend comparison remain open |
-| 3 | Calibrate cleansing and extend photo analysis | Semantic head-only alpha, bounded colour correction, reversible roll/position/scale alignment and relative-light ranking implemented. Generic detector retries recover close-ups; all ready heads receive paginated previews. Improve review/edge/colour calibration; five-point view bins are approximate, not dense geometry; expression/occlusion assessment remains open |
-| 4 | Validate fitted head against independent evidence | Coherent GNM neutral head, mesh checks, dense overlays and corrected review renders exist; prior-driven anatomy, texture and likeness still need review |
-| 5 | Finish Blender and Unreal integration | Blender CUDA verified; UE 5.8.4 owned-project commandlet verified Python conforming APIs. Install missing MetaHuman Core Data, validate actual head-only Custom Mesh, compare shape drift, then assembly and editor lifetime; [research](../generation/metahuman-workflow-investigation.md) |
-| 6 | Complete multi-signal validation | Aligned 2D/3D landmark and sampled-surface primitives implemented; true mesh-surface, silhouette, matched-camera and calibrated regional checks still open |
-| 7 | Confidence-driven recapture | Region evidence, proposed yaw/pitch/distance and diminishing-value stopping rule |
-| 8 | Bounded refinement and rollback | Measurable multi-view acceptance, preserved revisions, one-step rollback and iteration cap |
-| 9 | Animation validation and sign-off | Blink, brows, smile, mouth, purse, jaw and speech-like expression results; human approval |
-| 10 | Session curation and recovery UX | Explicit photo removal, history inspection and rollback commands without data loss |
-| 11 | Collect subjective sign-off for the separate [reanimation module](../reanimation/README.md) | Actual CLI job `7f59ccf3576645c2b452dbbdab985d19` passes native rendering, 743-frame 1080x1920/30fps NVIDIA H.264/AAC integration, full decode, timing and integrity checks; owner still reviews lip sync and acting. Does not authorize restarting stopped likeness repair |
-| 12 | Optional apparel selection | Deferred opt-in feature, not a blocker for the current video. Requested enabled default: actual dark-green crew-neck T-shirt, with style/color/compatible asset overrides. Disabled preserves original clothing. Need native garment-fit/animation tests and independent backdrop configuration; no apparel implementation is claimed |
+| Priority | Work | Existing foundation | Completion evidence |
+|---|---|---|---|
+| P0 | Native facial-feature refinement | Preserved Blender geometry, reference photos and conformed Character | Code-driven regional fitting, matched-camera before/after metrics and visible resemblance improvement |
+| P0 | Native appearance transfer | Photo-colour atlas, UV geometry and default-textured runtime actor | Correct native UV/material bake, explicit skin-tone treatment and saved/reloaded comparison |
+| P0 | Hair, brows, moustache and beard | Photo evidence and approximate unbound Blender scalp groom | Automated compatible selection/binding, correct root alignment and deformation/LOD checks |
+| P1 | Reusable native rig/build orchestration | Existing rig, source textures and saved assembly from session operations | Public command, persistent receipts, safe failure/reload checks and no default-character substitution |
+| P1 | Matched-view multi-signal validation | Landmark/sampled-surface metrics and visual comparison | Automated camera-consistent overlays, regional/silhouette checks and bounded accept/reject criteria |
+| P1 | Refinement/rollback loop | Immutable revisions, source hashes and integrity checks | Iteration cap, measurable nonregression and recoverable prior candidate |
+| P2 | Calibrate mask/colour confidence | Semantic head alpha, bounded harmonization and relative-light evidence | Edge/colour reference fixtures, uncertainty reporting and reliable abstention |
+| P2 | Anatomical dimensions | Supplied corresponding geometry comparisons | Defined anatomical endpoints, calibrated scale and independent measurement validation |
+| P2 | Resume audio-only animation | Saved Performance and rig rendering | Render an existing verified Performance without repeating the solve |
+| P2 | Expression/performance validation | Full audio-driven render and technical media gates | Blink, lip seal, brows, jaw/smile and speech-motion inspection |
+| P3 | Optional apparel | Existing compatible character wardrobe | Independent garment asset/style/colour controls, fit/deformation tests and backdrop compatibility |
+| P3 | Capture/recovery UX | Source history, curation, manual handoffs and baselines | Region-driven recapture guidance, explicit recovery/rollback and no data loss |
 
-Completed infrastructure: CUDA imageprocessing on all 192 requested photos,
-corrected grouping, one shared workspace environment, source references instead
-of copies, reusable generated assets, cleanup of superseded runs, and explicit
-human-curated exemplar filtering with uncertain-crop review.
-Native tools are installed once in the workspace; COLMAP-to-Blender GPU
-integration passes on a synthetic object, with transient resources cleaned.
-See the [imageprocessing validation](../imageprocessing/research.md) and
-[generation evidence](../generation/dev.readme.md#validation).
-Automatic identity accuracy and reconstruction suitability remain unverified;
-55 candidate groups do not establish 55 people.
-See the [plain-language cleansing decisions](../imageprocessing/dev.readme.md#research-decisions-in-plain-language)
-and [fitting/appearance decisions](../generation/dev.readme.md#research-decisions-in-plain-language).
+Core Data, native Character conform, face rigging, runtime assembly and real
+video encoding already exist locally; reinstalling/repeating those is not a
+substitute for the missing resemblance/appearance work.
+
+Current code/quality boundaries: [facefitting](../facefitting/README.md),
+[reanimation](../reanimation/README.md) and the [root comparison](../../README.md#current-state---below-expectations).

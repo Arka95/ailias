@@ -2,78 +2,53 @@
 
 # Geometry internals
 
-`metrics.py` contains pure NumPy transformations and metrics.
-`compare_geometry(reference, candidate, fit="rigid")` accepts the guide's JSON-like
-objects and returns JSON-safe numeric errors. NumPy is imported lazily.
+## Implementation
 
-Alignment solves the least-squares SVD rotation with determinant +1, explicit
-translation and optional positive uniform scale. No reflection or nonrigid warp
-is allowed. Regional errors reuse the global alignment rather than separately
-fitting each region and hiding anatomical offsets.
+| Component | Responsibility |
+|---|---|
+| `metrics.py` | Pure NumPy alignment, landmark errors and nearest-sample distances |
+| `comparison.py` | Persist input/report snapshots; separate identity cosine from five-point geometry |
+| `cli.py` | Explicit compare command and fit selection |
 
-`nearest_distances` computes exact Euclidean nearest-sample distances in
-128-point chunks, avoiding the full pairwise tensor. The 10k input cap bounds
-memory/work for this initial implementation; runtime remains quadratic.
-For larger meshes, prefer a measured spatial-index / point-to-triangle adapter,
-not a silent subsampling or metric change.
+`compare_geometry(reference, candidate, fit="rigid")` accepts JSON-like inputs
+and returns JSON-safe numeric results. NumPy is imported lazily.
 
-`comparison.py` persists input snapshots/reports and separates photo-embedding
-cosine from five-landmark 2D errors. Face comparison uses named correspondences
-from YuNet's fixed five-point ordering. It never uses the identity cosine as a
-geometry pass/fail criterion. `cli.py` owns the explicit comparison command.
+Alignment uses least-squares SVD rotation with determinant +1, translation and
+optional positive uniform scale. Reflections/nonrigid warps are forbidden.
+Regional errors reuse the global transform rather than hiding offsets by
+independently fitting each feature.
 
-Validation uses synthetic transformed shapes, changed nose geometry, metric
-unit conversion, mirrored faces, scale-preserving versus scale-invariant fits,
-known sampled-surface distances and invalid/degenerate inputs. No actual 3D
-face reconstruction or MetaHuman comparison has been executed.
+Nearest-sample distances use 128-point chunks with a 10,000-point input cap.
+Work remains quadratic; replacing this with spatial indexing or triangle
+distances would be an explicit metric implementation change.
 
-```powershell
-python -m unittest discover -s src\ailias -t src -v
-```
+## Configuration
+
+No JSON/environment policy is implemented. The [usage contract](README.md#configuration)
+defines `--fit`, units, correspondence names and optional regions/surface samples.
+Normalization uses the reference eye distance; it is not a calibrated likeness threshold.
 
 ## Research decisions in plain language
 
-Updated November 16, 2026. **This module compares supplied geometry; it does not
-yet extract anatomical dimensions from the photos or fit a head.**
-
-### 1. Problem Statement
-
-Recognition similarity, landmark agreement and real-world dimensions answer
-different questions. A face can match five projected points while having the
-wrong nose depth. A model labelled "centimetres" is not necessarily calibrated
-to the owner; declaring units cannot recover missing scale.
-
-### 2. Implementation
-
-| Decision | Why / limit |
+| Decision | Reason / boundary |
 |---|---|
-| Keep recognition and geometry scores separate | Implemented: SFace cosine is not a percentage of anatomical likeness; five-point error cannot certify ears, jaw or cheekbones |
-| Preserve scale by default; forbid mirroring | Implemented: rigid alignment moves/rotates a model without resizing. Optional similarity alignment also resizes, so can hide a size error; neither permits reflection |
-| Use supplied regions under one global alignment | Implemented: moving each feature independently could conceal incorrect placement. Surface errors compare sampled points, not the actual mesh triangles |
-| Define measurements on the fitted 3D head | Proposed: record exact endpoints/axes for face height/width, eye spacing/opening, nose width/projection and ear dimensions. "Width/height/depth" alone is ambiguous, particularly for curved surfaces |
-| Separate relative proportions from millimetres | Proposed: use trusted scale evidence, such as a measured facial reference or calibrated capture, before claiming physical dimensions. MICA is a learned metric-shape reference, not measurement ground truth or an installed dependency |
-| Attach evidence to every reported dimension | Proposed: contributing views, definition, units, observed/inferred/generic status and uncertainty. Hidden eyeball/skull/neck regions must not receive invented measurements |
+| Separate identity and geometry | Recognition cosine cannot measure nose depth or ear placement |
+| Preserve size by default | Similarity alignment can conceal wrong scale |
+| One global fit for all regions | Prevent local fits from removing actual feature-position errors |
+| Report sample distances explicitly | Nearest sampled points are not nearest mesh triangles |
+| Require supplied correspondences | Automatic anatomical measurement extraction is not implemented |
 
-### 3. Success Criteria
+Metric scale requires independent calibration; a model's declared unit alone
+does not establish real facial dimensions.
+See [measurement research](../generation/selection-research.md) and
+[metric discussion](../imageprocessing/research.md#what-facial-similarity-can-mean).
 
-A future dimension report must distinguish measured evidence from model inference
-and reproduce known synthetic dimensions after camera/scale transformations.
-Validate against independent measurements or scans before claiming accuracy.
-Current tests validate the comparison mathematics, **not anatomical accuracy**.
-No calibrated millimetre tolerance or single likeness percentage has been chosen.
+## Tests
 
-### 4. Task Breakdown
+```powershell
+python -m unittest discover -s src\ailias\geometry\tests -t src -v
+```
 
-After generation supplies a fitted template: define named landmarks and reference
-planes; add dimension extraction with explicit scale/provenance; validate visible
-regions and flag unobserved ones. Keep skin/albedo estimation in generation, not
-in a geometry similarity score. Body height/weight are not face-scale calibration.
-
-### 5. Reference Links
-
-Code: `metrics.py:align` / `compare_geometry`,
-`comparison.py:compare_detected_faces`.
-[Existing metric evidence](../imageprocessing/research.md#what-facial-similarity-can-mean),
-[MICA and depth/scale ambiguity](https://arxiv.org/abs/2204.06607),
-[MediaPipe relative-depth model card](https://storage.googleapis.com/mediapipe-assets/Model%20Card%20MediaPipe%20Face%20Mesh%20V2.pdf),
-and [proposed fitting/completion decisions](../generation/selection-research.md).
+Fixtures cover known transforms, changed nose geometry, unit conversion,
+reflection rejection, rigid/similarity behavior, sampled distances and invalid
+inputs. These verify mathematics, not a real reconstruction's anatomical accuracy.

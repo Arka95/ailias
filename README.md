@@ -1,200 +1,132 @@
 # ailias
 
-Local, geometry-first photo-to-MetaHuman preparation with experimental native
-reconstruction and editor adapters. **A photo-conditioned head baseline exists;
-MetaHuman conversion and likeness remain unvalidated.** The source plan's manual-first end-to-end milestone
-remains open; a successful tool call is not a likeness or production certificate.
+Photo-to-MetaHuman tooling: prepare reference images, fit a complete head, inspect
+native Unreal assets, and animate an existing rig with supplied narration.
+Python coordinates local OpenCV, PyTorch/SciPy, COLMAP, Blender and Unreal workers.
 
-## Current Blender baseline
+**Current limitation:** the personal-head animation works technically, but facial
+resemblance and skin/hair transfer are below expectations. Automated native
+feature refinement and appearance transfer are not implemented end to end.
 
-![Original reference photo beside the selected hair-free Blender baseline](docs/facefitting/images/working-blender-baseline.png)
+## Visual pipeline
 
-**Selected working baseline — November 17, 2026.** Original reference on the
-left; hair-free Blender render on the right, using the existing fitted
-perspective and unchanged approved geometry. Texture seams, generic eyes and
-expression differences remain; this is a starting point, not a finished MetaHuman.
+Actual retained images, reduced for documentation. These illustrate stage
+contracts across different jobs, not one fully automated successful run.
 
-Future, more consistent samples will be used to improve accuracy and add
-features in **new revisions**, preserving this baseline for comparison.
-[Baseline files and improvement policy](docs/facefitting/README.md#current-working-baseline).
+| Input representation | Module / operation | Output representation |
+|---|---|---|
+| ![Reference portrait](docs/images/pipeline/portrait.png) | **imageprocessing**: detect, group and extract head-only foreground | ![Head-only cutout](docs/images/pipeline/cutout.png) |
+| ![Prepared reference head](docs/images/pipeline/cutout.png) | **facefitting / fit**: jointly estimate identity, cameras and expression from multiple views | ![Neutral fitted geometry](docs/images/pipeline/clay.png) |
+| ![Neutral geometry](docs/images/pipeline/clay.png) | **facefitting / appearance**: project observed photo colour and approximate scalp hair | ![Blender appearance preview](docs/images/pipeline/appearance.png) |
+| ![Photo-derived preview](docs/images/pipeline/appearance.png) | **Native handoff**: import/conform geometry; photographic appearance is **not** carried through yet | ![Current native character, shown in an animation frame](docs/images/pipeline/native.png) |
+| ![Existing native character](docs/images/pipeline/native.png) plus narration WAV | **reanimation**: solve face/head motion, render and encode | ![First and last frames of the resulting reel](docs/images/pipeline/reel.png) |
 
-## Workflow status
+Image provenance and resize/crop records: [pipeline media](docs/images/pipeline/provenance.json).
+The native thumbnail is an animated frame, not a neutral matched-camera render.
 
-Implemented: image intake, heuristic quality checks, manual angle/expression
-review, nine-view coverage gate, durable stage handoffs, camera-pose records,
-artifact integrity checks, downstream invalidation and three-view comparison sheets.
-Optional **imageprocessing** adds local face grouping, portrait/body extraction,
-HEIC support and face-specific quality filtering. **geometry** compares aligned
-2D/3D landmarks and optional 3D surface samples.
-**generation** runs installed CUDA COLMAP and Blender. **facefitting** fits a
-complete GNM head using dense observations and batched CUDA optimization, then
-adds photo-derived colour and explicitly approximate hair after clay approval.
-A textured, upright static head is verified in the owned UE 5.8.4 review project;
-a native head-only MetaHuman Character draft is also saved and reload-checked.
-Final likeness, appearance transfer, rigging and assembly remain unvalidated.
-Optional Creator Core Data is missing: skin editing is disabled, but local
-Character creation and conform have succeeded without it.
-See [Unreal readiness](docs/generation/README.md#unreal-explicit-installation-and-manual-identity-solve).
-Native tools share one
-workspace-level installation, not another Python/CUDA environment.
+### Resources passed between stages
 
-## Setup
+| Producer | Retained resources | Next consumer / reuse |
+|---|---|---|
+| `imageprocessing scan / cleanse` | Run manifest, portrait RGB, native-grid head RGB/alpha, source transforms, curation | `facefitting fit` and `generation reconstruct`; aligned analysis images do not replace native pixels |
+| `facefitting fit` | Neutral OBJ, identity parameters, observations, cameras, overlays, review scene | `appearance` uses the exact reviewed mesh and fitting evidence |
+| `facefitting appearance` | Hair-free OBJ/MTL, photo-colour PNG, coverage, geometry/UV NPZ, scene, approximate hair Alembic | `unreal-import` consumes mesh/material/texture; Alembic still needs validated native alignment/binding |
+| `facefitting unreal-import / unreal-conform` | Static-mesh or Character packages, native receipts, camera/landmark evidence | Native refinement/build boundary; no reusable automatic skin/groom/assembly handoff yet |
+| Native rig/build | Assembled rigged Blueprint with Face mesh, head bone and facial post-process | `reanimation run` plus an independent mono PCM16 WAV |
+| `reanimation` | Performance, sequence/map, verified MP4, first/last PNGs, hashes | Playback/compositing; technical media checks do not certify likeness |
+| `generation` - alternative route | Sparse model, estimated cameras, fused samples, textured mesh and cleaned scene | `clean-mesh` / static Unreal import; current real-photo outputs are fragments, not a full head |
+| `geometry` - independent validator | Named-landmark/region errors, alignment transform, optional sampled-surface distances | Comparison reports; requires corresponding measurement JSON, not arbitrary OBJ input |
 
-Use **one shared workspace environment**, `C:\projectWorkspace\.venv`, for
-workspace applications. It is a zero-copy directory junction to the existing
-working Thea environment, not another installation. No app-local venv is created.
-The setup script registers ailias and adds only missing lightweight packages;
-it does not copy or replace the CUDA stack.
+## Module architecture
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 1100}}}%%
+flowchart TB
+    subgraph MAIN[" "]
+        direction TB
+        PH["Reference photographs"]:::store --> IMG["imageprocessing: OpenCV DNN<br/>Grouping, head masks and reversible coordinates"]:::svc
+        IMG -->|Native RGB, alpha and curated references| FIT["facefitting: MediaPipe + PyTorch / SciPy<br/>Shared head shape, cameras and photo appearance"]:::svc
+        IMG -->|Masked hardlinked views| GEN["generation: COLMAP + Blender<br/>Alternative reconstruction and cleanup"]:::svc
+        FIT -->|OBJ, texture and camera files| UE["Native handoff: Blender + UE 5.8<br/>Static import and Character conform"]:::ext
+        UE -.-> GAP["Missing automation<br/>Likeness refinement, skin/grooms and reusable build"]:::unknown
+        GAP -.-> RIG["Assembled rigged MetaHuman Blueprint"]:::store
+        RIG --> REEL["reanimation: UE Animator / MRQ + FFmpeg<br/>Audio solve, portrait rendering and encoding"]:::svc
+        WAV["External narration WAV"]:::store --> REEL
+        REEL --> VIDEO["Verified portrait MP4 + diagnostics"]:::store
+        JSON["Corresponding landmark / surface JSON"]:::store --> GEO["geometry: NumPy<br/>Alignment and regional errors"]:::svc
+        CAP["Core workflow<br/>Capture review, handoffs and baselines"]:::svc
+    end
+    MAIN ~~~ SUM
+    SUM["Figure - Module responsibilities. How to read: top to bottom; blue modules, green resources, purple editor integration, red dashed missing automation. Summary: preparation and animation are separate working paths; native likeness/appearance automation is the gap. Backed by: imageprocessing/cli.py, facefitting/pipeline.py, facefitting/unreal_conform.py, generation/pipeline.py, reanimation/pipeline.py, geometry/metrics.py and workflow.py."]:::caption
+    style MAIN fill:none,stroke:none
+    classDef svc fill:#cfe3ff,stroke:#2b6cb0,color:#0b2545
+    classDef ext fill:#e6dcff,stroke:#6b46c1,color:#2d1b52
+    classDef store fill:#d6f5df,stroke:#2f855a,color:#12351f
+    classDef unknown fill:#fde2e2,stroke:#c53030,color:#611a15,stroke-dasharray:4 3
+    classDef caption fill:#f7f7f7,stroke:#999,color:#222,font-size:16px
+```
+
+**Backed by:** [module ownership and file-based communication](docs/dev.readme.md#architecture).
+Core capture/handoffs are a separate bookkeeping workflow, not an automatic
+consumer of every experimental job. Geometry validation requires supplied correspondences.
+
+## Quick setup
+
+Use Python 3.12+ in the shared workspace environment; preserve its existing
+CUDA/OpenCV/Torch installation.
 
 ```powershell
 Set-Location C:\projectWorkspace\ailias
-.\scripts\setup-gpu.ps1 -SourcePython C:\projectWorkspace\Thea\.venv\Scripts\python.exe
+.\scripts\setup-gpu.ps1
 & C:\projectWorkspace\.venv\Scripts\Activate.ps1
 python -m ailias --help
-python -m ailias init first-face
-python -m ailias intake first-face C:\photos\reference
-python -m ailias status first-face
 ```
 
-Default session artifacts go in Git-ignored `data`. Configure thresholds in
-`config\settings.json`; these are initial heuristics, not calibrated likeness
-criteria. No network service or GPU work starts automatically. Only the explicit
-`imageprocessing models` and `facefitting models` commands download their pinned models.
+Model/tool preparation is explicit. Scans, status checks and imports do not
+silently install models or replace the shared runtime.
 
-## Clean and group a photo folder
+| Task | Command / guide |
+|---|---|
+| Prepare analysis models | `python -m ailias imageprocessing models subject` |
+| Analyze photos | `python -m ailias imageprocessing scan subject C:\photos --device cuda` |
+| Review and select references | [Imageprocessing commands](docs/imageprocessing/README.md#usage) |
+| Fit / texture / import a head | [Facefitting commands](docs/facefitting/README.md#usage) |
+| Animate a compatible existing rig | [Reanimation commands](docs/reanimation/README.md#usage) |
+| Inspect retained resources | `python -m ailias cleanup --alias subject` - dry run; `--apply` deletes eligible remnants |
+| Record capture and external handoffs | [Core workflow](docs/workflow.md) |
 
-```powershell
-python -m ailias imageprocessing models arka
-python -m ailias imageprocessing scan arka C:\Users\bhowmikarka\Downloads\arka
-python -m ailias imageprocessing select arka RUN_ID face-001
-```
+## Configuration
 
-Generated resources, model provenance, contact sheets, crops, masks and
-selection metadata stay under **`data\arka`**. Originals remain in place and are
-referenced by path and SHA256; generated crops/masks are shared across runs.
-Inspect groups before selecting one;
-largest does not necessarily mean the intended person. Reviewed portraits and
-native reconstruction pixels are not geometrically warped or face-restored.
-[Imageprocessing guide](docs/imageprocessing/README.md).
+Global `--config` selects `config\settings.json`; `--data-root` overrides its
+data directory. Module flags select their own JSON policies. Per-run overrides,
+where implemented, take precedence without rewriting those files.
+See each module guide below for defaults, units and parameter meanings.
 
-Normal scans also create separate **head-only** cutouts (face, ears and hair,
-not shirts/torso/neck) and
-conservatively colour-harmonized native inputs; approved crops stay unchanged.
-Cleansing also publishes separate centered, scale/roll-aligned analysis heads
-with inverse source transforms, lighting evidence and complete paginated previews.
-First prepare the optional conversion tools with
-`python -m pip install -e ".[matting-tools]"`, then `imageprocessing models`.
-To cleanse an existing reviewed run without detection/recognition again:
+## Current state - below expectations
 
-```powershell
-python -m ailias imageprocessing cleanse arka RUN_ID --device cuda
-```
+| Frontal reference | Fitted geometry | Blender appearance | Unreal result |
+|---|---|---|---|
+| ![Reference portrait](docs/images/pipeline/portrait.png) | ![Clay geometry](docs/images/pipeline/clay.png) | ![Photo-colour preview](docs/images/pipeline/appearance.png) | ![Actual native animation frame](docs/images/pipeline/native.png) |
 
-Inspect the resulting alpha/colour preview. Missing colour evidence is explicitly
-skipped and unreliable mattes require review; neither colour nor edge accuracy
-is certified. See [cleansing behaviour and configuration](docs/imageprocessing/README.md#portrait-background-removal-and-colour-consistency).
+Missing hairstyle/facial hair, different eyes/skin and incorrect feature
+resemblance remain visible. Pose, expression and lighting differ; this is a
+visual diagnostic, not a likeness score.
+[Full comparison](docs/facefitting/images/current-likeness-comparison.png).
 
-For GPU runs, use that same shared environment:
+## Current Blender baseline
 
-```powershell
-& C:\projectWorkspace\.venv\Scripts\python.exe -m ailias imageprocessing scan arka C:\Users\bhowmikarka\Downloads\arka --device cuda
-```
+The preserved scene and pinned mesh/texture/camera inputs are the reference for
+further native refinement; animation success is not a geometry or appearance certificate.
+See [baseline resources](docs/facefitting/README.md#current-working-baseline).
 
-Jobs remove their own unreferenced temporary outputs, never other jobs' retained
-results, original photos or models.
-Explicit `imageprocessing cleanup` migrates verified legacy source copies and
-reclaims unused generated assets. See the module guide before pruning old runs.
-
-For cross-pipeline remnants, preview first, then apply:
-
-```powershell
-python -m ailias cleanup --alias arka
-python -m ailias cleanup --alias arka --apply
-```
-
-Cleanup covers owned job scratch and redundant reel frames, preserving approved
-baselines, referenced results, original inputs and shared models/tools. Reel jobs
-keep the video and first/last frames by default; use `reanimation run --keep-frames`
-to retain the full sequence. [Cleanup rules and explicit old-job pruning](docs/dev.readme.md#resource-cleanup).
-
-After manually reviewing/removing portrait crops, freeze those decisions:
-
-```powershell
-python -m ailias imageprocessing curate arka RUN_ID --removed-are-rejected
-```
-
-Later scans automatically honor that alias's reviewed profile. Known rejected
-crops are not recreated; clear negative-exemplar matches are suppressed, while
-uncertain new portraits go to `assets\review`, not the accepted portrait folder.
-Existing kept portraits are never overwritten or recreated after another manual
-deletion. [Curation rules and limitations](docs/imageprocessing/README.md#learn-from-manual-portrait-review).
-
-## Usage
-
-Use photo IDs from intake/status, with unique prefixes accepted by `review`.
-Review must explicitly confirm or deny all three capture conditions.
-
-```powershell
-python -m ailias review first-face PHOTO_ID --yaw 0 --pitch 0 --neutral --unobstructed --consistent
-python -m ailias validate first-face
-```
-
-`validate` returns exit code 2 until adequate accepted evidence exists. Complete
-manual reconstruction/cleanup/MetaHuman work externally, then attach artifacts
-and record the baseline using the [workflow guide](docs/workflow.md).
-
-## Reconstruct and clean a candidate
-
-```powershell
-.\scripts\setup-generation-tools.ps1
-python -m ailias generation doctor
-python -m ailias generation reconstruct arka RUN_ID face-001
-python -m ailias generation status arka JOB_ID
-python -m ailias generation unreal-doctor
-```
-
-Only explicitly kept, quality-eligible portraits enter these experiments.
-Reusable hardlinks avoid photo copies; jobs discard native databases/depth caches
-after retaining their results or failure diagnostics. The current real-photo
-benchmark is blocked by insufficient verified multi-view matches, not a missing
-CUDA installation. An explicit `config\generation-poc.json` profile relaxes
-initialization/dense gates and has produced real photo-derived facial fragments
-for Blender inspection; **not a complete head**. Default gates remain unchanged.
-See [generation](docs/generation/README.md)
-for gates, actual validation evidence and the remaining manual Identity solve.
-
-For the separate coherent-head baseline, use
-`python -m ailias facefitting fit arka RUN_ID face-001 --generation-config config\generation-poc.json`.
-Its fresh 63-view CUDA trial took **42.187s versus 372.859s CPU** (8.84x faster),
-with slightly better held-out landmark agreement. This is not a likeness score.
-The separate appearance command now generates a textured Blender preview and
-hair approximation without changing approved geometry.
-See [renders, Blender stages, commands and limitations](docs/facefitting/README.md)
-and the [researched UE 5.8 route](docs/generation/metahuman-workflow-investigation.md).
-
-## Animate an existing MetaHuman
-
-The separate [reanimation module](docs/reanimation/README.md) accepts narration
-and an **already assembled rigged MetaHuman Blueprint**. It implements native
-audio-driven face/head animation, a chroma-green portrait stage, GPU rendering
-and explicit NVIDIA video encoding. **A complete Taro sample reel now passes
-native rendering and audio/video checks:** 743 frames, 1080x1920 at 30 fps,
-24.77 seconds, with PocketTTS/testuser narration. The latest version uses softer,
-dimmer lighting and sharp focus. This is a sample character, not the owner's
-personal MetaHuman; subjective lip-sync review remains separate.
-
-Named controls include `--alias arka`, `--voice C:\path\to\narration.wav`
-and `--resolution 540x960` for drafts. Audio can come from any source, including
-an independently generated Yapit sample; ailias has no Yapit dependency.
-`--audio WAV` is a compatibility alias; production defaults stay 1080x1920.
-See the module guide for native character selection and independent placement.
+## Documentation
 
 | Document | Dev guide | Purpose |
 |---|---|---|
-| [Workflow](docs/workflow.md) | [Development](docs/dev.readme.md) | CLI contracts, capture and manual handoffs |
-| [Imageprocessing](docs/imageprocessing/README.md) | [Module internals](docs/imageprocessing/dev.readme.md) | Portrait/body extraction and reviewable face aliases |
-| [Geometry metrics](docs/geometry/README.md) | [Metric internals](docs/geometry/dev.readme.md) | Identity similarity versus actual geometric errors |
-| [Generation](docs/generation/README.md) | [Native adapters and validation](docs/generation/dev.readme.md) | COLMAP, Blender, guarded UE 5.8 handoffs and honest failure states |
-| [Head fitting](docs/facefitting/README.md) | [Fit internals and measured evidence](docs/facefitting/dev.readme.md) | CUDA head fitting, photographic preview, approximate hair and verified static-head UE import |
-| [Reanimation](docs/reanimation/README.md) | [Native adapter and validation](docs/reanimation/dev.readme.md) | Existing rig plus narration to GPU-rendered portrait reel; Taro audio/video integration verified |
-| [Implementation scope](docs/analysis.md) | [Remaining work](docs/todo/README.md) | Decisions, source and deferred functionality |
+| [Core workflow](docs/workflow.md) | [Development](docs/dev.readme.md) | Capture, durable state, handoffs, global configuration and cleanup |
+| [Imageprocessing](docs/imageprocessing/README.md) | [Internals](docs/imageprocessing/dev.readme.md) | Grouping, head extraction, curation and colour policy |
+| [Facefitting](docs/facefitting/README.md) | [Internals](docs/facefitting/dev.readme.md) | Head geometry, appearance and native Character handoff |
+| [Generation](docs/generation/README.md) | [Internals](docs/generation/dev.readme.md) | Alternative COLMAP reconstruction and Blender cleanup |
+| [Geometry](docs/geometry/README.md) | [Internals](docs/geometry/dev.readme.md) | Corresponding-landmark and sampled-surface comparison |
+| [Reanimation](docs/reanimation/README.md) | [Internals](docs/reanimation/dev.readme.md) | Existing rig plus WAV to portrait video |
+| [Decisions](docs/analysis.md) | [Open work](docs/todo/README.md) | Tradeoffs, limitations and acceptance criteria |

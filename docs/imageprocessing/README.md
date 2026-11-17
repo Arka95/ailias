@@ -1,310 +1,128 @@
-[Back to REPO_ROOT](../../README.md)
+[Back to REPO_ROOT](../../README.md) | [Development](dev.readme.md)
 
 # Imageprocessing
 
-Responsibility: turn a file/folder into **reviewable, grouped portrait and visible
-body candidates**, without altering original photos or inventing facial detail.
-This module does not construct a MetaHuman, certify identity, infer neutral
-expression, or replace capture review.
+Extract reviewable face groups, portraits and head-only foreground from photos.
+Original files remain unchanged; identity grouping and quality gates are heuristics.
 
-## Commands
+## Inputs and outputs
 
-```powershell
-& C:\projectWorkspace\.venv\Scripts\Activate.ps1
-python -m ailias imageprocessing models arka
-python -m ailias imageprocessing scan arka C:\Users\bhowmikarka\Downloads\arka
-python -m ailias imageprocessing scan arka C:\photos --recursive --limit 10 --no-body
-python -m ailias imageprocessing select arka RUN_ID face-001
-```
+| Input | Output | Consumer |
+|---|---|---|
+| File/folder: JPEG, PNG, WebP, TIFF, HEIC/HEIF/HIF | Extraction manifest, source hashes, face boxes, embeddings and group contact sheets | Curation, selection and cleansing |
+| Native portrait + face semantics + opacity | Head-only RGBA, background-suppressed RGB, alpha and reversible aligned analysis image | Facefitting and generation |
+| Explicit keep/remove review | Curation profile; uncertain new crops go to a review directory | Future scans and downstream input validation |
+| Selected group | Selection manifest referencing existing portraits/originals | Core `intake`; does not attest capture conditions |
 
-`models` explicitly downloads about 45 MB of SHA256-pinned YuNet, SFace and
-PP-HumanSeg weights plus licenses into `data\arka\imageprocessing\models`.
-It also prepares the roughly 26 MB official MODNet portrait-matting model.
-Head-only selection additionally uses a pinned 53 MB BiSeNet face-part parser.
-One-time preparation needs `python -m pip install -e ".[matting-tools]"` in the
-shared environment; it specializes the pinned ONNX graph and checks equivalent
-outputs. Only the prepared weights remain. No Torch or CUDA stack is installed.
-Use `models --no-cleanse` to omit matting setup.
-Use `--no-body` on both model installation and scan to omit segmentation.
-`scan` never downloads models. Image inference is local; no image,
-embedding or crop is sent to a service.
+Artifacts live below `data\ALIAS\imageprocessing`: reusable `assets`, immutable
+`runs`, versioned `cleansing` jobs and `selections`. Native RGB/alpha preserve
+the portrait grid; aligned images are analysis-only, not frontalized reconstruction inputs.
 
-### Explicit NVIDIA GPU execution
+## Usage
+
+Use the shared environment from the [root setup](../../README.md#quick-setup).
+Model preparation is explicit; `scan` never downloads weights.
 
 ```powershell
-.\scripts\setup-gpu.ps1 -SourcePython C:\projectWorkspace\Thea\.venv\Scripts\python.exe
-& C:\projectWorkspace\.venv\Scripts\python.exe -m ailias imageprocessing scan arka C:\Users\bhowmikarka\Downloads\arka --device cuda
+python -m ailias imageprocessing models subject
+python -m ailias imageprocessing scan subject C:\photos --device cuda
+python -m ailias imageprocessing curate subject RUN_ID --removed-are-rejected
+python -m ailias imageprocessing select subject RUN_ID face-001
+python -m ailias imageprocessing cleanse subject RUN_ID --group face-001 --device cuda
 ```
 
-All applications use `C:\projectWorkspace\.venv`. This is a directory junction
-to the existing Thea environment: **one physical environment, no clone or overlay**.
-Setup installs ailias and missing lightweight dependencies into that shared
-environment. Keep its existing target in place. No CUDA Toolkit, cuDNN or ONNX
-Runtime download is required. Do not install the CPU `imageprocessing` extra
-into this environment: its headless OpenCV wheel would replace/shadow CUDA OpenCV.
+Inspect contact sheets and crops before `curate` or `select`. `curate` records
+explicit review, not automatic predictions: keep valid portrait PNGs, remove
+invalid ones, then confirm removals with its flag. Uncertain files can be moved
+unchanged from `assets\review` to `assets\portraits` before curation.
 
-The default remains `--device cpu`; CUDA is opt-in, uses device 0, and refuses
-unavailable CUDA or model-inference failure instead of retrying on CPU.
-Run manifests include per-model backend/target graph verification after completed
-inference, not just the GPU's presence. Models unused because there are no detections are
-marked `not_executed`, not falsely GPU-verified. Some shape/transfer operators
-can execute on CPU; decoding, image I/O, cropping and grouping are CPU work.
-Mixed CPU/CUDA graph layers are reported honestly. Model handles are released
-when the backend closes; source weights are never modified.
+| Option | Default | Meaning |
+|---|---|---|
+| `scan --device`, `cleanse --device` | `cpu` | `cpu` or `cuda`; CUDA failure does not retry on CPU |
+| `scan --recursive` | Off | Traverse subdirectories |
+| `scan --limit N` | All supported files | Bound the sorted input list |
+| `--no-body` | Off | Skip optional person segmentation; supported by `models` and `scan` |
+| `--no-cleanse` | Off | Skip head-matting/parser preparation or cleansing, respectively |
+| `cleanse --group GROUP` | Per stored group | Share exposure references across a supported seed-subject hypothesis |
+| `scan / curate --processing-config FILE` | `config\imageprocessing.json` | Select extraction/curation thresholds |
+| `scan / cleanse --cleansing-config FILE` | `config\cleansing.json` | Select head-alpha and colour policy |
 
-`scan` accepts one file or a directory. Scanning is nonrecursive unless requested.
-Supported: JPEG, PNG, WebP, TIFF, HEIC/HEIF/HIF primary images. Exact byte duplicates
-are analyzed once and retain all source filenames. Other formats are ignored;
-unreadable supported files are reported without discarding successful images.
-Each invocation performs fresh inference and creates an independent run.
+CPU inference uses the optional `imageprocessing` extra. Do not install its
+headless OpenCV wheel over an existing CUDA-enabled OpenCV installation.
+Matting setup requires the optional `matting-tools` extra; see [runtime setup](dev.readme.md#runtime).
 
-The JSON response points to `manifest.json` and a group-overview JPEG. Open the
-overview, then a group's contact sheets before running `select`. Group IDs are
-run-scoped candidates, not person names; a large group can be the wrong subject.
-The selection command is your explicit mapping of that group to the named alias.
-Selection refuses superseded grouping revisions; old outputs remain available
-for inspection, but require a new scan with the corrected grouping before export.
+## Configuration
 
-## Outputs under data\ALIAS
+### Extraction and curation: `config\imageprocessing.json`
 
-| Location beneath `data\ALIAS` | Contents |
-|---|---|
-| `imageprocessing\models\REVISION` | Verified weights, upstream licenses, model provenance |
-| `imageprocessing\assets\portraits\SHA256.png` | Reusable native-resolution head/shoulder crops |
-| `imageprocessing\assets\review\SHA256.png` | Uncertain new crops, separate from accepted portraits |
-| `imageprocessing\assets\bodies\SHA256.png` | Reusable RGBA visible-person crops when association is unambiguous |
-| `imageprocessing\assets\masks\SHA256.png` | Reusable corresponding binary masks |
-| `imageprocessing\runs\RUN\groups\face-NNN` | Group-specific review contact sheets, not copied crops |
-| `imageprocessing\runs\RUN\manifest.json` | Source links, EXIF correction, crop coordinates, features, filters and grouping |
-| `imageprocessing\selections\SELECTION\selection.json` | Selected-candidate references and hashes, no copied images |
-| `imageprocessing\selection.json` | Pointer/details of latest selection |
-| `imageprocessing\comparisons` | Optional identity-versus-2D-landmark reports |
-| `imageprocessing\curation.json` | Explicit human labels, frozen feature exemplars and validation diagnostic; no photo copies |
+| Key | Default | Meaning |
+|---|---|---|
+| `detection_score` | `0.85` | Minimum YuNet detector confidence |
+| `detection_max_side` | `1600` | Longest analysis side in pixels; native coordinates are restored |
+| `cpu_threads` | `2` | OpenCV worker-thread budget |
+| `min_face_size` | `256` | Minimum native face-box side in pixels |
+| `min_laplacian_variance` | `40` | Minimum face-region focus score after bounded downsampling |
+| `max_dark_fraction` | `0.5` | Maximum dark-pixel fraction in the face quality test |
+| `max_bright_fraction` | `0.5` | Maximum bright-pixel fraction in the face quality test |
+| `identity_cosine_threshold` | `0.5` | Minimum pairwise SFace cosine for complete-link grouping |
+| `identity_ambiguity_margin` | `0.05` | Near-tie margin used to flag ambiguous identity assignments |
+| `portrait_side_margin` | `0.6` | Extra crop margin per side, relative to face-box width |
+| `portrait_top_margin` | `0.75` | Extra upper crop margin relative to face-box height |
+| `portrait_bottom_margin` | `1.0` | Extra lower crop margin relative to face-box height |
+| `curation_accept_cosine` | `0.5` | Minimum similarity to kept examples for automatic acceptance |
+| `curation_reject_cosine` | `0.6` | Minimum similarity to rejected examples for automatic rejection |
+| `curation_reject_positive_ceiling` | `0.35` | Rejection also requires similarity to kept examples below this value |
+| `curation_score_margin` | `0.1` | Required winning margin between positive and negative exemplar scores |
 
-Original source folders are never written or cloned. Manifests keep absolute
-source paths and hashes; moved, missing or changed originals fail integrity
-checks rather than being silently replaced. Keep source photos available.
-Repeated scans still run fresh inference, but identical generated PNGs reuse
-the alias-level content-addressed asset. Crops are lossless PNG without
-EXIF/XMP/GPS; originals retain their metadata. Source/crop coordinates are
-pixels in the EXIF-corrected image. No reviewed portrait is enlarged, rotated to flatten pose,
-beautified, relit, denoised, sharpened or face-restored. ICC profiles are converted
-to sRGB when valid; derived files are RGB8, so HDR originals must be retained for
-any future radiometric/texture workflow.
-
-## Filtering and grouping
-
-`config\imageprocessing.json` controls face detector score, analysis resolution,
-CPU threads, face-size/focus/exposure gates, crop margins and grouping thresholds.
-Override with `scan --processing-config FILE.json`; no environment overrides.
-
-- Quality uses the **face region**, not background detail: native face size,
-  Laplacian variance after downsampling to at most 256 pixels, and exposure fractions.
-- Portraits keep forehead/ear/jaw context. A crop containing another detected
-  face is flagged and excluded from selection. Border clipping may still hide
-  anatomy; human review is required.
-- SFace embeddings use internally aligned faces **only for identity grouping**.
-  Exported portraits keep native pose/projection.
-- Conservative agglomerative complete-link cosine grouping requires similarity
-  across **every** pair before merging groups. Co-occurring detections cannot
-  share a group. Near-ties are flagged after clustering and excluded from
-  selection, not used as competing anchors for later assignments.
-- Every detection retains its features/decision in the manifest. With curation
-  enabled, rejected portrait/body/mask files are not published; uncertain crops
-  are separated for review. Selection excludes quality failures, uncertain
-  identities and curation decisions other than accept.
-- PP-HumanSeg supplies visible-person foreground, not pose/body reconstruction.
-  Components are associated with face locations; a component containing multiple
-  detected faces is marked ambiguous and no individual body is exported.
-
-The default 0.50 cosine threshold is deliberately conservative, **not a calibrated
-probability**. Viewpoint, glasses, lighting, mirrors, expression, lookalikes and
-missed detections can split or mix groups. Similar-looking people require manual
-inspection. Body masks are low-resolution model estimates, not hair-quality alpha
-matting; connected/touching people may not be separable.
+Exact reviewed labels take priority. New acceptance also requires quality gates;
+new rejection needs all negative-score, positive-ceiling and margin tests.
+Cosines are not calibrated probabilities.
 
 ## Portrait background removal and colour consistency
 
-Normal CLI `scan` now also publishes separately versioned portrait appearance
-derivatives. It checks both models before scanning, uses the explicitly
-chosen CPU/CUDA device and never downloads weights during processing.
-`scan --no-cleanse` explicitly retains the previous analysis-only behaviour.
-Existing extraction runs can be cleansed without detection/recognition again:
+### Cleansing: `config\cleansing.json`
 
-```powershell
-python -m ailias imageprocessing cleanse arka RUN_ID --device cuda
-python -m ailias imageprocessing cleanse arka RUN_ID --group face-001 --device cuda
-```
+| Key | Default | Meaning |
+|---|---|---|
+| `neutral_saturation_max` | `0.2` | Maximum saturation for scene-neutral white-balance samples |
+| `neutral_min_fraction` | `0.005` | Minimum fraction of usable scene-neutral pixels |
+| `white_balance_gain_limit` | `1.18` | Maximum permitted per-channel gain or inverse gain |
+| `exposure_ev_limit` | `0.35` | Maximum absolute exposure adjustment in stops |
+| `alpha_background_cutoff` | `0.02` | Snap alpha at/below this threshold to fully transparent |
+| `alpha_foreground_cutoff` | `0.98` | Snap alpha at/above this threshold to fully opaque |
+| `native_mask_threshold` | `0.5` | Binary alpha threshold forwarded to native reconstruction |
+| `min_face_coverage` | `0.9` | Minimum retained coverage of the face core |
 
-`--group` expands a fixed seed-subject hypothesis across supported groups, using
-one shared exposure reference; without it, exposure references stay within each
-original candidate group. Neither confirms the person's identity.
+BiSeNet selects face/ears/hair; MODNet supplies soft opacity. Neck, clothing and
+background are excluded. Colour correction uses bounded scene-neutral estimates
+and subject-relative exposure, not calibrated skin colour, shadow removal or albedo.
+Insufficient colour evidence is skipped; unreliable masks require review.
 
-Cleansing targets **the head, not the entire person**. A face-part parser selects
-facial skin/features, ears and hair near the detected face; MODNet supplies soft
-outer opacity. Neck, clothes/torso, hats and jewellery are excluded. Glasses
-remain visible occluders, not recovered eye detail. Person matting alone was the
-wrong target: it intentionally retained shirts. No ellipse substitutes for
-missing semantic evidence.
+## Review and limitations
 
-| Output under `imageprocessing` | Purpose |
+| Boundary | Behavior |
 |---|---|
-| `assets\cutouts\SHA256.png` | Colour-corrected head-only RGBA; transparent background/clothing RGB is zeroed |
-| `assets\cleansed\SHA256.png` | Corrected RGB with background outside the configured alpha threshold blacked out for native tools |
-| `assets\alphas\SHA256.png` | Native-size grayscale opacity, including fractional edge values |
-| `assets\aligned\SHA256.png` | Separate 512-square RGBA analysis image: eye-axis level, fixed eye midpoint, uniform scale constrained to retain the observed head |
-| `cleansing\JOB_ID\manifest.json` | Source/crop hashes, policy, model/device evidence, colour decisions, quality/review outcomes and preview |
-| `cleansing\RUN_ID.json` | Hash-verified pointer to the most recent completed cleansing job for that extraction run |
+| Identity | Complete-link grouping may split poses or confuse lookalikes; inspect candidate groups |
+| Curation | Explicit kept files are reused unchanged; changed/missing references fail closed |
+| Coordinates | Eye-axis alignment changes roll/scale/position only; no synthesized yaw/pitch or hidden anatomy |
+| Cleansing | Hair, glasses, accessories and touching subjects can be misclassified |
+| Selection | Excludes unsupported identities, quality failures and nonaccepted curation decisions |
+| Fresh runs | Inference runs again; content-addressed PNG reuse is storage deduplication, not inference replay |
 
-Originals, approved portrait PNGs, embeddings and `curation.json` are not modified.
-Repeated cleansing performs fresh inference but identical derived pixels reuse
-canonical assets. MODNet uses aspect-preserving 512-square letterboxing; the
-face parser uses a detected-face context resized to 512, then restores class labels
-to the native grid. RGB/cutout/alpha products retain the original crop
-dimensions/coordinates. The separate aligned image records forward/inverse
-3x3 transforms to both the reviewed portrait and EXIF-oriented source pixels.
-It corrects in-plane roll/position/scale, **not yaw, pitch or expression**.
-No hidden cheek/ear is synthesized. Native reconstruction still receives the
-unwarped RGB/alpha, not the aligned analysis derivative.
-This does not recover detail absent from that model/input resolution.
-Approved `assets\portraits` are still the unchanged review crops, not the
-cleaned output folder. Inspect `assets\aligned` or the cleansing preview.
-Previews now show useful frontal heads first, label source filenames and cover
-every ready head across `manifest.json`'s `preview_pages`; they no longer hide
-everything after the first 36 records.
+For comparison:
+`python -m ailias imageprocessing compare subject RUN_ID FIRST_FACE_ID SECOND_FACE_ID`.
+This separates identity cosine from five-point projected geometry.
 
-Colour settings live in `config\cleansing.json`, optionally overridden with
-`--cleansing-config FILE` on `scan`/`cleanse`. White balance uses consistent
-low-saturation scene pixels outside detected faces, with bounded gains; insufficient
-or ambiguous evidence is explicitly skipped. Exposure is bounded relative to
-the median of at least three clean estimated-frontal photos in the same subject
-scope. It is not a universal target skin colour, calibrated colour measurement,
-shadow removal or intrinsic albedo recovery.
-
-Visible semantic skin also supplies uncalibrated lighting evidence: channel
-ratios, left/right brightness imbalance and clipped highlights. At least three
-clean frontal observations in the same subject hypothesis establish a robust
-relative colour reference. Outliers lower baseline suitability; missing neutral
-scene evidence alone does not. This **does not recolour skin to an assumed
-ethnicity or whiten shadows**, and a group's shared lighting cast can escape
-relative detection. `--group` shares the reference across supported groups.
-
-Near-empty/opaque masks, poor face-core coverage, or semantic foreground reaching
-the lower face-context boundary are marked `review`, not
-silently replaced by an ellipse. Crops containing another detected face are
-excluded. Inspect the preview and transparent PNGs: hair, glasses, similar-colour
-backgrounds, touching people and missed detections can still be wrong. These
-heuristics do not certify perfect edges. Generation's configured cleansing path
-excludes review/missing derivatives and refuses stale or changed products.
-The aligned-head method revision invalidates earlier cleansing pointers.
-
-The generation CLI refreshes cleansing before native reconstruction; its input
-audit uses the latest completed, current-curation derivatives without inference.
-See [generation integration](../generation/README.md).
-
-## Learn from manual portrait review
-
-1. Finish reviewing a completed run's `assets\portraits` folder: retain valid crops and remove invalid ones.
-2. Explicitly record that review with `curate`; missing files are treated as rejection **only in this command**, never inferred during an ordinary scan.
-3. Run normal scans; the per-alias profile is loaded automatically before extraction.
+## Cleanup
 
 ```powershell
-python -m ailias imageprocessing curate arka RUN_ID --removed-are-rejected
-python -m ailias imageprocessing scan arka C:\photos --device cuda
+python -m ailias cleanup --alias subject
+python -m ailias imageprocessing cleanup subject
+python -m ailias imageprocessing cleanup subject --prune-superseded --keep-run RUN_ID
 ```
 
-The profile keeps each reviewed SFace feature vector rather than averaging all
-poses/people into one centroid. Its labels mean **valid/invalid crops as reviewed
-by you**, not independently certified person identities.
-
-| Candidate | Pipeline behavior |
-|---|---|
-| Exact reviewed source/crop or pixel-content hash | Honor the human label; never regenerate a rejected portrait |
-| Reviewed kept crop | Reuse its existing verified file; do not overwrite or recreate it |
-| New crop close to kept examples with clear margin, passing quality checks | Save to `assets\portraits` |
-| Strong rejected-example match, weak kept-example match and clear margin | Suppress portrait/body/mask exports; retain metadata and reason |
-| Unknown, conflicting or quality-uncertain new crop | Save portrait to `assets\review`; selection remains blocked |
-
-Defaults in `config\imageprocessing.json`:
-`curation_accept_cosine=0.50`, `curation_reject_cosine=0.60`,
-`curation_reject_positive_ceiling=0.35`, `curation_score_margin=0.10`.
-New rejection requires negative score >=0.60, positive score <0.35 and
-negative-minus-positive >=0.10. Acceptance requires positive >=0.50,
-positive-minus-negative >=0.10 and no quality flags. These are conservative
-engineering gates, **not probabilities or universally calibrated thresholds**.
-Exact human labels take priority; an explicitly kept low-resolution crop is
-preserved but can still fail reconstruction-quality/selection gates.
-
-Review uncertain files separately. To approve one, move its unchanged
-`SHA256.png` from `assets\review` to `assets\portraits`; to reject it, delete it.
-Then run `curate` against that completed run with the confirmation flag.
-The command merges explicit decisions with the existing profile, skips review
-files still awaiting a decision, and does not learn from automatic predictions.
-Subsequent manual deletions of a kept reference require another `curate` before
-scanning; the pipeline fails closed rather than restoring that file. References
-must remain unchanged, and the recognizer model/revision must match.
-
-Capture also reports **leave-one-source-photo-out** accept/reject/review counts.
-All crops from the held-out photo are excluded, and exact-match shortcuts are
-disabled. This is a conservative diagnostic, not independent future-data accuracy.
-Similarity alone cannot certify blur, anatomy, identity or reconstruction
-readiness; same-person bad crops and unfamiliar valid poses often need review.
-See the [research and actual validation](research.md#curated-portrait-filtering).
-
-## Use selected candidates
-
-The selection response provides `portraits`/`originals` path lists and a
-`manifest` path. Pass that selection manifest to manual-first intake; it
-references existing portraits without making another image directory:
-
-```powershell
-python -m ailias init arka
-python -m ailias intake arka C:\projectWorkspace\ailias\data\arka\imageprocessing\selections\SELECTION\selection.json
-```
-
-Run `init` only if no session exists. Portraits may fail the main pipeline's
-1024-pixel minimum even when the visible face passed this module's 256-pixel gate.
-Never upscale just to pass: capture better photographs. Source originals and crop
-transforms remain available for camera-aware reconstruction.
-
-`scan` exit code 2 means one or more supported files failed; inspect `file_errors`.
-Quality rejections and no-face images are normal report outcomes, not I/O errors.
-`select` does not automatically ingest data or attest neutral expression.
-
-Every scan finalizes a job-scoped cleanup pass. Only files within that new run
-that are not referenced by its saved manifest are removed, along with empty
-subdirectories. Failed runs are marked `failed` and keep recorded evidence for
-diagnosis; uncommitted crop fragments are removed, including newly created
-unreferenced shared assets. Selection failures and geometry-comparison failures
-similarly remove their own uncommitted artifacts. Models, other jobs' referenced
-assets and external photos are never swept. Hard process termination can
-prevent finalizers.
-
-Explicit maintenance is available:
-
-```powershell
-python -m ailias imageprocessing cleanup arka
-python -m ailias imageprocessing cleanup arka --prune-superseded --keep-run RUN_ID
-```
-
-Cleanup migrates legacy source copies only when the original still exists and
-its hash matches; otherwise it retains the only saved copy. It consolidates
-legacy generated PNGs without temporarily duplicating their bytes, and removes
-unreferenced managed assets. Pruning additionally removes obsolete complete/failed
-runs, protecting the requested complete run and runs referenced by selections,
-session/history or other reports. Models and original input folders are untouched.
-`retained_empty_runs` reports empty directories Windows still holds open; their
-image bytes have been removed, and a later cleanup retries directory removal.
-
-For face comparison:
-
-```powershell
-python -m ailias imageprocessing compare arka RUN_ID FIRST_FACE_ID SECOND_FACE_ID
-```
-
-Face IDs/prefixes come from the run manifest, not group IDs. The response separates
-identity cosine similarity from projected five-landmark shape error. It cannot
-measure 3D nose projection, jaw shape, ears or hidden anatomy.
-
-See [research](research.md), [internals](dev.readme.md), and
-[geometry metrics](../geometry/README.md).
+Job finalizers remove owned unreferenced scratch. Explicit legacy cleanup
+consolidates generated assets and verifies originals before removing redundant
+source copies. Referenced assets, curation examples and models are protected.
+See [global cleanup safeguards](../dev.readme.md#resource-cleanup) and
+[research](research.md).

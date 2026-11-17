@@ -1,0 +1,87 @@
+{
+  "purpose": "README stage illustrations, not a single end-to-end run or matched-camera metric",
+  "portrait_maximum_size": [
+    256,
+    256
+  ],
+  "records": {
+    "portrait.png": {
+      "source": "data\\arka\\imageprocessing\\assets\\portraits\\61b90dcb915389ec88c58a6210a0d073270634e93980582257d749a1424a10ab.png",
+      "source_sha256": "61b90dcb915389ec88c58a6210a0d073270634e93980582257d749a1424a10ab",
+      "output_sha256": "29669e514e277aa9ee90b1f562b47d50259e45c3787be6073cb5f28562e05f64",
+      "output_size": [
+        160,
+        180
+      ],
+      "display_crop": null,
+      "transform": "uniform downscale and neutral padding; no warp, relighting or inference"
+    },
+    "cutout.png": {
+      "source": "data\\arka\\imageprocessing\\assets\\cutouts\\d541c3097f6185fddbf6cfb29ba39f03167bb18b70dcc1ca94367650143abcc3.png",
+      "source_sha256": "d541c3097f6185fddbf6cfb29ba39f03167bb18b70dcc1ca94367650143abcc3",
+      "output_sha256": "7d89115401af4b21e78b8652a856376867e92e3da21dd47e20d877c0e5bb6959",
+      "output_size": [
+        160,
+        180
+      ],
+      "display_crop": [
+        361,
+        137,
+        1263,
+        1463
+      ],
+      "transform": "uniform downscale and neutral padding; no warp, relighting or inference"
+    },
+    "clay.png": {
+      "source": "docs\\facefitting\\images\\approved-clay-front.png",
+      "source_sha256": "dea680708f06d0d8042d291f080aac8be123a297a229130ad5585b6fd596a2ed",
+      "output_sha256": "693430c64d397e9148480134082df67bf59d195c981437b1cffae1a97c16f390",
+      "output_size": [
+        160,
+        180
+      ],
+      "display_crop": null,
+      "transform": "uniform downscale and neutral padding; no warp, relighting or inference"
+    },
+    "appearance.png": {
+      "source": "docs\\facefitting\\images\\photo-appearance-front.png",
+      "source_sha256": "212bf7639a7a64ee9c0613a3c11093aa919e306c455bf775a428f37f25f1cd44",
+      "output_sha256": "008801354410df99e52ee516c2f0e074ed6d65334ac0fd1fac439983d8c92026",
+      "output_size": [
+        160,
+        180
+      ],
+      "display_crop": null,
+      "transform": "uniform downscale and neutral padding; no warp, relighting or inference"
+    },
+    "native.png": {
+      "source": "data\\arka\\reanimation\\runs\\13a06df92b224d3b8ba938bdf7f8ddc2\\frames\\frame.000000.png",
+      "source_sha256": "d69c1b6e45871c53715c8043686da9d5edb026aa791476408450315bc64a2088",
+      "output_sha256": "29ddd9a30103c024f8e6e28cf124b5155f89dc5a2c23653c2e20d03dd66939d3",
+      "output_size": [
+        160,
+        180
+      ],
+      "display_crop": null,
+      "transform": "uniform downscale and neutral padding; no warp, relighting or inference"
+    },
+    "reel.png": {
+      "sources": [
+        {
+          "source": "data\\arka\\reanimation\\runs\\13a06df92b224d3b8ba938bdf7f8ddc2\\frames\\frame.000000.png",
+          "source_sha256": "d69c1b6e45871c53715c8043686da9d5edb026aa791476408450315bc64a2088"
+        },
+        {
+          "source": "data\\arka\\reanimation\\runs\\13a06df92b224d3b8ba938bdf7f8ddc2\\frames\\frame.000742.png",
+          "source_sha256": "aef93b42e84f0da6bdab3bb80d4e836a637a0db981e359db4b7d11cb583b6114"
+        }
+      ],
+      "output_sha256": "6920acf03d861a98ed4f79c557d4051e763ce62ea78adf6d88a50f36447408a8",
+      "output_size": [
+        256,
+        180
+      ],
+      "transform": "first/last existing frames, uniform downscale and padding; no new render"
+    }
+  }
+}

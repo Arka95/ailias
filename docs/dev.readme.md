@@ -1,176 +1,145 @@
-[Back to REPO_ROOT](../README.md)
+[Back to REPO_ROOT](../README.md) | [Core workflow](workflow.md)
 
 # Development
 
-Use `C:\projectWorkspace\.venv` for all applications: the existing working CUDA
-environment is exposed there without copying it. From the project root,
-`.\scripts\setup-gpu.ps1` installs ailias into that shared environment.
-Do not create a project venv or install the CPU OpenCV extra over the CUDA build.
-NumPy/OpenCV/HEIC are optional runtime dependencies, not a second test framework:
+## Setup and tests
+
+Use Python 3.12+ in `C:\projectWorkspace\.venv`. The setup script reuses the
+shared environment; do not replace its CUDA/OpenCV/Torch stack.
 
 ```powershell
+.\scripts\setup-gpu.ps1
 & C:\projectWorkspace\.venv\Scripts\python.exe -m unittest discover -s src\ailias -t src -v
 ```
 
-Units generate synthetic images/geometry in temporary directories and use fake
-inference backends. HEIC decoding and connected-component association use the
-real lightweight codecs/operators, never model inference. No unit uses user
-photos, network, external tools or GPU probing. See the imageprocessing guide
-for explicitly invoked real-directory validation, separate from units.
-No linter/formatter has been added.
+Units use temporary fixtures and fake inference/native workers. Model execution,
+GPU checks and editor integration are explicit opt-in operations outside unit
+discovery. No project linter/formatter is configured.
 
-Production Python modules start with a short module docstring explaining their
-responsibility and any important boundary. Keep command details and architecture
-in the linked guides; avoid restating imports or narrating individual statements.
+## Architecture
 
-## Research decision guide
-
-Read the plain-language module notes for what is implemented, what is proposed,
-why each approach was chosen, its limitations and the evidence needed next:
-[image observations and grouping](imageprocessing/dev.readme.md#research-decisions-in-plain-language),
-[head fitting, completion and skin appearance](generation/dev.readme.md#research-decisions-in-plain-language),
-[implemented dense CUDA head fitting](facefitting/dev.readme.md),
-and [dimensions, scale and geometry errors](geometry/dev.readme.md#research-decisions-in-plain-language).
-Detailed primary references live in the linked module research records.
-
-## Implemented architecture
+The [root diagram](../README.md#module-architecture) maps product responsibilities.
+This diagram shows process and persistence boundaries.
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 900}}}%%
+%%{init: {"flowchart": {"wrappingWidth": 1000}}}%%
 flowchart TB
     subgraph MAIN[" "]
         direction TB
-        CLI["CLI commands"]:::svc --> IN["Intake and manual review"]:::svc
-        CLI -->         IMG["Imageprocessing: explicit CPU or CUDA"]:::svc
-        CLI --> GEO["2D and 3D geometry errors"]:::svc
-        CLI --> GEN["Experimental generation jobs"]:::svc
-        CLI --> FIT["Photo-conditioned head fitting: CPU observations and CUDA fit"]:::svc
-        IMG -->|Human-kept aligned heads| FIT
-        FIT --> BL
-        FIT --> DATA
-        IMG -->|Human-kept artifacts; explicit command| GEN
-        GEN --> COL["COLMAP 4.2.1 CUDA"]:::ext
-        GEN --> BL["Blender 4.5.15 CUDA"]:::ext
-        GEN -.->|Legacy Identity conform unverified| UE["UE 5.8.4: static import verified; conform unfinished"]:::ext
-        FIT -->|Hair-free textured head import verified| UE
-        IN --> GATE{"Quality and coverage"}:::gate
-        GATE -->|ready| HAND["Manual handoff receipts"]:::svc
-        HAND --> BASE["Three-view baseline"]:::svc
-        IN --> DATA[("Session manifest and artifacts")]:::store
-        HAND --> DATA
-        BASE --> DATA
-        IMG --> DATA
-        GEO --> DATA
-        GEN --> DATA
+        CLI["CLI<br/>Arguments, JSON output and exit codes"]:::svc --> PIPE["Module pipelines"]:::svc
+        PIPE --> STORE["Store<br/>Alias lock, hashes and atomic JSON"]:::svc
+        STORE --> DATA["data / ALIAS<br/>Manifests and retained artifacts"]:::store
+        PIPE --> ML["Local model adapters<br/>OpenCV, MediaPipe, PyTorch / SciPy"]:::ext
+        PIPE -->|Arguments and request files| WORK["Owned native worker processes"]:::svc
+        WORK --> COL["COLMAP"]:::ext
+        WORK --> BL["Blender"]:::ext
+        WORK --> UE["Unreal Editor"]:::ext
+        WORK --> FF["FFmpeg"]:::ext
+        WORK -->|Receipts, files and exit status| CHECK["Artifact / media validation"]:::svc
+        CHECK --> STORE
     end
     MAIN ~~~ SUM
-    SUM["Figure - Implemented ailias flow. How to read: top to bottom; blue logic, yellow gate, green storage, purple native tools; dashed conform path is unverified. Summary: a fitted/textured head exists; MetaHuman and final likeness remain unvalidated. Manual attestations are separate. Backed by: cli.py, imageprocessing/cli.py, facefitting/pipeline.py, facefitting/unreal_handoff.py, geometry/cli.py, generation/pipeline.py, generation/unreal.py, intake.py, workflow.py, storage.py."]:::caption
+    SUM["Figure - Runtime architecture. How to read: top to bottom; blue application logic, green retained resources, purple external runtimes. Summary: synchronous local jobs exchange files; only verified outputs become retained artifacts. Backed by: cli.py, storage.py, generation/tools.py, resources.py and reanimation/pipeline.py."]:::caption
     style MAIN fill:none,stroke:none
     classDef svc fill:#cfe3ff,stroke:#2b6cb0,color:#0b2545
-    classDef gate fill:#fff3bf,stroke:#d69e2e,color:#4a3608
-    classDef store fill:#d6f5df,stroke:#2f855a,color:#12351f
     classDef ext fill:#e6dcff,stroke:#6b46c1,color:#2d1b52
-    classDef unknown fill:#fde2e2,stroke:#c53030,color:#611a15,stroke-dasharray:4 3
+    classDef store fill:#d6f5df,stroke:#2f855a,color:#12351f
     classDef caption fill:#f7f7f7,stroke:#999,color:#222,font-size:16px
 ```
 
-**Backed by:** `src\ailias\cli.py` (`execute`), `intake.py` (`ingest`,
-`review_photo`, `validate`), `workflow.py` (`attach`, `baseline`) and `storage.py`
-(`Store`), `imageprocessing\cli.py` and `geometry\cli.py` (`execute`),
-`generation\pipeline.py` (`reconstruct`, `clean_mesh`) and
-`generation\unreal.py` (`run_unreal`) and `facefitting\pipeline.py` (`run_fit`).
-Diagram syntax was authored without a Mermaid render check.
-COLMAP/Blender are locally verified native dependencies; Unreal is an
-installed engine with verified fitted-head static import. Character/Identity
-conform, production appearance transfer and rigging remain unverified.
+**Backed by:** `src\ailias\cli.py:execute`, `storage.py:Store`,
+`generation\tools.py:NativeTools`, `resources.py` and `reanimation\pipeline.py`.
 
-| Module | Responsibility |
+| Component | Responsibility / communication |
 |---|---|
-| `settings.py` | Validated policy and one configuration source |
-| `storage.py` | Session boundary, writer lock, atomic manifests, source references, managed handoff artifacts, history |
-| `resources.py` | Owned-job finalization, junction-safe traversal and cross-pipeline dependencies |
-| `maintenance.py` | Dry-run-first remnant cleanup and guarded explicit old-job pruning |
-| `intake.py` | Lightweight image checks, manual review, angular coverage |
-| `workflow.py` | Ordered manual artifact contracts, baseline generation, integrity status |
-| `cli.py` | CLI argument schema, JSON output and exit codes |
-| `imageprocessing` | Explicit CPU or CUDA in the shared environment, reusable crops/masks, grouping, zero-copy selections |
-| `geometry` | Aligned landmark errors and optional sampled-surface distances, not an identity classifier |
-| `generation` | Experimental native reconstruction, minimal Blender cleanup, guarded Unreal handoffs; [internals and tests](generation/dev.readme.md) |
-| `facefitting` | Dense observations, CUDA head fit/photo projection, approved-geometry appearance/hair previews and verified static-head Unreal handoff; [internals and tests](facefitting/dev.readme.md) |
-| `tests` | Focused observable pipeline behavior and failure tests |
+| CLI | Synchronous Python calls into module pipelines; JSON results on stdout, diagnostics on stderr |
+| Module pipelines | Validate inputs, create unique jobs, invoke local adapters and persist results |
+| Store | Per-alias writer exclusion, atomic manifests, source references and content hashes |
+| Local model adapters | In-process inference/numerics; appearance workers separate incompatible native imports |
+| Native workers | Owned child processes using arguments, environment request paths, JSON receipts and artifact files |
+| Validators | Check saved native packages or media, not just worker return values |
+| Retained data | File-based state; no application database, service or distributed queue |
 
-Artifacts are immutable by content identity, not filesystem permissions. Changes
-on disk are detected by hash checks. Session state uses schema version 1. There
-is no application database, queue or background service; native COLMAP uses a
-job-local transient SQLite database. An explicit imageprocessing cleanup
-command migrates legacy copied photos and consolidates generated assets; it is
-not a general schema migration framework. Failed operations cannot partially
-commit a manifest, but hard termination may require explicit cleanup.
+COLMAP's transient SQLite database is job scratch, not application storage.
+Artifacts are immutable by recorded identity, not filesystem permissions.
 
-Intake changes invalidate all stages. Replacing a manual handoff invalidates
-that stage and its successors, preserving prior records in history. Downstream
-commands verify prerequisites against stored policy and source hashes.
+## Module ownership
 
-Python orchestrates this increment because Pillow, OpenCV's native C++ operators
-and NumPy's native numerical kernels fit the workload without an extra service.
-This is not a Python-only architecture: the small image backend protocol is a
-boundary for another runtime if a measured need arises. No CPU/GPU stack is
-silently replaced or automatically switched.
+| Area | Ownership | Guide |
+|---|---|---|
+| `settings.py`, `intake.py` | Capture thresholds, review and angular coverage | [Workflow](workflow.md) |
+| `storage.py`, `workflow.py` | Durable sessions, ordered handoffs, history and baseline records | [Workflow](workflow.md) |
+| `resources.py`, `maintenance.py` | Owned-file finalization and dependency-safe cleanup | [Cleanup](#resource-cleanup) |
+| `imageprocessing` | Photo grouping, head derivatives and curation | [Internals](imageprocessing/dev.readme.md) |
+| `facefitting` | Shared head shape, appearance preparation and native conform | [Internals](facefitting/dev.readme.md) |
+| `generation` | Alternative photogrammetry/native cleanup | [Internals](generation/dev.readme.md) |
+| `geometry` | Supplied-measurement comparison | [Internals](geometry/dev.readme.md) |
+| `reanimation` | Existing rig plus audio to verified video | [Internals](reanimation/dev.readme.md) |
 
-Native tools are shared under `C:\projectWorkspace\tools`, not per-job downloads
-or Python environments. Generation runs only on explicit commands, keeps
-camera/texture provenance, reuses hardlinked canonical input views and removes
-transient databases/depth/maps in finalizers. Isolated units use fake tools;
-authorized real CUDA checks live in `src\integration_tests\generation`, excluded
-from discovery/package installation. Unreal API execution still requires actual
-installed-version validation for Character conform and rigging. Fitted-head
-static import is verified separately. Clay geometry is owner-approved;
-photographic appearance/final likeness are not, and no MetaHuman is complete.
+## Configuration
+
+Global precedence: `--data-root` -> selected JSON `data_root` -> default relative
+data directory. `--config FILE` selects that JSON; relative data paths resolve
+against the configuration file. Module policies have their own CLI selectors;
+their complete key tables live in module usage guides.
+
+### Core: `config\settings.json`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `data_root` | `..\data` | Session/artifact directory relative to this configuration |
+| `min_photos`, `max_photos` | `8`, `15` | Capture-set count bounds |
+| `min_short_side` | `1024` | Minimum image short side, pixels |
+| `min_edge_energy` | `18` | Minimum lightweight focus/edge-energy score |
+| `max_dark_fraction` | `0.6` | Maximum dark-pixel fraction |
+| `max_bright_fraction` | `0.6` | Maximum bright-pixel fraction |
+| `angle_tolerance` | `10` | Allowed deviation in degrees from required capture views |
+
+The capture policy is independent of imageprocessing's face-region thresholds.
+Neither establishes anatomical accuracy.
+
+## State and failure handling
+
+| Event | Behavior |
+|---|---|
+| Intake changes | Invalidate downstream manual stages |
+| Replaced handoff | Invalidate that stage and successors; preserve prior history |
+| Missing/changed dependency | Fail integrity checks rather than silently rebase hashes |
+| Native worker success without files | Fail; receipts alone do not prove saved assets |
+| Editor failure after writes | Report possible partial packages; no external-project deletion |
+| Hard termination | May leave a running job/lock; inspect evidence rather than reusing its namespace |
 
 ## Resource cleanup
 
-Every producing pipeline has an owned-file finalizer: image scanning/cleansing,
-selection, geometry comparisons, reconstruction/input preparation, head fitting,
-appearance, static-head import, native conform and reanimation. Atomic writes and
-model downloads remove their own temporary files. Finalizers run on success and
-failure; completed artifacts, requests/receipts and diagnostic logs are retained
-where part of that pipeline's contract. Reconstruction retains its existing
-stricter policy of dropping uncommitted requests and partial Blender outputs.
-Intake/manual attachments retain content-addressed user inputs; they are not scratch.
-
-Native jobs now record a `resource_ownership` inventory. Uncommitted partial outputs
-and scratch are discarded. Reanimation retains the first/last available frames
-even on failure, removes partial videos and interior frames, and keeps published
-verified MP4s. `--keep-frames` explicitly retains every source PNG instead.
-Explicitly cancelled revisions also release interior frames when their existing
-video still matches its recorded hash; the video and boundary frames stay intact.
-Neither cleanup path automatically deletes Unreal packages, shared model/tool
-caches, original photos or selected/user-edited Blender assets.
+Producing jobs finalize their own unreferenced scratch on success/failure.
+Originals, shared model/tool caches, referenced results and preserved baselines
+are not scratch. Native packages are never automatically swept.
 
 ```powershell
-python -m ailias cleanup --alias arka
-python -m ailias cleanup --alias arka --apply
-python -m ailias cleanup --alias arka --prune-job 'facefitting\appearance\OBSOLETE_REVISION'
-python -m ailias cleanup --alias arka --prune-job 'facefitting\appearance\OBSOLETE_REVISION' --apply
+python -m ailias cleanup --alias subject
+python -m ailias cleanup --alias subject --apply
+python -m ailias cleanup --alias subject --prune-job 'facefitting\appearance\OBSOLETE_REVISION'
 ```
 
-`OBSOLETE_REVISION` must be an actual generated job ID; the default is a JSON-only
-dry run, not deletion. `--prune-job` is repeatable and required to remove whole
-historical jobs; there is no age-only purge. Pruning refuses retained references,
-active/interrupted jobs, changed/missing registered outputs and unregistered owner
-files. Approved-baseline/review metadata and downstream manifests are read across
-all pipelines, including when legacy `imageprocessing cleanup` reclaims PNG assets.
-Legacy absolute audit references are recognized without requiring metadata rewrites.
+The default is a JSON dry run. `--apply` rechecks hashes, dependency metadata,
+writer exclusion and symlink/junction boundaries before deleting exact files.
+Whole-job pruning requires explicit IDs and refuses referenced, edited, active
+or unregistered outputs. Receipts live under `maintenance\cleanups`.
 
-Application holds the alias writer lock and rechecks metadata, candidate hashes
-and symlink/junction boundaries before unlinking exact files. Corrupt metadata
-fails closed; partial deletion errors are counted rather than reported as success.
-Receipts live under `data\ALIAS\maintenance\cleanups`; cleanup receipts do not
-become live artifact references. Default remnant cleanup never rewrites retained
-job manifests, and rerunning it is idempotent.
+Reanimation normally keeps verified video and boundary PNGs; `--keep-frames`
+retains the sequence. Source/model downloads and atomic writes remove their
+own temporary files. Hard kills can prevent finalizers; cleanup is idempotent.
 
-Focused units in `ailias.tests.test_resources` and the affected module suites use
-temporary fixtures/fake native workers. They cover failure cleanup, cross-pipeline
-protection, dry-run/application, edited outputs, stale plans, linked paths and
-video-frame retention. No native render, model inference or cloud request is
-needed to validate resource ownership.
+## Documentation and media
+
+Usage guides own commands, I/O and configuration meanings; dev guides own
+internals, contracts and tests. Current quality is shown in the root comparison;
+run-by-run records belong in job manifests/research, not README narratives.
+
+Root thumbnails are reduced copies of existing pipeline products, not new
+model generation. [Media provenance](images/pipeline/provenance.json) records
+source hashes and display transforms. Keep cross-stage illustrations distinct
+from matched-camera validation or a single reproducible pipeline run.
+Portraits embedded in READMEs must fit within 256x256 pixels; link larger
+diagnostics instead. Mermaid source is maintained inline; no local Mermaid
+renderer is currently configured.
