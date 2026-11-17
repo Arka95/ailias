@@ -37,6 +37,7 @@ different numerical optimization; neither backend is a likeness certificate.
 | `native_features.py`, `native_features_worker.py` | Immutable-source Character duplication, validated sculpt/iris/texture/groom edits, optional native assembly and independent reload |
 | `native_review.py` | Hash-verified runtime review and one-frame neutral rendering through the reanimation worker; no narration or fitting |
 | `feature_comparison.py`, `native_reference.py` | Compare generic per-photo/render evidence and write bounded, source-pinned iris edit proposals without launching an editor |
+| `native_control_map.py` | Match exported API controls to installed canonical native vertex IDs; only exact named anatomy memberships, no nearest-region guesses |
 
 Photo projection uses source cameras, portrait offsets and actual resize ratios.
 Face parser boxes already use portrait coordinates; subtracting the source offset
@@ -62,6 +63,19 @@ reference is smiling and the native frame nearly neutral; these differences do
 not isolate native shape errors. No new native visual result is claimed.
 The combined focused units passed 56 tests; new lash/pipeline settings have only
 unit-level validation, not a saved/reloaded UE application.
+
+Native mapping revision `017304af8c8148c09f2e0978d0053482` used the retained
+`native-control-topology-20261117T1105Z` inspection and unchanged source package.
+All 79 API controls resolve to one canonical configuration vertex each; 20 have
+exact anatomical memberships. Four controls have coincident exported aliases:
+choosing a single nearest mesh vertex would miss their canonical definitions.
+The map uses configuration-vertex coincidence instead, with unknown/ambiguous
+associations abstaining. It does not move any controls.
+
+Seven new synthetic mapping units cover ordering/aliases, absent and ambiguous
+matches, invalid coordinates/IDs, mesh scoping and changed package dependencies.
+The combined mapping/native-policy/comparison selection passed **32 tests**.
+No new UE process, Blender fit, scene copy or native render was needed.
 
 ## Coordinate and persistence contracts
 

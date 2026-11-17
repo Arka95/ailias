@@ -22,9 +22,16 @@ def add_parser(commands):
         ("unreal-features", "Apply scripted features to an isolated native Character revision and reload it"),
         ("unreal-review", "Render one neutral native frame from a verified feature/runtime revision"),
         ("compare-features", "Compare photo/native-render evidence; optionally write a bounded iris edit proposal"),
+        ("native-control-map", "Associate exported native sculpt indices with installed topology metadata"),
     ):
         action = actions.add_parser(name, help=description)
         action.add_argument("alias")
+        if name == "native-control-map":
+            action.add_argument("--topology", type=Path, required=True, help="Read-only exported native topology JSON")
+            action.add_argument("--inspection", type=Path, required=True, help="Matching unchanged-source export receipt")
+            action.add_argument("--configuration", type=Path, required=True, help="Installed landmarks_config.json")
+            action.add_argument("--anatomy", type=Path, required=True, help="Installed face_landmarks.json")
+            action.add_argument("--source-package", type=Path, required=True, help="Original inspected Character uasset")
         if name == "compare-features":
             action.add_argument("--reference", type=Path, required=True, help="imageprocessing feature manifest")
             action.add_argument("--reference-face-id", required=True)
@@ -67,6 +74,13 @@ def add_parser(commands):
 
 
 def execute(args, data_root):
+    if args.facefitting_action == "native-control-map":
+        from ailias.facefitting.native_control_map import map_native_controls
+        store = Store(data_root, args.alias)
+        with store.lock():
+            result = map_native_controls(store, args.topology, args.inspection,
+                                         args.configuration, args.anatomy, args.source_package)
+        return result, 0 if result["status"] == "mapped" else 2
     if args.facefitting_action == "compare-features":
         from ailias.facefitting.feature_comparison import compare_features
         store = Store(data_root, args.alias)

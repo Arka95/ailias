@@ -21,6 +21,7 @@ separate check.
 | `unreal-conform` | Verified import and optional pinned baseline | New head-only Character, tracked contours, camera and saved-package evidence |
 | `unreal-features` | Existing native Character, explicit feature profile, pinned baseline when present | Isolated Character revision, edit receipt and independent editor reload; optional runtime assembly |
 | `unreal-review` | Verified feature revision with runtime Blueprint | One neutral native frame, saved stage/camera policy and source hashes; no audio solve |
+| `native-control-map` | Existing native topology/export receipt, unchanged source package and installed landmark metadata | Exact API-index/canonical-vertex associations and available named curve memberships; no sculpt movements |
 
 Jobs are retained under `data\ALIAS\facefitting\runs`, `appearance`, `unreal`
 and `conforms`; native edits/reviews use `features` and `native-reviews`.
@@ -165,7 +166,34 @@ and lighting may differ. The result always keeps `likeness_verified=False`;
 a proposal requires a subsequent native render. This is diagnostic plumbing, not
 the missing anatomical optimizer or a completed coordinated appearance pass.
 
-With `--assemble`, edits and runtime assembly share one editor session, followed
+### Native control mapping
+
+Map an existing read-only native export without launching Unreal or modifying
+any mesh. All paths are explicit; installed metadata is referenced, not bundled:
+
+```powershell
+python -m ailias facefitting native-control-map subject --topology C:\exports\topology.json --inspection C:\exports\report.json --configuration C:\UE\landmarks_config.json --anatomy C:\UE\face_landmarks.json --source-package C:\Project\Content\Head.uasset
+```
+
+`--topology` supplies native centimetre vertices; `--inspection` supplies the
+exported API controls and source hash. `--source-package` must still match that
+hash and the receipt must attest no source save/change. `--configuration` and
+`--anatomy` supply the installed canonical vertices and anatomical curves/points.
+
+The mapper tests each control against **canonical native configuration vertices**
+within `1e-5` cm. It does not assume configuration sorting equals API ordering.
+Coincident exported vertex aliases are not substituted for canonical IDs.
+Multiple possible canonical vertices abstain; absent anatomy remains unknown.
+This is not source-mesh nearest-surface wrapping or a new geometry fit.
+
+Maps are retained under `facefitting\native-control-maps`. The real retained
+inspection mapped **79/79 controls**, but only **20/79** have exact memberships
+in the supplied anatomical curves/points. That does not establish a complete
+MediaPipe-to-native correspondence or authorize automatic sculpt deltas.
+
+### Native assembly verification
+
+With `unreal-features --assemble`, edits and runtime assembly share one editor session, followed
 by an independent editor reload. Validated edits are saved before assembly, so
 an assembly failure does not discard that checkpoint. The current runtime
 inspector requires bound groom components: baked-only stubble at optimized
