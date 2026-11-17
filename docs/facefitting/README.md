@@ -7,6 +7,29 @@ portraits. It is separate from COLMAP and does not declare a MetaHuman, calibrat
 scan or verified likeness. Dense observations use MediaPipe CPU on Windows;
 the configured fitting backend is explicitly CUDA, with no silent CPU fallback.
 
+## Current working baseline
+
+The owner selected diagnostic `20261117T0525Z-hairfree-camera` as the working
+starting point on November 17, 2026. See the [comparison near the top of the root README](../../README.md#current-blender-baseline).
+The scene is
+`data\arka\facefitting\diagnostics\20261117T0525Z-hairfree-camera\hairfree-matched-camera.blend`.
+
+Its source geometry is the approved `20261116T153125Z-44390de9` fit and its
+appearance comes from `20261116T163340Z-14973ca7`. The new scene uses the existing
+estimated perspective camera and reversibly hides the approximate scalp groom;
+it does not deform the face or reconstruct hidden scalp skin.
+
+`data\arka\facefitting\working-baseline.json` pins the selected scene, images,
+geometry, texture, camera evidence and source reference with integrity hashes.
+Use it as the starting reference for incremental accuracy and feature work.
+Keep this baseline intact; improved samples and corrections must produce new
+revisions with comparisons against it. Selecting a baseline does not itself
+implement an automatic warm-start option in the fitting CLI.
+
+Current limitations include texture seams, generic eyes and expression
+mismatch. Working-baseline selection is not final calibrated-likeness approval
+or MetaHuman rigging. See [hair-free fitting guidance](hair-fitting-guidelines.md).
+
 ## Approved clay baseline
 
 These are actual Blender Cycles renders from job

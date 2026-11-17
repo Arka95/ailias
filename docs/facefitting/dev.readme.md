@@ -134,6 +134,36 @@ scalp; deterministic procedural strands approximate volume, not individual hairs
 Generic eye optics, roughness, unobserved skin and hidden anatomy remain priors.
 Do not treat UV coverage or a successful render as likeness/albedo approval.
 
+### Hair-free camera diagnostic (November 17, 2026)
+
+One new Blender-only proposal is retained under
+`data\arka\facefitting\diagnostics\20261117T0525Z-hairfree-camera`.
+`comparison.png` places an unchanged-proportion original-photo crop beside an
+actual new Cycles render. The earlier appearance worker uses fixed orthographic
+review angles, not the fitted source perspective camera; those views cannot
+isolate eye/nose proportion differences against a photograph.
+
+The diagnostic uses the existing estimated perspective camera for face
+`84fbcc146e51fd1b296eaa8d5d2a87634e7cf2000ff1b880fe75b30e6c1dc1c1-01`
+(`PXL_20210908_081939952.jpg`). The Blender conversion agrees with the existing
+projection equation within 0.000242 render pixel, which verifies conversion,
+**not** camera calibration or likeness. It retains the approved GNM geometry,
+photo texture, generic eyes and neutral expression. Only the two approximate
+scalp-groom objects are hidden reversibly in a new scene.
+
+The actual render remains visibly imperfect: temple/forehead texture boundaries,
+generic eyes, eyelid/expression mismatch and facial-hair differences remain.
+Hiding scalp hair does not repair these or recover unseen skin. The reference
+was excluded from texture assembly but was used in the final all-view identity
+fit, so this is not independent held-out validation. No new shape deformation,
+photo warping, hair synthesis or Unreal work ran. CUDA Cycles on the RTX 4070 SUPER
+took 2.972 seconds to render; the complete Blender process took 11.709 seconds.
+The source scene/geometry/texture/reference hashes were checked before and after;
+existing revisions remain unchanged. `runtime.json`, `process-runtime.json`,
+`request.json`, `diagnostic-report.json` and `blender.log` retain the evidence.
+See [hair fitting guidelines](hair-fitting-guidelines.md) for the separate
+research on capture occlusion versus final identity.
+
 UE import `99504db87d434eceb922b52cf96b02f7` saved eight native packages,
 including static head and photo texture, in 16.438 seconds. Bounds verify the
 declared upright mapping `UE=(GNM Z,-X,Y)*100`; absolute scale is uncalibrated.

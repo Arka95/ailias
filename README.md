@@ -5,6 +5,21 @@ reconstruction and editor adapters. **A photo-conditioned head baseline exists;
 MetaHuman conversion and likeness remain unvalidated.** The source plan's manual-first end-to-end milestone
 remains open; a successful tool call is not a likeness or production certificate.
 
+## Current Blender baseline
+
+![Original reference photo beside the selected hair-free Blender baseline](docs/facefitting/images/working-blender-baseline.png)
+
+**Selected working baseline — November 17, 2026.** Original reference on the
+left; hair-free Blender render on the right, using the existing fitted
+perspective and unchanged approved geometry. Texture seams, generic eyes and
+expression differences remain; this is a starting point, not a finished MetaHuman.
+
+Future, more consistent samples will be used to improve accuracy and add
+features in **new revisions**, preserving this baseline for comparison.
+[Baseline files and improvement policy](docs/facefitting/README.md#current-working-baseline).
+
+## Workflow status
+
 Implemented: image intake, heuristic quality checks, manual angle/expression
 review, nine-view coverage gate, durable stage handoffs, camera-pose records,
 artifact integrity checks, downstream invalidation and three-view comparison sheets.
