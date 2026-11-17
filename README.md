@@ -145,6 +145,15 @@ hair approximation without changing approved geometry.
 See [renders, Blender stages, commands and limitations](docs/facefitting/README.md)
 and the [researched UE 5.8 route](docs/generation/metahuman-workflow-investigation.md).
 
+## Animate an existing MetaHuman
+
+The separate [reanimation module](docs/reanimation/README.md) accepts narration
+and an **already assembled rigged MetaHuman Blueprint**. It implements native
+audio-driven face/head animation, a light-green portrait stage, GPU rendering
+and explicit NVIDIA video encoding. **A personalized talking reel is not yet
+validated: no assembled rig is available in the review project.** Audio can be
+solved independently; this does not restart the stopped likeness experiments.
+
 | Document | Dev guide | Purpose |
 |---|---|---|
 | [Workflow](docs/workflow.md) | [Development](docs/dev.readme.md) | CLI contracts, capture and manual handoffs |
@@ -152,4 +161,5 @@ and the [researched UE 5.8 route](docs/generation/metahuman-workflow-investigati
 | [Geometry metrics](docs/geometry/README.md) | [Metric internals](docs/geometry/dev.readme.md) | Identity similarity versus actual geometric errors |
 | [Generation](docs/generation/README.md) | [Native adapters and validation](docs/generation/dev.readme.md) | COLMAP, Blender, guarded UE 5.8 handoffs and honest failure states |
 | [Head fitting](docs/facefitting/README.md) | [Fit internals and measured evidence](docs/facefitting/dev.readme.md) | CUDA head fitting, photographic preview, approximate hair and verified static-head UE import |
+| [Reanimation](docs/reanimation/README.md) | [Native adapter and validation](docs/reanimation/dev.readme.md) | Existing rig plus narration to GPU-rendered portrait reel; human output awaits rig validation |
 | [Implementation scope](docs/analysis.md) | [Remaining work](docs/todo/README.md) | Decisions, source and deferred functionality |

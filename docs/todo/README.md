@@ -16,6 +16,7 @@ All items below are open; none is implied complete by a manual handoff receipt.
 | 8 | Bounded refinement and rollback | Measurable multi-view acceptance, preserved revisions, one-step rollback and iteration cap |
 | 9 | Animation validation and sign-off | Blink, brows, smile, mouth, purse, jaw and speech-like expression results; human approval |
 | 10 | Session curation and recovery UX | Explicit photo removal, history inspection and rollback commands without data loss |
+| 11 | Validate the separate [reanimation module](../reanimation/README.md) on an existing assembled MetaHuman | Real PocketTTS/testuser narration and 742-frame native speech solve/reload succeeded; GPU portrait fixture passed. Need genuine rigged Blueprint, actual face/head render, natural lighting/crop review and decoded final human reel. Does not authorize restarting stopped likeness repair |
 
 Completed infrastructure: CUDA imageprocessing on all 192 requested photos,
 corrected grouping, one shared workspace environment, source references instead

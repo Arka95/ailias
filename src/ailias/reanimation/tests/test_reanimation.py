@@ -1,0 +1,136 @@
+"""Test portrait math, exact media gates and persisted native outcomes without inference or rendering."""
+
+import array
+import json
+import math
+import tempfile
+import unittest
+import wave
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from PIL import Image
+
+from ailias.reanimation.media import encode_command, inspect_audio, inspect_frames, verify_video
+from ailias.reanimation.pipeline import REQUIRED_PLUGINS, create_reel, inspect_job
+from ailias.reanimation.settings import ReelPolicy
+from ailias.storage import Store, atomic_json
+
+
+class ReelTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+
+    def audio(self, silent=False):
+        path = self.root / "voice.wav"
+        with wave.open(str(path), "wb") as stream:
+            stream.setparams((1, 2, 24000, 0, "NONE", "not compressed"))
+            stream.writeframes(array.array("h", [0 if silent else 1000]*2400).tobytes())
+        return path
+
+    def test_portrait_lens_geometry_preserves_face_field_of_view(self):
+        policy = ReelPolicy()
+        framing = policy.framing()
+        height = 2*framing["camera_distance_cm"]*math.tan(
+            math.radians(framing["vertical_fov_degrees"])/2)
+        self.assertAlmostEqual(height, 52)
+        self.assertAlmostEqual(framing["visible_width_cm"], 29.25)
+        self.assertAlmostEqual(framing["camera_distance_cm"], 122.7777778)
+        for values in ({"width": 1920}, {"fps": True}, {"mood_intensity": float("nan")},
+                       {"background_srgb": [1, 2, 3]}, {"encoder": "auto"}):
+            with self.subTest(values=values), self.assertRaises(ValueError):
+                ReelPolicy(**values)
+
+    def test_narration_rejects_silence_and_excess_duration(self):
+        self.assertAlmostEqual(inspect_audio(self.audio())["duration_seconds"], .1)
+        with self.assertRaisesRegex(ValueError, "Silent"):
+            inspect_audio(self.audio(True))
+        with self.assertRaisesRegex(ValueError, "duration"):
+            inspect_audio(self.audio(), .05)
+
+    def test_frames_require_contiguous_complete_portrait_dimensions(self):
+        policy = ReelPolicy(width=90, height=160)
+        for index in (0, 1):
+            Image.new("RGB", (90, 160)).save(self.root / f"frame.{index:06d}.png")
+        self.assertEqual(len(inspect_frames(self.root, policy, 2)), 2)
+        (self.root / "frame.000000.png").rename(self.root / "frame.000002.png")
+        with self.assertRaisesRegex(ValueError, "contiguous"):
+            inspect_frames(self.root, policy, 2)
+
+    def test_gpu_encode_is_explicit_and_never_uses_shortest_or_overwrites(self):
+        command = encode_command(Path("ffmpeg.exe"), self.root, self.audio(),
+                                 self.root / "reel.mp4", ReelPolicy(), 3)
+        self.assertIn("h264_nvenc", command)
+        self.assertIn("-n", command)
+        self.assertNotIn("-shortest", command)
+        self.assertEqual(command[command.index("-frames:v")+1], "3")
+
+    def job(self, outcome, blueprint=None):
+        project = self.root / "Review.uproject"
+        atomic_json(project, {"Plugins": [{"Name": name, "Enabled": True} for name in REQUIRED_PLUGINS]})
+        editor = self.root / "UnrealEditor-Cmd.exe"
+        editor.write_bytes(b"fake")
+        store = Store(self.root / "data", "subject")
+
+        def launch(name, operation, args, directory, environment):
+            request = json.loads(Path(environment["AILIAS_REANIMATION_REQUEST"]).read_text())
+            performance = request["destination"] + "/Performance.Performance"
+            if outcome != "missing":
+                package = project.parent / "Content" / Path(*request["destination"].split("/")[2:])
+                package.mkdir(parents=True)
+                (package / "Performance.uasset").write_bytes(b"fake native package")
+                (package / "Narration.uasset").write_bytes(b"fake imported sound")
+            atomic_json(Path(request["receipt"]), {
+                "status": "audio_solved_awaiting_rigged_metahuman", "performance": performance,
+                "sound": request["destination"] + "/Narration.Narration",
+                "processed_frames": 0 if outcome == "empty" else 3})
+            return {"seconds": 0}
+
+        result = create_reel(store, self.audio(), editor, project, ReelPolicy(),
+                             blueprint=blueprint, tools=SimpleNamespace(paths={}, run=launch))
+        return store, result
+
+    def test_audio_solve_without_rig_never_claims_video(self):
+        store, result = self.job("saved")
+        self.assertEqual(result["status"], "audio_solved_awaiting_rigged_metahuman")
+        self.assertFalse(result["video_verified"])
+        self.assertTrue(store.verify(result["artifacts"]["performance"]))
+        self.assertEqual(inspect_job(store, result["revision"])["integrity_problems"], [])
+
+    def test_success_receipt_without_native_performance_package_is_failure(self):
+        _, result = self.job("missing")
+        self.assertEqual(result["status"], "failed")
+        self.assertFalse(result["video_verified"])
+
+    def test_empty_animation_is_not_a_successful_audio_solve(self):
+        _, result = self.job("empty")
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("processed animation frames", result["error"]["message"])
+
+    def test_missing_encoder_blocks_video_before_native_execution(self):
+        _, result = self.job("saved", "/Game/MetaHumans/Arka/BP_Arka")
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("--ffmpeg", " ".join(result["readiness"]["blockers"]))
+
+    def test_video_publication_checks_decoded_frames_and_audio_coverage(self):
+        metadata = SimpleNamespace(stderr="Video: h264, 1080x1920, 30 fps\nAudio: aac")
+        for count, video_time, audio_time, valid in (
+                (3, 100000, 106667, True), (2, 100000, 106667, False),
+                (3, 500000, 106667, False), (3, 100000, 10000, False)):
+            video = SimpleNamespace(returncode=0, stdout=f"frame={count}\nout_time_us={video_time}\n")
+            audio = SimpleNamespace(returncode=0, stdout=f"out_time_us={audio_time}\n")
+            with self.subTest(count=count, video_time=video_time, audio_time=audio_time):
+                with patch("ailias.reanimation.media.subprocess.run", side_effect=[metadata, video, audio]):
+                    if valid:
+                        self.assertTrue(verify_video(Path("ffmpeg.exe"), Path("reel.mp4"),
+                                                     ReelPolicy(), 3)["audio_decoded"])
+                    else:
+                        with self.assertRaises(ValueError):
+                            verify_video(Path("ffmpeg.exe"), Path("reel.mp4"), ReelPolicy(), 3)
+
+
+if __name__ == "__main__":
+    unittest.main()
