@@ -39,6 +39,8 @@ different numerical optimization; neither backend is a likeness certificate.
 | `native_review.py` | Hash-verified runtime review and one-frame neutral rendering through the reanimation worker; no narration or fitting |
 | `feature_comparison.py`, `native_reference.py` | Compare generic per-photo/render evidence and write bounded, source-pinned iris edit proposals without launching an editor |
 | `native_control_map.py` | Match exported API controls to installed canonical native vertex IDs; only exact named anatomy memberships, no nearest-region guesses |
+| `native_response.py`, `native_response_worker.py` | Source-pinned finite-difference sculpt-to-mesh calibration on an isolated unrigged copy; restore the entire native state and verify its exported mesh |
+| `native_correspondence.py` | Associate rendered landmarks with visible triangles of that same native mesh; exact vertex-ID rebinding abstains on changed triangulation |
 
 Photo projection uses source cameras, portrait offsets and actual resize ratios.
 Face parser boxes already use portrait coordinates; subtracting the source offset
@@ -116,6 +118,60 @@ Seven new synthetic mapping units cover ordering/aliases, absent and ambiguous
 matches, invalid coordinates/IDs, mesh scoping and changed package dependencies.
 The combined mapping/native-policy/comparison selection passed **32 tests**.
 No new UE process, Blender fit, scene copy or native render was needed.
+
+### Direct native geometry calibration
+
+The original-photo tracker returned only 16 curves in the retained conform:
+lips, philtrum, eyelids and nasolabial folds. There were **no nose, jaw, forehead
+or brow curves** in that receipt. Repeating this solve is not an implemented
+whole-face photo optimizer.
+
+The internal `native_response.measure_response` helper runs under the caller's
+`store.lock()`, duplicates an **unrigged** Character into a fresh namespace,
+and measures X/Y/Z perturbations of requested sculpt controls. Omitting
+`indices` selects all controls. It does not change the source or apply a fitted
+identity. The response manifest pins the source, selected baseline and worker;
+`reference.f32` contains `vertex_count x 3` little-endian float32 centimetres.
+`responses.f32` contains one equally sized derivative block per receipt entry,
+ordered by control then axis, in output centimetres per requested centimetre.
+`triangles.json` records that measurement's native topology.
+
+Two engine integration details were exercised locally:
+
+- Native export reads **committed** Character state. Before `commit_face_state`,
+  the preview landmarks changed while the exported mesh remained unchanged.
+- The export API synchronizes Content Browser and asserted in commandlet mode.
+  The worker therefore uses offscreen editor `-ExecutePythonScript`, not
+  `-run=pythonscript`, and explicitly quits its owned editor.
+
+The 1,397-value native coefficient vector is retained only as an **opaque state
+snapshot** for restoration. Its entries are not assumed to be independent shape
+modes, and the fitter must not guess semantic indices.
+
+Pilot revision `62847393c8134323aff105eaaab4cc78` measured all three axes of
+known mouth-corner control 32 against 33,845 exported vertices. A requested
+0.05cm X shift produced a maximum mesh displacement of approximately 0.00942cm:
+the native sculpt response is not a one-to-one translation. The final exported
+mesh and sampled control positions restored exactly; source and all protected
+baseline hashes passed. The pilot editor lifecycle took 88.36s; its individual
+response measurements took approximately 0.69-2.41s. These are calibration
+timings, not an end-to-end likeness speedup.
+
+Full revision `8f3934755cf742afbb7c4fb0ecd1587d` subsequently completed all
+**237 directions across 79 controls** in one editor lifecycle of 663.063s.
+Canonical topology remained unchanged across its probes, the restored entire
+mesh had zero displacement, and source/baseline hashes passed. This is measured
+deformation data, **not an applied or accepted identity fit**.
+
+For photo correspondence, the retained old neutral-render camera projects six
+explicit native eye/mouth corners within approximately 0.19-2.74 pixels of the
+cached detector predictions. Visible ray/triangle association supports all
+468 non-iris predictions on that native reference mesh. Rebinding to the pilot
+mesh by **exact canonical face vertex IDs**, not triangle-list order, retains
+467 and abstains on landmark 384 after native retriangulation. This is not
+cross-topology nearest-surface wrapping. Exact numerical reprojection validates
+the camera/ray implementation, **not anatomical accuracy**; detector semantics
+and photo pose/expression remain uncertain.
 
 ## Coordinate and persistence contracts
 
@@ -203,7 +259,11 @@ python -m unittest ailias.facefitting.tests.test_fitting ailias.facefitting.test
 python -m unittest ailias.facefitting.tests.test_texture ailias.facefitting.tests.test_appearance -v
 python -m unittest ailias.facefitting.tests.test_unreal_conform ailias.facefitting.tests.test_unreal_handoff -v
 python -m unittest ailias.facefitting.tests.test_native_features ailias.facefitting.tests.test_native_review ailias.reanimation.tests.test_reanimation -v
+python -m unittest ailias.facefitting.tests.test_native_response ailias.facefitting.tests.test_native_correspondence -v
 ```
+
+The combined photo-tracking, conform, control-map, feature, response and
+correspondence selection passed **60 focused tests**.
 
 Units use synthetic geometry/fake observations and editors. Explicit hardware
 tests are separate:
