@@ -34,6 +34,7 @@ different numerical optimization; neither backend is a likeness certificate.
 | `unreal_handoff.py` | Static import, package hashes, declared basis and bounds checks |
 | `tracking_worker.py` | In-memory frontal tracking camera without rewriting the baseline scene |
 | `unreal_conform.py`, `unreal_conform_worker.py` | Local native Character solve, state commit and saved-package verification |
+| `photo_tracking.py` | Optional original-photo contour view using retained fitted extrinsics; full-frame alpha compositing avoids a cropped-camera principal-point error |
 | `native_features.py`, `native_features_worker.py` | Immutable-source Character duplication, validated sculpt/iris/texture/groom edits, optional native assembly and independent reload |
 | `native_review.py` | Hash-verified runtime review and one-frame neutral rendering through the reanimation worker; no narration or fitting |
 | `feature_comparison.py`, `native_reference.py` | Compare generic per-photo/render evidence and write bounded, source-pinned iris edit proposals without launching an editor |
@@ -60,9 +61,48 @@ and old rejected-render feature revisions documented in the
 [upstream validation record](../imageprocessing/dev.readme.md#feature-extraction-and-native-diagnostics).
 It emits projected ratio differences and an **unapplied** iris proposal. The
 reference is smiling and the native frame nearly neutral; these differences do
-not isolate native shape errors. No new native visual result is claimed.
+not isolate native shape errors. That comparison did not generate a native render.
 The combined focused units passed 56 tests; new lash/pipeline settings have only
-unit-level validation, not a saved/reloaded UE application.
+unit-level validation at that milestone.
+
+The subsequent photo-contour trial `500a0046ca8f47d0b2b45d519451cb7e` tracked
+16 curves from the glasses-free reference `59d8a173...-00`, without a new GNM fit
+or Blender render. Its duplicate incorrectly retained the inherited full rig.
+Feature job `c40c186d2cd9431987c628efe0469786` assembled 223 assets with bound
+native brows/lashes and dark iris settings, but failed final Character saving
+with an ARKit ControlRig/skeleton binding error. Diagnostic review
+`800e902f2fbd45ed8d5e00d275ef5059` is a genuinely new frame, not a passed
+save/reload result; facial geometry remains visibly wrong. No beard/moustache
+was selected, in accordance with the face-first priority.
+
+The worker now removes an inherited full rig on the isolated conform copy,
+and saves/checks the built Character before instantiating the runtime actor.
+The relationship between inherited rig state and the save failure is not
+established as its sole cause. Corrected conform
+`9bf935cd4d0943c78b09073ed6a86cc8` saved successfully with
+`inherited_face_rig_removed=True`; this is not a new rendered likeness result.
+The save-order correction still needs a real assembly/reload validation.
+The focused photo-camera/conform/control-map/native-feature units passed
+**48 tests**. Another assembly is deferred while source geometry is diagnosed.
+
+The retained source fit already has an identity-quality warning:
+held-out frontal error changes only from `0.02141002` for the generic prior to
+`0.02121983` for the selected identity, approximately **0.9% improvement**.
+The reported 10.8% overall improvement was view-category-balanced and largely
+came from oblique views; it is not frontal likeness acceptance.
+For reference `59d8a173...-00`, the photo nose-width/outer-eye-span ratio is
+`0.37224`, versus `0.48173` for the neutral source projected through the retained
+camera, about **29.4% wider**. The expression-deformed fitted projection is
+`0.44584`, still about **19.8% wider**. Inner-eye-span ratios are `0.36646`
+in the photo versus `0.41854` in that neutral projection. These are conditional
+2D diagnostics using existing predicted landmarks and expression-fitted cameras,
+not isolated 3D anatomy measurements or permission to apply those percentages
+directly as native sculpt deltas. Inputs: the retained fit's `manifest.json`,
+`cameras.json`, `observations.json`, `fit.npz` and pinned GNM correspondence.
+All selected ratio anchors have positive retained fitting weights and head-mask
+support. Across 34 frontal views, the median expression-deformed nose ratio is
+about 5.9% wider than each photo estimate: the selected photo's larger discrepancy
+must not be treated as a universal correction.
 
 Native mapping revision `017304af8c8148c09f2e0978d0053482` used the retained
 `native-control-topology-20261117T1105Z` inspection and unchanged source package.

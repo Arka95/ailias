@@ -14,7 +14,8 @@ from ailias.resources import finalize_resources
 from ailias.storage import atomic_json
 
 
-def conform_head(store, import_job, editor, project, generation, tools, *, baseline=None):
+def conform_head(store, import_job, editor, project, generation, tools, *, baseline=None,
+                 reference_face_id=None, source_character=None):
     imported_path = store.resolve(str(Path("facefitting") / "unreal" /
                                      component(import_job) / "manifest.json"))
     imported = json.loads(imported_path.read_text())
@@ -45,6 +46,10 @@ def conform_head(store, import_job, editor, project, generation, tools, *, basel
     probe = readiness(editor, project)
     if not project or project.resolve() != Path(imported["readiness"]["project"]).resolve():
         raise ValueError("Use the project containing the verified head import")
+    if source_character:
+        from ailias.facefitting.native_features import character_package
+        source_character = asset_path(source_character)
+        dependencies.append(store.reference_artifact(character_package(project, source_character)))
     revision = uuid.uuid4().hex
     root = store.resolve(str(Path("facefitting") / "conforms" / revision))
     root.mkdir(parents=True, exist_ok=False)
@@ -54,6 +59,8 @@ def conform_head(store, import_job, editor, project, generation, tools, *, basel
         "readiness": probe, "artifacts": {}, "input_dependencies": dependencies,
         "source_import": store.reference_artifact(imported_path),
         "cloud_requested": False, "rig_requested": False, "likeness_verified": False,
+        "tracking_source": "original_photo" if reference_face_id else "blender_preview",
+        "source_character": source_character,
         "limitations": [
             "Local head-only Character draft, not an assembled or validated MetaHuman",
             "Body and eye/teeth anatomy remain native priors; physical scale is uncalibrated",
@@ -63,7 +70,7 @@ def conform_head(store, import_job, editor, project, generation, tools, *, basel
     if selected is not None:
         report["working_baseline"] = {
             "revision": selected["revision"], "manifest": baseline_reference,
-            "scene": tracking_scene, "tracking_camera_mode": "frontal",
+            "scene": tracking_scene, "tracking_camera_mode": "fitted_photo" if reference_face_id else "frontal",
             "baseline_scene_modified": False,
         }
     atomic_json(manifest, report)
@@ -75,14 +82,21 @@ def conform_head(store, import_job, editor, project, generation, tools, *, basel
                           ("conform_worker", "unreal_conform_worker.py")):
             report["artifacts"][key] = store.copy_artifact(Path(__file__).with_name(name),
                                                            str(root.relative_to(store.root) / "worker"))
-        tracking = root / "tracking-request.json"
-        atomic_json(tracking, {"output": str(root), "size": 512, "device": generation.blender_device,
-                               "camera_mode": "frontal" if selected is not None else "retained"})
-        report["tracking_runtime"] = tools.run("blender", "conform-tracking-view", [
-            "--background", "--disable-autoexec", store.artifact_path(tracking_scene),
-            "--python-exit-code", "1", "--python",
-            store.artifact_path(report["artifacts"]["tracking_worker"]), "--", tracking,
-        ], root)
+        if reference_face_id:
+            from ailias.facefitting.photo_tracking import prepare_photo_tracking
+            report["photo_tracking"] = prepare_photo_tracking(
+                store, source["fit_job"], reference_face_id, root)
+            dependencies.extend(report["photo_tracking"]["input_dependencies"])
+            atomic_json(manifest, report)
+        else:
+            tracking = root / "tracking-request.json"
+            atomic_json(tracking, {"output": str(root), "size": 512, "device": generation.blender_device,
+                                   "camera_mode": "frontal" if selected is not None else "retained"})
+            report["tracking_runtime"] = tools.run("blender", "conform-tracking-view", [
+                "--background", "--disable-autoexec", store.artifact_path(tracking_scene),
+                "--python-exit-code", "1", "--python",
+                store.artifact_path(report["artifacts"]["tracking_worker"]), "--", tracking,
+            ], root)
         with Image.open(root / "tracking-view.png") as image:
             rgba.write_bytes(image.convert("RGBA").tobytes())
         request = root / "conform-request.json"
@@ -91,12 +105,15 @@ def conform_head(store, import_job, editor, project, generation, tools, *, basel
             "mesh": imported["imported"]["mesh_geometry"][0]["asset"],
             "destination": asset_path(f"/Game/Ailias/ConformedHeads/C{revision}"),
             "camera": str(root / "tracking-camera.json"), "rgba": str(rgba), "receipt": str(receipt),
+            "source_character": source_character,
         })
         tools.paths["unreal"] = Path(probe["editor"])
+        editor_mode = (["-AllowCommandletRendering", "-RenderOffscreen", "-d3d12"]
+                       if source_character else ["-NullRHI"])
         report["conform_runtime"] = tools.run("unreal", "head-only-conform", [
             probe["project"], "-run=pythonscript",
             f"-script={store.artifact_path(report['artifacts']['conform_worker'])}",
-            "-unattended", "-nop4", "-nosplash", "-NullRHI", "-stdout", "-FullStdOutLogOutput",
+            "-unattended", "-nop4", "-nosplash", *editor_mode, "-stdout", "-FullStdOutLogOutput",
             "-ExecCmds=mh.Character.FromCustomMeshImportShowIterations 0",
         ], root, environment={"AILIAS_CONFORM_REQUEST": str(request)})
         result = json.loads(receipt.read_text())

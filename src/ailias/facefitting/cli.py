@@ -52,6 +52,10 @@ def add_parser(commands):
         if name == "unreal-conform":
             action.add_argument("--baseline", type=Path,
                                 help="Selected Blender baseline JSON; defaults to this alias's working-baseline.json when present")
+            action.add_argument("--reference-face-id",
+                                help="Use this existing fitted photo/camera for native contours; no Blender render or refit")
+            action.add_argument("--source-character",
+                                help="Duplicate and refine this existing native Character; preserve its original package")
         if name == "unreal-features":
             action.add_argument("--character", required=True, help="Existing /Game/... native Character")
             action.add_argument("--profile", type=Path, required=True, help="Versioned native feature JSON")
@@ -127,7 +131,8 @@ def execute(args, data_root):
         if args.facefitting_action == "unreal-conform":
             from ailias.facefitting.unreal_conform import conform_head
             result = conform_head(store, args.job, args.editor, args.project, generation,
-                                  NativeTools(tools_root, generation.timeout_seconds), baseline=args.baseline)
+                                  NativeTools(tools_root, generation.timeout_seconds), baseline=args.baseline,
+                                  reference_face_id=args.reference_face_id, source_character=args.source_character)
             return result, 0 if result["status"] == "head_conformed_awaiting_review" else 2
         if args.facefitting_action == "unreal-import":
             from ailias.facefitting.unreal_handoff import import_appearance

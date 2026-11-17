@@ -57,6 +57,8 @@ This is a technical dependency gate, not evidence that texture or final likeness
 | `appearance --appearance-config FILE` | `config\appearance.json` | Texture/hair preparation budgets |
 | `--generation-config FILE` | `config\generation.json` | Shared native tools, Blender device/render size and timeout; supported by fit, appearance, import and conform |
 | `unreal-conform --baseline FILE` | Alias `facefitting\working-baseline.json`, when present | Pinned existing scene/geometry/camera dependencies |
+| `unreal-conform --reference-face-id ID` | Off; existing Blender tracking preview | Track original pixels from one already-fitted photograph using its retained perspective camera; no new GNM fit or Blender render |
+| `unreal-conform --source-character PATH` | Off; create a fresh draft | Duplicate and refine the existing native Character in a unique namespace; its source package is hash-pinned and never saved |
 | `unreal-features --profile FILE` | Required | Validated native edit policy; no inferred anatomical correspondences |
 | `unreal-features --baseline FILE` | Alias working baseline, when present | Verify every pinned source; never refit or rewrite its Blender scene |
 | `unreal-features --assemble` | Off | Build using profile `assembly` settings (optimized/medium by default); independently reload and inspect the actor/rig/grooms |
@@ -82,6 +84,29 @@ The JSON profile selects CUDA; constructing `FitPolicy()` directly defaults to C
 Model specifications use `file`, `url`, `sha256` and `limit` for cache identity,
 download integrity and byte limits; `license`/`source` retain provenance.
 GNM, MediaPipe, the surface correspondence and their license/readme records are pinned separately.
+
+### Photo-contour native refinement
+
+```powershell
+python -m ailias facefitting unreal-conform subject IMPORT_JOB --editor $ue --project $project --reference-face-id SOURCE_FACE_ID --source-character /Game/Heads/Person.Person
+```
+
+This reuses the approved source mesh, existing per-photo fitted camera and head
+alpha. Actual decoded photo pixels are placed on a neutral **full-source-frame**
+background, then resized with their aspect ratio intact; there is no aligned
+cutout deformation, cropped principal point or new Blender scene. Camera position,
+forward/up axes and horizontal field of view are derived from the retained
+world-to-camera fit. The selected face ID must exist in the inputs, cameras and
+dense observations, with matching source hashes/dimensions.
+
+The existing native Character is duplicated before UE's head-only solve.
+An inherited full face rig is removed on the **copy** before geometry editing;
+subsequent assembly requires a fresh compatible rig. Already-rigged source
+copies use D3D12/offscreen rather than NullRHI. This is a
+new **native** solve, not a new GNM fit; the original photo, approved mesh and
+selected Blender scene remain untouched. Existing camera estimates and photo
+expression/occlusion can still be wrong. Choose a visible, near-neutral face;
+these flags do not claim automatic reference selection or verified likeness.
 
 ### Appearance: `config\appearance.json`
 

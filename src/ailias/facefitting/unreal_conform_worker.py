@@ -52,10 +52,19 @@ def run(request, unreal, publish):
     result["contours"] = {str(name): [[float(p.x), float(p.y)] for p in points.tracking_points]
                            for name, points in curves.items()}
     stage("create_local_character")
-    factory = unreal.MetaHumanCharacterFactoryNew()
-    factory.edit_after_new = False
-    character = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
-        "HeadOnlyDraft", request["destination"], unreal.MetaHumanCharacter, factory)
+    if request.get("source_character"):
+        source_character = unreal.load_asset(request["source_character"])
+        if (not isinstance(source_character, unreal.MetaHumanCharacter)
+                or subsystem.is_object_added_for_editing(source_character)):
+            raise ValueError("Native refinement source must be an existing unedited Character")
+        character = unreal.EditorAssetLibrary.duplicate_asset(
+            request["source_character"], request["destination"] + "/HeadOnlyDraft")
+        result["source_character"] = request["source_character"]
+    else:
+        factory = unreal.MetaHumanCharacterFactoryNew()
+        factory.edit_after_new = False
+        character = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
+            "HeadOnlyDraft", request["destination"], unreal.MetaHumanCharacter, factory)
     if not isinstance(character, unreal.MetaHumanCharacter):
         raise RuntimeError("Character factory did not return a MetaHuman Character")
     result["character"] = character.get_path_name()
@@ -65,6 +74,12 @@ def run(request, unreal, publish):
         raise RuntimeError("Character could not enter editing mode")
     try:
         before = [xyz(point) for point in subsystem.get_face_landmarks(character)]
+        if request.get("source_character") and character.get_editor_property("has_face_dna_blendshapes"):
+            stage("remove_inherited_face_rig")
+            subsystem.remove_face_rig(character)
+            if character.get_editor_property("has_face_dna_blendshapes"):
+                raise RuntimeError("Inherited face rig must be removed before native geometry editing")
+            result["inherited_face_rig_removed"] = True
         target = unreal.ConformTargetMesh()
         target.target_parts_type = unreal.TargetPartsType.HEAD_ONLY
         # The saved static preview faces +X; the native Character template faces +Y.

@@ -266,12 +266,22 @@ class NativeFeatureWorkerTests(unittest.TestCase):
             self.assertEqual(character.eyes.eye_left.iris.global_tint.r, .2)
             unreal.EditorAssetLibrary.save_loaded_asset.assert_called_once_with(
                 candidate, only_if_is_dirty=False)
+            result["blueprint"] = "/Game/Test/Actor.Actor"
+
+        def inspect(*args):
+            self.assertEqual(unreal.EditorAssetLibrary.save_loaded_asset.call_count, 2)
+            unreal.EditorAssetLibrary.save_loaded_asset.side_effect = RuntimeError(
+                "A runtime actor may rebind the ARKit skeleton; do not save the editing Character afterward")
+            return {"blueprint": "/Game/Test/Actor.Actor"}
 
         with patch("ailias.facefitting.native_features_worker.assemble_runtime",
-                   side_effect=build) as assembly:
+                   side_effect=build) as assembly, \
+                patch("ailias.facefitting.native_features_worker.inspect_runtime",
+                      side_effect=inspect) as runtime:
             result = run(request, unreal, lambda value: None)
         self.assertEqual(result["status"], "features_saved")
         assembly.assert_called_once()
+        runtime.assert_called_once()
         subsystem.try_add_object_to_edit.assert_called_once_with(candidate)
         self.assertEqual(unreal.EditorAssetLibrary.save_loaded_asset.call_count, 2)
 

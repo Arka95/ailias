@@ -35,8 +35,15 @@ class CharacterConformTests(unittest.TestCase):
             pass
 
         class Character:
+            rigged = True
+
             def get_path_name(self):
                 return "/Game/Test/HeadOnlyDraft.HeadOnlyDraft"
+
+            def get_editor_property(self, name):
+                if name == "has_face_dna_blendshapes":
+                    return self.rigged
+                raise AttributeError(name)
 
         character = Character()
         point = SimpleNamespace(x=1, y=2, z=3)
@@ -99,6 +106,26 @@ class CharacterConformTests(unittest.TestCase):
         unreal.EditorAssetLibrary.save_loaded_asset.assert_not_called()
         subsystem.remove_object_to_edit.assert_called_once()
 
+    def test_existing_character_is_duplicated_before_refinement_not_edited_in_place(self):
+        unreal, subsystem, tools, request = self.fixture()
+        character = unreal.MetaHumanCharacter()
+        candidate = unreal.MetaHumanCharacter()
+        request["source_character"] = "/Game/Existing.Head"
+        unreal.load_asset = lambda name: character if name == request["source_character"] else unreal.StaticMesh()
+        unreal.EditorAssetLibrary.duplicate_asset.return_value = candidate
+        subsystem.is_object_added_for_editing.return_value = False
+        subsystem.remove_face_rig.side_effect = lambda value: setattr(value, "rigged", False)
+        result = run(request, unreal, lambda value: None)
+        self.assertEqual(result["source_character"], request["source_character"])
+        unreal.EditorAssetLibrary.duplicate_asset.assert_called_once_with(
+            request["source_character"], "/Game/Test/HeadOnlyDraft")
+        tools.create_asset.assert_not_called()
+        subsystem.try_add_object_to_edit.assert_called_once_with(candidate)
+        subsystem.remove_face_rig.assert_called_once_with(candidate)
+        self.assertTrue(character.rigged)
+        self.assertFalse(candidate.rigged)
+        self.assertTrue(result["inherited_face_rig_removed"])
+
     def test_failed_tracking_does_not_create_or_register_a_character(self):
         unreal, subsystem, tools, request = self.fixture()
         subsystem.track_face_landmarks_from_image.return_value = None
@@ -107,9 +134,22 @@ class CharacterConformTests(unittest.TestCase):
         tools.create_asset.assert_not_called()
         subsystem.try_add_object_to_edit.assert_not_called()
 
+    def test_inherited_rig_that_cannot_be_removed_blocks_geometry_editing(self):
+        unreal, subsystem, _, request = self.fixture()
+        original, candidate = unreal.MetaHumanCharacter(), unreal.MetaHumanCharacter()
+        request["source_character"] = "/Game/Existing.Head"
+        unreal.load_asset = lambda name: original if name == request["source_character"] else unreal.StaticMesh()
+        unreal.EditorAssetLibrary.duplicate_asset.return_value = candidate
+        subsystem.is_object_added_for_editing.return_value = False
+        with self.assertRaisesRegex(RuntimeError, "must be removed"):
+            run(request, unreal, lambda value: None)
+        subsystem.conform_to_target_meshes.assert_not_called()
+        unreal.EditorAssetLibrary.save_loaded_asset.assert_not_called()
+        subsystem.remove_object_to_edit.assert_called_once_with(candidate)
+
 
 class ConformPersistenceTests(unittest.TestCase):
-    def conform(self, outcome, baseline_mode=None):
+    def conform(self, outcome, baseline_mode=None, photo=False, existing=False):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
@@ -134,6 +174,10 @@ class ConformPersistenceTests(unittest.TestCase):
         project = root / "Project" / "Review.uproject"
         project.parent.mkdir()
         project.write_text("{}")
+        if existing:
+            original = project.parent / "Content" / "Existing" / "Head.uasset"
+            original.parent.mkdir(parents=True)
+            original.write_bytes(b"unchanged original native Character")
         imported = {"status": "static_head_imported_for_review", "revision": "appearance",
                     "source": store.reference_artifact(source), "artifacts": {},
                     "readiness": {"project": str(project)},
@@ -143,6 +187,7 @@ class ConformPersistenceTests(unittest.TestCase):
 
         def launch(name, operation, args, directory, environment=None):
             if name == "blender":
+                self.assertFalse(photo, "Photo contour mode must not launch Blender")
                 expected = selected_scene if baseline_mode else scene
                 self.assertIn(expected.resolve(), args)
                 tracking_request = json.loads(Path(args[-1]).read_text())
@@ -151,6 +196,10 @@ class ConformPersistenceTests(unittest.TestCase):
                 atomic_json(directory / "tracking-camera.json", {})
             else:
                 request = json.loads(Path(environment["AILIAS_CONFORM_REQUEST"]).read_text())
+                if existing:
+                    self.assertIn("-d3d12", args)
+                    self.assertNotIn("-NullRHI", args)
+                    self.assertEqual(request["source_character"], "/Game/Existing/Head.Head")
                 self.assertEqual(Path(request["rgba"]).stat().st_size, 4)
                 if outcome == "malformed":
                     Path(request["receipt"]).write_text("{")
@@ -166,12 +215,22 @@ class ConformPersistenceTests(unittest.TestCase):
                     "face_landmarks_after": [[1, 0, 0]]})
             return {"seconds": 0}
 
-        appearance = {"integrity_problems": [], "artifacts": {"scene": store.reference_artifact(scene)}}
+        def prepare_photo(selected_store, fit_job, face_id, directory):
+            self.assertEqual((fit_job, face_id), ("fit", "photo"))
+            Image.new("RGBA", (1, 1)).save(directory / "tracking-view.png")
+            atomic_json(directory / "tracking-camera.json", {})
+            return {"input_dependencies": [store.reference_artifact(source)], "geometry_refitted": False}
+
+        appearance = {"integrity_problems": [], "fit_job": "fit",
+                      "artifacts": {"scene": store.reference_artifact(scene)}}
         with patch("ailias.facefitting.unreal_conform.inspect_appearance", return_value=appearance), \
-                patch("ailias.facefitting.unreal_conform.readiness", return_value=probe):
+                patch("ailias.facefitting.unreal_conform.readiness", return_value=probe), \
+                patch("ailias.facefitting.photo_tracking.prepare_photo_tracking", side_effect=prepare_photo):
             result = conform_head(store, "imported", Path(probe["editor"]), project,
                                   SimpleNamespace(blender_device="CUDA"),
-                                  SimpleNamespace(paths={}, run=launch))
+                                  SimpleNamespace(paths={}, run=launch),
+                                  reference_face_id="photo" if photo else None,
+                                  source_character="/Game/Existing/Head.Head" if existing else None)
         job = store.resolve("facefitting\\conforms\\" + result["revision"])
         self.assertFalse((job / "tracking-rgba8.bin").exists())
         self.assertEqual(json.loads((job / "manifest.json").read_text())["status"], result["status"])
@@ -190,6 +249,20 @@ class ConformPersistenceTests(unittest.TestCase):
         self.assertEqual(result["working_baseline"]["revision"], "selected")
         self.assertFalse(result["working_baseline"]["baseline_scene_modified"])
         self.assertTrue(all(store.verify(reference) for reference in result["input_dependencies"]))
+
+    def test_existing_rigged_source_uses_real_rhi_and_is_pinned_without_overwrite(self):
+        store, result = self.conform("saved", "valid", photo=True, existing=True)
+        self.assertEqual(result["status"], "head_conformed_awaiting_review")
+        self.assertEqual(result["source_character"], "/Game/Existing/Head.Head")
+        self.assertTrue(all(store.verify(reference) for reference in result["input_dependencies"]))
+
+    def test_original_photo_mode_bypasses_blender_and_keeps_source_dependencies(self):
+        store, result = self.conform("saved", "valid", photo=True)
+        self.assertEqual(result["status"], "head_conformed_awaiting_review")
+        self.assertEqual(result["tracking_source"], "original_photo")
+        self.assertEqual(result["working_baseline"]["tracking_camera_mode"], "fitted_photo")
+        self.assertFalse(result["photo_tracking"]["geometry_refitted"])
+        self.assertTrue(all(store.verify(item) for item in result["input_dependencies"]))
 
     def test_changed_or_unrelated_baseline_is_rejected_before_native_work(self):
         for mode in ("tampered", "wrong-appearance"):

@@ -349,17 +349,6 @@ def assemble_runtime(character, subsystem, request, result, unreal, publish):
             destination, only_if_is_dirty=False, recursive=True):
         raise RuntimeError("Runtime assembly packages could not be saved")
 
-    def retain_evidence(value):
-        result["runtime"] = value
-        publish(result)
-
-    result["stage"] = "inspect_runtime_actor"
-    publish(result)
-    evidence = inspect_runtime(
-        blueprint, request["profile"].get("grooms", {}), unreal, retain_evidence)
-    result.update(runtime=evidence, blueprint=blueprint, runtime_assets=assets)
-
-
 def run(request, unreal, publish):
     started = time.perf_counter()
     profile = validate_profile(request["profile"])
@@ -542,6 +531,9 @@ def run(request, unreal, publish):
             values = snapshot(character, subsystem, groom_keys, unreal)
             verify_profile(profile, values, before_assembly)
             save_character()
+            stage("inspect_runtime_actor")
+            result["runtime"] = inspect_runtime(
+                result["blueprint"], profile.get("grooms", {}), unreal)
         if request["operation"] == "verify" and request.get("blueprint"):
             stage("verify_runtime_actor")
             result["runtime"] = inspect_runtime(

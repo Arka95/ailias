@@ -37,11 +37,18 @@ certificate.** The current root comparison remains visibly below expectations.
 
 Retained evidence: fit `20261116T153125Z-44390de9` has 64 dense observations;
 appearance `20261116T163340Z-14973ca7` selected 16 texture views. The latest native
-review `e571dac24e6c472681f6767220c6857a` was rejected visually. Runtime revision
+review at the initial research milestone, `e571dac24e6c472681f6767220c6857a`,
+was rejected visually. Runtime revision
 `5e856ca875794ec6a74f816ba94b8a2c` is failed, despite retained runtime assets:
 the strict bound-beard-component check did not pass. These are separate outcomes,
 not an accepted end-to-end result. Evidence lives in the corresponding
 `data\arka\facefitting\runs`, `appearance`, `native-reviews` and `features` manifests.
+
+Subsequent diagnostic review `800e902f2fbd45ed8d5e00d275ef5059` remains
+geometrically rejected despite dark eyes and bound brows/lashes; its feature job
+failed final saving. The retained source fit improves held-out frontal landmark
+error over the generic prior by only about 0.9%, so another appearance/rig pass
+is deferred. See [actual trials and regional geometry diagnostics](../facefitting/dev.readme.md#appearance-and-native-boundaries).
 
 Preserve the selected baseline and original photos. This investigation does not
 authorize another GNM fit, saved Blender scene copy or the rejected cross-topology
