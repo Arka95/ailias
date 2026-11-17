@@ -9,7 +9,9 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from ailias.facefitting.native_features import apply_features, character_package
-from ailias.facefitting.native_features_worker import assemble_runtime, run, validate_profile
+from ailias.facefitting.native_features_worker import (
+    assemble_runtime, run, validate_profile, verify_profile,
+)
 from ailias.storage import Store
 
 
@@ -63,12 +65,17 @@ class NativeFeatureWorkerTests(unittest.TestCase):
                     eye_right=SimpleNamespace(iris=copy.deepcopy(iris)))
                 self.skin = SimpleNamespace(texture_material_overrides=SimpleNamespace(
                     enable_texture_overrides=False, texture_overrides=SimpleNamespace(face={})))
+                self.head = SimpleNamespace(eyelashes=SimpleNamespace(
+                    type="NONE", dye_color=SimpleNamespace(r=1., g=1., b=1.),
+                    melanin=.3, redness=.28, roughness=.25, salt_and_pepper=.2,
+                    lightness=.5, enable_grooms=True))
 
             def get_path_name(self):
                 return self.path
 
             def get_editor_property(self, name):
-                return self.eyes if name == "eyes_settings" else self.skin
+                return {"eyes_settings": self.eyes, "skin_settings": self.skin,
+                        "head_model_settings": self.head}[name]
 
         source, candidate = Character(source_path), Character(candidate_path)
         wardrobe = Wardrobe()
@@ -79,6 +86,8 @@ class NativeFeatureWorkerTests(unittest.TestCase):
         subsystem.get_preview_collection.side_effect = lambda character: character.internal_collection
         subsystem.commit_eyes_settings.side_effect = lambda character, settings: setattr(
             character, "eyes", settings)
+        subsystem.commit_head_model_settings.side_effect = lambda character, settings: setattr(
+            character, "head", settings)
         library.list_assets.return_value = []
         library.duplicate_asset.return_value = candidate
         library.save_loaded_asset.return_value = True
@@ -92,6 +101,10 @@ class NativeFeatureWorkerTests(unittest.TestCase):
                 candidate if path == candidate_path else wardrobe),
             MetaHumanPaletteItemPath=lambda **kwargs: kwargs,
             FaceTextureType=SimpleNamespace(BASECOLOR="basecolor"),
+            MetaHumanCharacterEyelashesType=SimpleNamespace(**{
+                name.upper(): name.upper() for name in (
+                    "none", "short_sparse", "short_fine", "short_thin",
+                    "long_slight_curl", "long_curl", "long_thick_curl")}),
             LinearColor=lambda r, g, b, a: SimpleNamespace(r=r, g=g, b=b, a=a),
             Vector=lambda x, y, z: SimpleNamespace(x=x, y=y, z=z),
         )
@@ -128,6 +141,23 @@ class NativeFeatureWorkerTests(unittest.TestCase):
         self.assertEqual(run(request, unreal, lambda value: None)["status"], "features_reloaded")
         candidate.parameter.value = .1
         with self.assertRaisesRegex(RuntimeError, "parameters did not persist"):
+            run(request, unreal, lambda value: None)
+
+    def test_explicit_lashes_persist_type_pigment_and_groom_enablement_without_editing_source(self):
+        unreal, subsystem, source, candidate, request = self.fixture()
+        request["profile"]["eyelashes"] = {
+            "type": "short_sparse", "melanin": .95, "redness": 0.,
+            "salt_and_pepper": 0., "dye_color_linear": [.8, .7, .6], "enable_grooms": True,
+        }
+        result = run(request, unreal, lambda value: None)
+        self.assertEqual(candidate.head.eyelashes.type, "SHORT_SPARSE")
+        self.assertEqual(source.head.eyelashes.type, "NONE")
+        self.assertEqual(candidate.head.eyelashes.melanin, .95)
+        subsystem.commit_head_model_settings.assert_called_once_with(candidate, candidate.head)
+        request.update(operation="verify", expected=result["values"])
+        self.assertEqual(run(request, unreal, lambda value: None)["status"], "features_reloaded")
+        candidate.head.eyelashes.enable_grooms = False
+        with self.assertRaisesRegex(RuntimeError, "eyelash properties did not persist"):
             run(request, unreal, lambda value: None)
 
     def test_preview_edits_are_copied_back_into_the_saved_collection(self):
@@ -203,6 +233,28 @@ class NativeFeatureWorkerTests(unittest.TestCase):
         subsystem.request_auto_rigging.assert_not_called()
         subsystem.request_texture_sources.assert_not_called()
         subsystem.build_meta_human.assert_not_called()
+
+    def test_assembly_dispatches_configured_pipeline_and_quality_without_changing_defaults(self):
+        for settings, pipeline, quality in (
+                ({}, "OPTIMIZED", "MEDIUM"),
+                ({"pipeline": "optimized", "quality": "high"}, "OPTIMIZED", "HIGH"),
+                ({"pipeline": "cinematic", "quality": "low"}, "CINEMATIC", "LOW")):
+            with self.subTest(settings=settings):
+                unreal, subsystem, _, character, request = self.fixture()
+                character.get_editor_property = lambda name: True
+                subsystem.can_build_meta_human.return_value = True
+                unreal.EditorAssetLibrary.list_assets.return_value = []
+                unreal.MetaHumanCharacterEditorBuildParameters = SimpleNamespace
+                unreal.MetaHumanDefaultPipelineType = SimpleNamespace(OPTIMIZED="OPTIMIZED", CINEMATIC="CINEMATIC")
+                unreal.MetaHumanQualityLevel = SimpleNamespace(HIGH="HIGH", MEDIUM="MEDIUM", LOW="LOW")
+                request["profile"]["assembly"] = settings
+                result = {}
+                with patch("ailias.facefitting.native_features_worker.inspect_runtime", return_value={}):
+                    assemble_runtime(character, subsystem, request, result, unreal, lambda value: None)
+                parameters = subsystem.build_meta_human.call_args.args[1]
+                self.assertEqual(parameters.pipeline_type, pipeline)
+                self.assertEqual(parameters.pipeline_quality, quality)
+                self.assertEqual(result["assembly_settings"]["quality_applies"], pipeline == "OPTIMIZED")
 
     def test_combined_edit_and_build_reuses_registration_and_preserves_edits_before_build(self):
         unreal, subsystem, _, candidate, request = self.fixture()
@@ -283,12 +335,27 @@ class NativeFeatureWorkerTests(unittest.TestCase):
 
 
 class FeatureProfileTests(unittest.TestCase):
+    def test_missing_truncated_or_nonfinite_iris_evidence_never_passes_verification(self):
+        profile = {"version": 1, "eyes": {"global_tint_linear": [.2, .1, .05]}}
+        for eye in ({}, {"global_tint_linear": [.2]}, {"global_tint_linear": [float("nan"), .1, .05]}):
+            with self.subTest(eye=eye), self.assertRaisesRegex(RuntimeError, "iris"):
+                verify_profile(profile, {"eyes": {"eye_left": eye, "eye_right": eye}})
+
     def test_invalid_profiles_are_rejected_before_native_work(self):
         valid = {"version": 1, "grooms": {"Beard": {"asset": "/Game/Groom.Groom"}}}
         invalid = [
             {"version": 1}, {"version": True}, {"version": 1, "unexpected": True},
             {**valid, "eyes": {"global_tint_linear": [1, float("nan"), 0]}},
             {**valid, "eyes": {"global_saturation": True}},
+            {**valid, "eyelashes": {"type": "cosmetic"}},
+            {**valid, "eyelashes": {"type": []}},
+            {**valid, "eyelashes": {"melanin": -1}},
+            {**valid, "eyelashes": {"enable_grooms": 1}},
+            {**valid, "eyelashes": {"dye_color_linear": [0, 0]}},
+            {**valid, "assembly": {"pipeline": "unknown"}},
+            {**valid, "assembly": {"pipeline": []}},
+            {**valid, "assembly": {"quality": "ultra"}},
+            {**valid, "assembly": {"quality": {}}},
             {**valid, "grooms": {"Unknown": {"asset": "/Game/Groom"}}},
             {**valid, "grooms": {"Beard": {"asset": "/Game/Groom.Other"}}},
             {**valid, "grooms": {"Beard": {"asset": "/Game//Groom"}}},

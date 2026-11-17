@@ -58,7 +58,7 @@ This is a technical dependency gate, not evidence that texture or final likeness
 | `unreal-conform --baseline FILE` | Alias `facefitting\working-baseline.json`, when present | Pinned existing scene/geometry/camera dependencies |
 | `unreal-features --profile FILE` | Required | Validated native edit policy; no inferred anatomical correspondences |
 | `unreal-features --baseline FILE` | Alias working baseline, when present | Verify every pinned source; never refit or rewrite its Blender scene |
-| `unreal-features --assemble` | Off | Build an optimized medium-quality runtime actor and verify its compiled face rig/bound groom components in a fresh editor |
+| `unreal-features --assemble` | Off | Build using profile `assembly` settings (optimized/medium by default); independently reload and inspect the actor/rig/grooms |
 | `unreal-features --cloud-services` | Off | Allow missing native full-rig/source-texture requests; existing compatible data is reused |
 | `unreal-review --review-config FILE` | `config\reanimation.json` | Same documented camera, lights, placement, warmup and render policy as [reanimation](../reanimation/README.md#configuration) |
 | `unreal-review --resolution` | `540x960` | Even 9:16 review dimensions; does not change the stored camera/light defaults |
@@ -126,6 +126,10 @@ not an automatic photo-to-likeness optimizer.
 | `grooms.SLOT.parameters` | Omitted parameters unchanged | Optional `Melanin`, `Redness`, `Roughness`, each `[0,1]`; these are native material controls, not measured hair colours |
 | `eyes.global_tint_linear` | Unchanged | Three linear RGB multipliers in `[0,1]`, applied to both native irises |
 | `eyes.global_saturation` | Unchanged; `[0,4]` when supplied | Both irises' native saturation control |
+| `eyelashes.type` | Unchanged | `none`, `short_sparse`, `short_fine`, `short_thin`, `long_slight_curl`, `long_curl`, `long_thick_curl` |
+| `eyelashes.melanin`, `redness`, `roughness`, `salt_and_pepper`, `lightness` | Unchanged; each `[0,1]` | Explicit native lash material/pigment controls; not measured strand colour |
+| `eyelashes.dye_color_linear`, `enable_grooms` | Unchanged | Linear RGB dye `[0,1]` and boolean groom enablement; contradictory disabled/selected lashes are rejected |
+| `assembly.pipeline`, `assembly.quality` | `optimized`, `medium` | `optimized` or `cinematic`; optimized quality `high`, `medium`, `low`. Cinematic ignores quality and records that distinction |
 | `face_basecolor` | Unchanged | Existing Texture2D in verified native UV space; enables UE 5.8 texture/material overrides |
 | `sculpt.reference_landmarks` | Required with sculpt | Exact native control snapshot for this Character; stale geometry is rejected |
 | `sculpt.deltas` | Required with sculpt | Unique `{index, delta_cm: [x,y,z]}` edits in native coordinates |
@@ -134,6 +138,32 @@ not an automatic photo-to-likeness optimizer.
 Sculpt inputs need anatomically justified targets. The adapter does not invent a
 mapping between GNM/MediaPipe points and native sculpt controls. Iris multipliers
 are not calibrated colour matching, and a GNM atlas is not a native-UV texture.
+Explicit lash/pipeline policies are unit-tested; they have not yet been applied
+and visually verified on a new personal-head candidate.
+
+### Photo-native feature comparison
+
+Feature extraction is owned by [imageprocessing](../imageprocessing/README.md#reusable-feature-evidence).
+This command reads its reference/render manifests, reports projected regional
+differences and optionally writes a native iris-profile **proposal**:
+
+```powershell
+python -m ailias facefitting compare-features subject --reference C:\features\photo\manifest.json --reference-face-id SOURCE_FACE_ID --candidate C:\features\render\manifest.json --current-tint 1 1 1
+```
+
+| Option / output | Meaning |
+|---|---|
+| `--reference`, `--reference-face-id` | Completed generic feature manifest and exact source face |
+| `--candidate` | Single-face `inspect-image --role render` manifest; the role is caller-declared, not authentication of Unreal origin |
+| `--current-tint R G B` | Optional actual native tint used for that render; omit for geometry-only diagnostics |
+| `geometry_2d` | Signed differences of outer-eye-span-normalized projected ratios; no calibrated-mm or isolated 3D error claim |
+| `iris-proposal.json` | Bounded current-tint x reference/render colour ratio, with hash-pinned evidence; directly accepted by `unreal-features --profile` but **not automatically applied** |
+| Missing iris/geometry | Explicit review/unmeasurable status, never a zero error or invented colour |
+
+Reports live under `facefitting\feature-comparisons`. Reference/render expression
+and lighting may differ. The result always keeps `likeness_verified=False`;
+a proposal requires a subsequent native render. This is diagnostic plumbing, not
+the missing anatomical optimizer or a completed coordinated appearance pass.
 
 With `--assemble`, edits and runtime assembly share one editor session, followed
 by an independent editor reload. Validated edits are saved before assembly, so

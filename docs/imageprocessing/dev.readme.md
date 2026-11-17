@@ -59,6 +59,33 @@ and cleansing keys/defaults. `ProcessingPolicy` and `CleansingPolicy` validate
 numeric bounds; there are no environment-variable threshold overrides.
 Model download identities are pinned in the model adapters, separate from policy.
 
+## Feature extraction and native diagnostics
+
+| Component | Responsibility / boundary |
+|---|---|
+| `dense.py` | Task-scoped CPU MediaPipe predictions and reversible source coordinates; no GNM dependency |
+| `appearance_features.py` | Pure per-photo geometry ratios, semantic-region colour and pupil-excluding iris sampling |
+| `feature_evidence.py` | Validate input hashes/curation/transforms; retain versioned features and parser masks |
+| `facefitting\feature_comparison.py` | Downstream photo/render diagnostics and optional native eye-profile proposal; never edits a Character |
+
+`features` requires explicit observation reuse; `inspect-image` performs fresh
+dense inference on one image. Both parse actual native-resolution RGB, not the
+aligned analysis colours, and retain source coordinates. Each output preserves
+appearance cohorts without cross-photo averaging. Source changes fail closed;
+no/multiple detected faces and insufficient individual features abstain.
+
+Focused units cover colour clipping/iris pupil rejection, coordinate restoration,
+stale curation/source changes, unknown/duplicate face IDs, mid-run invalidation,
+single-render inspection and native proposal dependencies. They use synthetic
+images/fake models; no model is loaded during units.
+
+Real CPU checks on November 17, 2026 extracted the frontal source as
+`4c9ac011a6fb45f496d1c18f0fc31573` and inspected the **existing rejected** native
+frame as `8ef12704e8574dc8b6df97d015957517`, under `imageprocessing\features`.
+No new render, geometry fit or native edit was made by these checks.
+The combined evidence, compatibility, fitting, native-policy and review unit
+selection passed **56 tests**; no UE integration or model benchmark was run.
+
 ## Research decisions in plain language
 
 | Decision | Reason / limit |

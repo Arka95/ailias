@@ -21,9 +21,16 @@ def add_parser(commands):
         ("unreal-conform", "Create a new local head-only Character draft from a verified import ID"),
         ("unreal-features", "Apply scripted features to an isolated native Character revision and reload it"),
         ("unreal-review", "Render one neutral native frame from a verified feature/runtime revision"),
+        ("compare-features", "Compare photo/native-render evidence; optionally write a bounded iris edit proposal"),
     ):
         action = actions.add_parser(name, help=description)
         action.add_argument("alias")
+        if name == "compare-features":
+            action.add_argument("--reference", type=Path, required=True, help="imageprocessing feature manifest")
+            action.add_argument("--reference-face-id", required=True)
+            action.add_argument("--candidate", type=Path, required=True, help="inspect-image render manifest")
+            action.add_argument("--current-tint", type=float, nargs=3,
+                                help="Actual native RGB tint used for this render; proposal only")
         if name == "fit":
             action.add_argument("run")
             action.add_argument("group")
@@ -44,7 +51,7 @@ def add_parser(commands):
             action.add_argument("--baseline", type=Path,
                                 help="Pinned baseline JSON; defaults to this alias's working-baseline.json")
             action.add_argument("--assemble", action="store_true",
-                                help="Build and independently reload an optimized medium-quality runtime actor")
+                                help="Build and independently reload a runtime actor using profile assembly settings")
             action.add_argument("--cloud-services", action="store_true",
                                 help="Explicitly allow missing rig/texture requests for this isolated revision")
         if name == "unreal-review":
@@ -60,6 +67,12 @@ def add_parser(commands):
 
 
 def execute(args, data_root):
+    if args.facefitting_action == "compare-features":
+        from ailias.facefitting.feature_comparison import compare_features
+        store = Store(data_root, args.alias)
+        with store.lock():
+            return compare_features(store, args.reference, args.reference_face_id,
+                                    args.candidate, args.current_tint), 0
     from ailias.facefitting.model import model_assets
     from ailias.facefitting.pipeline import inspect_fit, run_fit
     from ailias.facefitting.settings import load_policy

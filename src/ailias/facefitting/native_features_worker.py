@@ -9,6 +9,11 @@ from pathlib import Path
 
 
 GROOM_SLOTS = {"Hair", "Eyebrows", "Beard", "Mustache", "Eyelashes", "Peachfuzz"}
+EYELASH_TYPES = {
+    "none", "short_sparse", "short_fine", "short_thin",
+    "long_slight_curl", "long_curl", "long_thick_curl",
+}
+EYELASH_FLOATS = {"melanin", "redness", "roughness", "salt_and_pepper", "lightness"}
 
 
 def native_asset(value):
@@ -38,7 +43,8 @@ def vector(value, lower, upper):
 def validate_profile(profile):
     if not isinstance(profile, dict) or type(profile.get("version")) is not int or profile["version"] != 1:
         raise ValueError("Native feature profile version must be 1")
-    allowed = {"version", "grooms", "eyes", "face_basecolor", "sculpt", "sources"}
+    allowed = {"version", "grooms", "eyes", "eyelashes", "face_basecolor", "sculpt",
+               "sources", "assembly"}
     if profile.keys() - allowed:
         raise ValueError("Unknown native feature profile fields")
     grooms = profile.get("grooms", {})
@@ -64,6 +70,32 @@ def validate_profile(profile):
             number(eyes["global_saturation"], 0, 4)
     if "face_basecolor" in profile:
         native_asset(profile["face_basecolor"])
+    if "eyelashes" in profile:
+        lashes = profile["eyelashes"]
+        if (not isinstance(lashes, dict) or not lashes
+                or lashes.keys() - (EYELASH_FLOATS | {"type", "dye_color_linear", "enable_grooms"})):
+            raise ValueError("Unsupported eyelash properties")
+        if "type" in lashes and (not isinstance(lashes["type"], str) or lashes["type"] not in EYELASH_TYPES):
+            raise ValueError("Unsupported native eyelash type")
+        for key in EYELASH_FLOATS & lashes.keys():
+            number(lashes[key], 0, 1)
+        if "dye_color_linear" in lashes:
+            vector(lashes["dye_color_linear"], 0, 1)
+        if "enable_grooms" in lashes and type(lashes["enable_grooms"]) is not bool:
+            raise ValueError("Eyelash enable_grooms must be a boolean")
+        if "Eyelashes" in grooms and (
+                lashes.get("type") == "none" or lashes.get("enable_grooms") is False):
+            raise ValueError("An eyelash groom cannot be selected while explicitly disabled")
+    if "assembly" in profile:
+        assembly = profile["assembly"]
+        if (not isinstance(assembly, dict) or not assembly
+                or assembly.keys() - {"pipeline", "quality"}):
+            raise ValueError("Unsupported native assembly settings")
+        pipeline, quality = assembly.get("pipeline", "optimized"), assembly.get("quality", "medium")
+        if not isinstance(pipeline, str) or pipeline not in {"optimized", "cinematic"}:
+            raise ValueError("Assembly pipeline must be optimized or cinematic")
+        if not isinstance(quality, str) or quality not in {"high", "medium", "low"}:
+            raise ValueError("Assembly quality must be high, medium or low")
     if "sculpt" in profile:
         sculpt = profile["sculpt"]
         if not isinstance(sculpt, dict) or set(sculpt) != {
@@ -88,7 +120,8 @@ def validate_profile(profile):
             delta = vector(change["delta_cm"], -limit, limit)
             if math.sqrt(sum(value*value for value in delta)) > limit + 1e-9:
                 raise ValueError("Sculpt displacement exceeds its limit")
-    if not any((grooms, profile.get("eyes"), profile.get("face_basecolor"), profile.get("sculpt"))):
+    if not any((grooms, profile.get("eyes"), profile.get("eyelashes"),
+                profile.get("face_basecolor"), profile.get("sculpt"))):
         raise ValueError("Native feature profile does not request any edits")
     if not isinstance(profile.get("sources", []), list):
         raise ValueError("Profile sources must be hash references")
@@ -145,17 +178,39 @@ def snapshot(character, subsystem, groom_keys, unreal):
     texture = overrides.texture_overrides.face.get(unreal.FaceTextureType.BASECOLOR)
     values["face_basecolor"] = (
         texture.get_path_name() if overrides.enable_texture_overrides and texture else None)
+    lashes = character.get_editor_property("head_model_settings").eyelashes
+    color = lashes.dye_color
+    values["eyelashes"] = {
+        "type": next(name for name in sorted(EYELASH_TYPES)
+                     if lashes.type == getattr(unreal.MetaHumanCharacterEyelashesType, name.upper())),
+        "enable_grooms": bool(lashes.enable_grooms),
+        "dye_color_linear": [float(color.r), float(color.g), float(color.b)],
+        **{name: float(getattr(lashes, name)) for name in EYELASH_FLOATS},
+    }
     return values
 
 
+def verify_properties(wanted, actual, label):
+    for key, target in wanted.items():
+        value = actual.get(key)
+        if isinstance(target, (str, bool)):
+            matches = type(value) is type(target) and value == target
+        else:
+            target = target if isinstance(target, list) else [target]
+            value = value if isinstance(value, list) else [value]
+            matches = len(value) == len(target) and all(
+                type(item) in (float, int) and math.isfinite(item)
+                and abs(item-goal) <= 1e-5 for item, goal in zip(value, target))
+        if not matches:
+            raise RuntimeError(f"Native {label} properties did not persist")
+
+
 def verify_profile(profile, values, expected=None):
-    for eye in values["eyes"].values():
-        for key, wanted in profile.get("eyes", {}).items():
-            actual = eye[key]
-            actual = actual if isinstance(actual, list) else [actual]
-            wanted = wanted if isinstance(wanted, list) else [wanted]
-            if any(abs(a-b) > 1e-5 for a, b in zip(actual, wanted)):
-                raise RuntimeError("Native iris properties did not persist")
+    if "eyes" in profile:
+        for name in ("eye_left", "eye_right"):
+            verify_properties(profile["eyes"], values.get("eyes", {}).get(name, {}), "iris")
+    if "eyelashes" in profile:
+        verify_properties(profile["eyelashes"], values.get("eyelashes", {}), "eyelash")
     for slot, groom in profile.get("grooms", {}).items():
         if sum(item["slot"] == slot for item in values["selections"]) != 1:
             raise RuntimeError("Native groom slot does not have exactly one selection")
@@ -249,8 +304,13 @@ def assemble_runtime(character, subsystem, request, result, unreal, publish):
     if unreal.EditorAssetLibrary.list_assets(destination, recursive=True, include_folder=False):
         raise RuntimeError("Runtime destination is occupied; never overwrite it")
     parameters = unreal.MetaHumanCharacterEditorBuildParameters()
-    parameters.pipeline_type = unreal.MetaHumanDefaultPipelineType.OPTIMIZED
-    parameters.pipeline_quality = unreal.MetaHumanQualityLevel.MEDIUM
+    assembly = request["profile"].get("assembly", {})
+    pipeline, quality = assembly.get("pipeline", "optimized"), assembly.get("quality", "medium")
+    parameters.pipeline_type = getattr(unreal.MetaHumanDefaultPipelineType, pipeline.upper())
+    parameters.pipeline_quality = getattr(unreal.MetaHumanQualityLevel, quality.upper())
+    result["assembly_settings"] = {
+        "pipeline": pipeline, "quality": quality, "quality_applies": pipeline == "optimized",
+    }
     parameters.absolute_build_path = destination
     parameters.common_folder_path = destination + "/Common"
     parameters.name_override = "FeatureDraft"
@@ -402,6 +462,19 @@ def run(request, unreal, publish):
                     eye.iris = iris
                     setattr(settings, name, eye)
                 subsystem.commit_eyes_settings(character, settings)
+            if "eyelashes" in profile:
+                stage("apply_eyelash_properties")
+                settings = character.get_editor_property("head_model_settings")
+                lashes = settings.eyelashes
+                for key, value in profile["eyelashes"].items():
+                    if key == "type":
+                        lashes.type = getattr(unreal.MetaHumanCharacterEyelashesType, value.upper())
+                    elif key == "dye_color_linear":
+                        lashes.dye_color = unreal.LinearColor(*value, 1)
+                    else:
+                        setattr(lashes, key, value)
+                settings.eyelashes = lashes
+                subsystem.commit_head_model_settings(character, settings)
             if "face_basecolor" in profile:
                 stage("apply_native_uv_basecolour")
                 settings = character.get_editor_property("skin_settings")

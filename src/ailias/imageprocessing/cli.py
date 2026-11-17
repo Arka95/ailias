@@ -48,6 +48,22 @@ def add_parser(commands):
     compare.add_argument("run")
     compare.add_argument("first")
     compare.add_argument("second")
+    features = actions.add_parser("features", help="Extract regional photo evidence using existing dense observations")
+    features.add_argument("alias")
+    features.add_argument("--inputs", type=Path, required=True, help="Verified prepared sources.json")
+    features.add_argument("--observations", type=Path, required=True, help="Explicitly reuse existing 478-point observations")
+    features.add_argument("--cohort", required=True, help="Appearance-reference label; photos are never colour-averaged")
+    features.add_argument("--face-id", action="append", help="Extract only this face ID; repeatable")
+    features.add_argument("--device", choices=("cpu", "cuda"), default="cpu",
+                          help="Existing face parser device; no model download or silent fallback")
+    inspect = actions.add_parser("inspect-image", help="Measure one explicit reference/render with local models")
+    inspect.add_argument("alias")
+    inspect.add_argument("image", type=Path)
+    inspect.add_argument("--landmarker", type=Path, required=True, help="Existing MediaPipe task file; never downloaded")
+    inspect.add_argument("--cohort", required=True)
+    inspect.add_argument("--role", choices=("reference", "render"), required=True)
+    inspect.add_argument("--device", choices=("cpu", "cuda"), default="cpu",
+                         help="Parser device; dense landmarks use explicit CPU inference")
     cleanup = actions.add_parser("cleanup", help="Reclaim verified source copies and unused generated assets")
     cleanup.add_argument("alias")
     cleanup.add_argument("--prune-superseded", action="store_true",
@@ -112,6 +128,31 @@ def execute(args, data_root: Path):
             from ailias.imageprocessing.pipeline import select_group
             result = select_group(store, args.run, args.group)
             return {key: value for key, value in result.items() if key != "members"}, 0
+        if args.image_action == "features":
+            from ailias.imageprocessing.faceparsing import HeadParser
+            from ailias.imageprocessing.feature_evidence import extract_features
+            backend = HeadParser(store, args.device)
+            try:
+                result = extract_features(store, args.inputs, args.observations,
+                                          args.cohort, backend, args.face_id)
+            finally:
+                backend.close()
+            return {key: value for key, value in result.items() if key != "faces"}, (
+                0 if result["summary"].get("observed") else 2)
+        if args.image_action == "inspect-image":
+            from ailias.imageprocessing.dense import DenseDetector
+            from ailias.imageprocessing.faceparsing import HeadParser
+            from ailias.imageprocessing.feature_evidence import inspect_image
+            with ExitStack() as stack:
+                model_reference = store.reference_artifact(args.landmarker)
+                backend = HeadParser(store, args.device)
+                stack.callback(backend.close)
+                detector = DenseDetector(args.landmarker)
+                stack.callback(detector.close)
+                result = inspect_image(store, args.image, args.cohort, backend, detector,
+                                       model_reference, args.role)
+            return {key: value for key, value in result.items() if key != "faces"}, (
+                0 if result["status"] == "features_extracted_awaiting_review" else 2)
         if args.image_action == "cleanup":
             from ailias.imageprocessing.cleanup import cleanup_alias
             result = cleanup_alias(store, args.keep_run, args.prune_superseded)

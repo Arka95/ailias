@@ -7,7 +7,7 @@
 | Component | Responsibility |
 |---|---|
 | `model.py` | Pinned GNM assets, validated numeric loading and surface correspondence |
-| `observations.py` | MediaPipe predictions, expression evidence and source-coordinate restoration |
+| `observations.py` | Compatibility imports from `imageprocessing.dense`; no duplicate detector implementation |
 | `fitting.py` | Camera initialization, region weights, CPU reference and shared evaluation |
 | `cuda.py` | Batched deformation/projection/loss, automatic derivatives and Schur/LM optimizer |
 | `pipeline.py` | Fresh jobs, held-out candidate comparison, all-view refit, exports and integrity |
@@ -36,6 +36,7 @@ different numerical optimization; neither backend is a likeness certificate.
 | `unreal_conform.py`, `unreal_conform_worker.py` | Local native Character solve, state commit and saved-package verification |
 | `native_features.py`, `native_features_worker.py` | Immutable-source Character duplication, validated sculpt/iris/texture/groom edits, optional native assembly and independent reload |
 | `native_review.py` | Hash-verified runtime review and one-frame neutral rendering through the reanimation worker; no narration or fitting |
+| `feature_comparison.py`, `native_reference.py` | Compare generic per-photo/render evidence and write bounded, source-pinned iris edit proposals without launching an editor |
 
 Photo projection uses source cameras, portrait offsets and actual resize ratios.
 Face parser boxes already use portrait coordinates; subtracting the source offset
@@ -52,6 +53,15 @@ Depth-splat visibility is approximate, not exact triangle rasterization.
 
 The darkness contributions have not been isolated by an A/B render.
 Do not silently treat an RGB atlas as calibrated skin reflectance.
+
+The local comparison `dea1edf777ae4745baca47cc84abe24f` consumes the frontal-photo
+and old rejected-render feature revisions documented in the
+[upstream validation record](../imageprocessing/dev.readme.md#feature-extraction-and-native-diagnostics).
+It emits projected ratio differences and an **unapplied** iris proposal. The
+reference is smiling and the native frame nearly neutral; these differences do
+not isolate native shape errors. No new native visual result is claimed.
+The combined focused units passed 56 tests; new lash/pipeline settings have only
+unit-level validation, not a saved/reloaded UE application.
 
 ## Coordinate and persistence contracts
 

@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | Owner | ailias |
-| Status | Research complete; implementation recommendations, not benchmarked replacements |
+| Status | Research complete; regional evidence/comparison implemented, alternative reconstructors not benchmarked |
 | Last updated | 2026-11-17 |
 | Services in scope | imageprocessing, facefitting, generation, native Unreal handoff |
 | Reviewers | *(fill alias)* |
@@ -24,7 +24,7 @@ not required to construct this pipeline.
 
 | Boundary | Verified behavior | Gap |
 |---|---|---|
-| Photo preparation | Detection, identity grouping, native-grid head masks, reversible alignment and relative-lighting analysis exist | **A:** no unified reusable identity/appearance evidence profile; [imageprocessing guide](README.md) |
+| Photo preparation | Detection, identity grouping, masks/alignment plus new regional geometry/colour/iris evidence profiles | **A:** separate beard/lash evidence and calibrated multi-view aggregation remain incomplete; [imageprocessing guide](README.md#reusable-feature-evidence) |
 | Numerical head fit | GNM, a statistical head-shape prior, is fitted jointly with per-photo cameras and expression; held-out views select identity complexity | **B:** conditional reprojection is not proof of correct 3D anatomy; [pipeline.py:101-175](../../src/ailias/facefitting/pipeline.py#L101-L175) |
 | Blender | Reviews/exports the fitted geometry; appearance projects photo colour and approximates scalp hair | Blender is not the identity estimator. Photo colour retains lighting; [appearance.py:61-118](../../src/ailias/facefitting/appearance.py#L61-L118) |
 | Native conform | Sends mesh vertices/triangles, tracked contours and a matched camera into Unreal's head-only solver | **C:** fitted geometry was used, but the resulting native identity was not validated as a likeness. `appearance_transferred=False`; [unreal_conform_worker.py:17-106](../../src/ailias/facefitting/unreal_conform_worker.py#L17-L106) |
@@ -104,13 +104,13 @@ facefitting owns identity/camera/expression inference and photo-to-native
 translation. UE asset paths, sculpt indices and material controls must not leak
 into the generic extraction contract.
 
-Existing dense extraction already predicts 478 points, expression coefficients
-and transforms in [observations.py:10-78](../../src/ailias/facefitting/observations.py#L10-L78).
-Promote/reuse it without making imageprocessing import GNM or initialize a GPU
-model. Do not run a duplicate detector. Existing `imageprocessing\features.py`
-already handles other extraction concerns; use a cohesive dedicated module.
-The iris sampler in the current working tree is a unit-tested prototype, not a
-published integration, a reusable upstream extractor or a native edit.
+Dense extraction now lives in [dense.py:10-78](../../src/ailias/imageprocessing/dense.py#L10-L78);
+the old facefitting imports remain compatible. The new
+`appearance_features.py` / `feature_evidence.py` modules produce versioned
+regional geometry/colour/iris evidence without a GNM dependency. `features`
+explicitly reuses dense observations; `inspect-image` runs fresh CPU detection.
+The downstream `compare-features` command can write a hash-pinned iris edit
+proposal. None of these operations edits the native face automatically.
 
 | Feature | Reusable photo evidence to persist | Downstream native use | Limits / current gap |
 |---|---|---|---|
@@ -162,9 +162,10 @@ Preserve the existing working Torch/CUDA environment. Older CUDA/Python research
 stacks need isolated compatibility work, not a global downgrade. No new models
 were downloaded, loaded or benchmarked for this research.
 
-### 2.5 Proposed evidence flow and data contract
+### 2.5 Evidence flow and proposed contract extensions
 
-The solid path exists; dashed edges are proposed reusable extraction/translation.
+The solid file-based path exists; the dashed edge is unfinished automatic
+photo-to-native anatomical/appearance translation.
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 1000}}}%%
@@ -175,17 +176,16 @@ flowchart TB
         I --> F["facefitting<br/>Estimate shared shape, cameras and expression"]:::svc
         F --> N["Native adapter / Unreal<br/>Conform, explicit edits and saved revisions"]:::ext
         N --> R["Review artifacts<br/>Native frames and reload receipts"]:::store
-        I -.-> E["Proposed feature evidence profile<br/>Regions, visibility, provenance and cohort"]:::unknown
+        I --> E["Feature evidence profile<br/>Regions, support limits, provenance and cohort"]:::store
         E -.-> N
-        E -.-> R
+        E --> R
     end
     MAIN ~~~ SUM
-    SUM["Figure - Evidence ownership. How to read: top to bottom; blue local processing, green files, purple Unreal integration, red dashed proposed contract. Summary: reusable photo evidence feeds native translation and independent review, not just the intermediate mesh. Backed by: pipeline.py, observations.py, unreal_conform_worker.py and section 2.3 proposal."]:::caption
+    SUM["Figure - Evidence ownership. How to read: top to bottom; blue local processing, green files, purple Unreal integration; dashed mapping remains incomplete. Summary: photo evidence and render diagnostics exist; automatic native likeness translation is still missing. Backed by: feature_evidence.py, feature_comparison.py, pipeline.py and unreal_conform_worker.py."]:::caption
     style MAIN fill:none,stroke:none
     classDef svc fill:#cfe3ff,stroke:#2b6cb0,color:#0b2545
     classDef store fill:#d6f5df,stroke:#2f855a,color:#12351f
     classDef ext fill:#e6dcff,stroke:#6b46c1,color:#2d1b52
-    classDef unknown fill:#fde2e2,stroke:#c53030,color:#611a15,stroke-dasharray:4 3
     classDef caption fill:#f7f7f7,stroke:#999,color:#222,font-size:16px
 ```
 
@@ -211,7 +211,7 @@ before a native mutation.
 **Review artifacts:** local retained frames, projections and receipts consumed
 by offline checks and visual inspection; not an online scoring service.
 
-**Proposed feature evidence profile:** versioned JSON plus referenced masks;
+**Feature evidence profile:** versioned JSON plus referenced masks;
 one extraction reads photos, downstream fitting/native/review consumers read the
 same evidence. Each observation needs source hash/ID, region, native coordinates,
 visibility/status, estimator/version/device, sample count, cohort and uncertainty.
@@ -272,8 +272,8 @@ storage choice here. COLMAP's transient SQLite is unrelated reconstruction scrat
 
 | Area | Keep | Proposed change / gate |
 |---|---|---|
-| `imageprocessing\observations.py`, `features.py`, `faceparsing.py` | Native pixels, reversible coordinates, existing model provenance | Dedicated feature evidence module; promote/reuse dense observations without GNM dependencies |
-| `facefitting\observations.py` and working-tree iris prototype | Tested geometry/iris evidence logic | Move generic sampling upstream; keep UE tint/control conversion downstream |
+| `imageprocessing\dense.py`, `appearance_features.py`, `feature_evidence.py` | Shared detector and versioned source-coordinate regional evidence implemented | Separate beard/lash evidence and multi-view visibility calibration remain |
+| `facefitting\observations.py`, `native_reference.py`, `feature_comparison.py` | Compatibility imports and downstream bounded photo/render comparison | Native anatomical/UV mapping still required; an iris proposal is not an applied edit |
 | `config\imageprocessing.json`, `cleansing.json` | Existing extraction/colour semantics | Any new feature policy must document pixels/units, sample sufficiency, cohort and abstention; no new keys implemented here |
 | `config\facefitting.json`, `appearance.json` | Explicit device, fit/texture budgets | Preserve pinned geometry; alternatives are research until separately evaluated |
 | `native_features.py`, `native_features_worker.py`, `native_review.py` | Isolated revisions, strict saved-state verification, neutral reviews | Semantic mapping, native-UV transfer and coordinated appearance remain required |
@@ -286,7 +286,7 @@ storage choice here. COLMAP's transient SQLite is unrelated reconstruction scrat
 | Identity retained through handoff | Native resemblance rejected; source-versus-native drift not yet quantified | Matched front/oblique/profile overlays compare photos, preserved fit and native result; identify whether source shape, camera or native solve causes mismatch |
 | Face geometry | Conditional fit evidence exists, no native regional likeness pass | Report region-wise landmark/silhouette errors on held-out photos with common camera/expression policy; no fabricated physical-mm accuracy or single similarity percentage |
 | Alternative adoption | No alternatives locally benchmarked | One bounded comparator on the same permitted inputs/protocol improves evidence without regressing key regions; compatible saved/reloaded native result required |
-| Feature evidence | Dense points/masks exist separately; no full reusable profile | Per-feature provenance, source coordinates, cohort, visibility and uncertainty; unresolved beard/lashes remain explicitly unresolved |
+| Feature evidence | Regional profile/iris samples and native-render comparison implemented; beard/lash extraction remains unresolved | Per-feature provenance, source coordinates, cohort, visibility and uncertainty; unresolved beard/lashes remain explicitly unresolved |
 | Appearance handoff | Photo atlas not transferred by conform | Verified native UV/bake coverage, no source-illumination/albedo confusion; coordinated skin/eyes/brows/lashes/hair/beard review after geometry gate |
 | Runtime resources | Only installed file sizes and publisher VLM memory figures available | Measure owned-process peak VRAM/RAM and wall time before concurrent UE/model residency; no shared-stack regression |
 | Integrity / rig | Native assets technically exist; last beard-bound-component gate failed | Originals/baseline unchanged; fresh editor reload verifies saved edits and correct runtime representation; inspect baked stubble policy without blindly removing the gate |
