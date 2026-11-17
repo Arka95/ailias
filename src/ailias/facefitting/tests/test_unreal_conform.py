@@ -53,7 +53,8 @@ class CharacterConformTests(unittest.TestCase):
             "nose": SimpleNamespace(tracking_points=[SimpleNamespace(x=.5, y=.5)])}
         subsystem.try_add_object_to_edit.return_value = True
         subsystem.conform_to_target_meshes.return_value = True
-        subsystem.get_face_landmarks.side_effect = [[point], [SimpleNamespace(x=2, y=3, z=4)]]
+        changed = [SimpleNamespace(x=2, y=3, z=4)]
+        subsystem.get_face_landmarks.side_effect = [[point], changed, changed, changed, changed, changed]
         library, tools = Mock(), Mock()
         library.list_assets.return_value = []
         library.save_loaded_asset.return_value = True
@@ -93,9 +94,41 @@ class CharacterConformTests(unittest.TestCase):
         self.assertEqual((target_vertex.x, target_vertex.y, target_vertex.z), (-2, 1, 3))
         subsystem.commit_face_state.assert_called_once()
         subsystem.commit_body_state.assert_called_once()
+        subsystem.commit_posed_state_as_a_pose.assert_called_once()
         subsystem.remove_object_to_edit.assert_called_once()
         subsystem.request_auto_rigging.assert_not_called()
         subsystem.request_texture_sources.assert_not_called()
+        self.assertEqual(result["face_landmarks_saved"], [[2., 3., 4.]])
+        self.assertEqual(result["save_geometry"]["maximum_distance_cm"], 0)
+
+    def test_body_commit_cannot_silently_replace_the_conformed_shape(self):
+        unreal, subsystem, _, request = self.fixture()
+        original = [SimpleNamespace(x=1, y=2, z=3)]
+        changed = [SimpleNamespace(x=2, y=3, z=4)]
+        subsystem.get_face_landmarks.side_effect = [original, changed, changed, changed, original]
+        receipts = []
+        with self.assertRaisesRegex(RuntimeError, "commit changed"):
+            run(request, unreal, lambda value: receipts.append(dict(value)))
+        self.assertGreater(receipts[-1]["commit_geometry"]["body"]["maximum_distance_cm"], 1)
+        unreal.EditorAssetLibrary.save_loaded_asset.assert_not_called()
+        subsystem.remove_object_to_edit.assert_called_once()
+
+    def test_save_failure_releases_character_and_never_claims_saved_geometry(self):
+        unreal, subsystem, _, request = self.fixture()
+        unreal.EditorAssetLibrary.save_loaded_asset.side_effect = OSError("disk unavailable")
+        receipts = []
+        with self.assertRaisesRegex(OSError, "disk unavailable"):
+            run(request, unreal, lambda value: receipts.append(dict(value)))
+        self.assertNotIn("face_landmarks_saved", receipts[-1])
+        subsystem.remove_object_to_edit.assert_called_once()
+
+    def test_cleanup_failure_does_not_replace_a_native_solve_failure(self):
+        unreal, subsystem, _, request = self.fixture()
+        subsystem.conform_to_target_meshes.return_value = False
+        subsystem.remove_object_to_edit.side_effect = RuntimeError("cleanup failed")
+        with self.assertRaisesRegex(RuntimeError, "solver returned false") as caught:
+            run(request, unreal, lambda value: None)
+        self.assertIn("cleanup also failed", caught.exception.__notes__[0])
 
     def test_native_failure_never_commits_or_saves_and_releases_editor_state(self):
         unreal, subsystem, _, request = self.fixture()

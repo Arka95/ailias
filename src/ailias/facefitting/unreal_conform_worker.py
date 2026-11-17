@@ -1,8 +1,10 @@
 """Create a new local head-only Character draft from a matched view, without cloud rig/texture requests."""
 
 import json
+import math
 import os
 from pathlib import Path
+import sys
 
 
 def xyz(value):
@@ -12,6 +14,42 @@ def xyz(value):
 def gnm_to_ue(values, scale):
     x, y, z = values
     return [x*scale, z*scale, y*scale]
+
+
+def geometry_delta(first, second):
+    if not first or len(first) != len(second):
+        raise RuntimeError("Native landmark topology changed during commit")
+    distances = [math.dist(a, b) for a, b in zip(first, second)]
+    if not all(math.isfinite(value) for value in distances):
+        raise RuntimeError("Native committed landmarks are nonfinite")
+    return {"maximum_distance_cm": max(distances),
+            "rms_distance_cm": math.sqrt(sum(value*value for value in distances)/len(distances))}
+
+
+def export_saved_geometry(character, subsystem, unreal, destination, output):
+    """Evaluate the committed Character surface, independently of sculpt-control positions."""
+    parameters = unreal.MetaHumanGeometryExportParams()
+    parameters.project_path = destination
+    parameters.head_skeletal_mesh = True
+    parameters.body_skeletal_mesh = False
+    parameters.full_body_skeletal_mesh = False
+    parameters.overwrite_existing_assets = False
+    unreal.MetaHumanCharacterExportBlueprintLibrary.export_geometry(character, parameters)
+    meshes = [unreal.load_asset(path) for path in unreal.EditorAssetLibrary.list_assets(
+        destination, recursive=True, include_folder=False)]
+    meshes = [mesh for mesh in meshes if isinstance(mesh, unreal.SkeletalMesh)]
+    if len(meshes) != 1:
+        raise RuntimeError("Persistence export requires exactly one native head mesh")
+    vertices, triangles = subsystem.get_mesh_data_for_conforming(meshes[0])
+    points = [xyz(point) for point in vertices]
+    if (not points or not triangles or len(triangles) % 3
+            or not all(math.isfinite(value) for point in points for value in point)):
+        raise RuntimeError("Persistence export produced empty or nonfinite head geometry")
+    payload = {"vertices": points, "indices": list(triangles),
+               "coordinate_frame": "native committed head skeletal mesh; centimetres"}
+    Path(output).write_text(json.dumps(payload, allow_nan=False), encoding="utf-8")
+    return {"path": str(output), "mesh": meshes[0].get_path_name(),
+            "vertex_count": len(points), "triangle_count": len(triangles)//3}
 
 
 def run(request, unreal, publish):
@@ -109,16 +147,63 @@ def run(request, unreal, publish):
         if not subsystem.conform_to_target_meshes(character, key, parameters):
             raise RuntimeError("Native head-only solver returned false")
         result["face_landmarks_before"] = before
+        result["face_landmarks_solved_in_target_pose"] = [
+            xyz(point) for point in subsystem.get_face_landmarks(character)]
+        stage("finalize_native_conform_as_a_pose")
+        subsystem.commit_posed_state_as_a_pose(character, key)
         result["face_landmarks_after"] = [xyz(point) for point in subsystem.get_face_landmarks(character)]
+        result["pose_finalization_delta"] = geometry_delta(
+            result["face_landmarks_solved_in_target_pose"], result["face_landmarks_after"])
         stage("commit_and_save_conformed_character")
         subsystem.commit_face_state(character)
+        result["face_landmarks_face_committed"] = [
+            xyz(point) for point in subsystem.get_face_landmarks(character)]
         subsystem.commit_body_state(character)
+        result["face_landmarks_body_committed"] = [
+            xyz(point) for point in subsystem.get_face_landmarks(character)]
+        result["commit_geometry"] = {
+            "face": geometry_delta(result["face_landmarks_after"], result["face_landmarks_face_committed"]),
+            "body": geometry_delta(result["face_landmarks_face_committed"],
+                                   result["face_landmarks_body_committed"]),
+        }
+        publish(result)
+        if any(value["maximum_distance_cm"] > .0001 for value in result["commit_geometry"].values()):
+            raise RuntimeError("Native commit changed the conformed geometry; inspect commit_geometry")
         if not unreal.EditorAssetLibrary.save_loaded_asset(character, only_if_is_dirty=False):
             raise RuntimeError("Conformed Character package could not be saved")
+        result["face_landmarks_saved"] = [
+            xyz(point) for point in subsystem.get_face_landmarks(character)]
+        result["save_geometry"] = geometry_delta(
+            result["face_landmarks_body_committed"], result["face_landmarks_saved"])
+        if result["save_geometry"]["maximum_distance_cm"] > .0001:
+            publish(result)
+            raise RuntimeError("Native save changed the committed geometry; inspect save_geometry")
+        result["geometry_reference"] = "post face/body commits and successful package save; native centimetres"
+        if request.get("geometry_output"):
+            stage("export_committed_geometry_reference")
+            result["saved_surface"] = export_saved_geometry(
+                character, subsystem, unreal, request["destination"] + "/SavedSurface",
+                request["geometry_output"])
+            result["face_landmarks_after_export"] = [
+                xyz(point) for point in subsystem.get_face_landmarks(character)]
+            result["export_landmark_delta"] = geometry_delta(
+                result["face_landmarks_saved"], result["face_landmarks_after_export"])
+            publish(result)
         result.update(status="head_conformed_awaiting_review", stage="review_conformed_shape",
                       assets=[character.get_path_name()])
     finally:
-        subsystem.remove_object_to_edit(character)
+        primary = sys.exception()
+        try:
+            subsystem.remove_object_to_edit(character)
+        except Exception as error:
+            result["cleanup_error"] = type(error).__name__
+            if primary is None:
+                raise
+            primary.add_note("Character editing cleanup also failed: " + type(error).__name__)
+            try:
+                publish(result)
+            except Exception:
+                print("Could not publish native cleanup diagnostics", file=sys.stderr)
     return result
 
 
