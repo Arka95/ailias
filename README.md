@@ -4,25 +4,29 @@ Photo-to-MetaHuman tooling: prepare reference images, fit a complete head, inspe
 native Unreal assets, and animate an existing rig with supplied narration.
 Python coordinates local OpenCV, PyTorch/SciPy, COLMAP, Blender and Unreal workers.
 
-**Current limitation:** the personal-head animation works technically, but facial
-resemblance and skin/hair transfer are below expectations. Automated native
-feature refinement and appearance transfer are not implemented end to end.
+**Current limitation:** native conforming, rigging and animation work technically,
+but facial resemblance and skin/hair transfer are below expectations. Native
+feature profiles are scriptable; automatic photo-to-native likeness fitting and
+photographic appearance transfer are not complete.
 
 ## Visual pipeline
 
-Actual retained images, reduced for documentation. These illustrate stage
-contracts across different jobs, not one fully automated successful run.
+Actual retained images in 160 x 160 thumbnails, with aspect ratio preserved.
+These illustrate stage contracts across different jobs, not one fully automated
+successful run. **LLM** means a language model; none is required by these stages.
 
 | Input representation | Module / operation | Output representation |
 |---|---|---|
-| ![Reference portrait](docs/images/pipeline/portrait.png) | **imageprocessing**: detect, group and extract head-only foreground | ![Head-only cutout](docs/images/pipeline/cutout.png) |
-| ![Prepared reference head](docs/images/pipeline/cutout.png) | **facefitting / fit**: jointly estimate identity, cameras and expression from multiple views | ![Neutral fitted geometry](docs/images/pipeline/clay.png) |
-| ![Neutral geometry](docs/images/pipeline/clay.png) | **facefitting / appearance**: project observed photo colour and approximate scalp hair | ![Blender appearance preview](docs/images/pipeline/appearance.png) |
-| ![Photo-derived preview](docs/images/pipeline/appearance.png) | **Native handoff**: import/conform geometry; photographic appearance is **not** carried through yet | ![Current native character, shown in an animation frame](docs/images/pipeline/native.png) |
-| ![Existing native character](docs/images/pipeline/native.png) plus narration WAV | **reanimation**: solve face/head motion, render and encode | ![First and last frames of the resulting reel](docs/images/pipeline/reel.png) |
+| ![Reference portrait](docs/images/pipeline/portrait.png) | **imageprocessing** - Detect/group faces, remove background and retain reversible photo coordinates. **LLM:** no. **GPU:** optional; explicit CPU/CUDA. **Needs:** local OpenCV and prepared detection/parsing/matting weights; no Blender or Unreal. | ![Head-only cutout](docs/images/pipeline/cutout.png) |
+| ![Prepared reference head](docs/images/pipeline/cutout.png) | **facefitting / fit** - Fit shared head identity with per-photo camera/expression. **LLM:** no. **GPU:** configured CUDA; explicit CPU solver available. **Needs:** GNM, MediaPipe and PyTorch/SciPy; Blender for the review scene, not numerical fitting. | ![Neutral fitted geometry](docs/images/pipeline/clay.png) |
+| ![Neutral geometry](docs/images/pipeline/clay.png) | **facefitting / appearance** - Project observed colour onto the fitted mesh and approximate scalp hair. **LLM:** no. **GPU:** configured CUDA projection/rendering. **Needs:** reviewed fit and Blender; no Unreal. Colour still contains photographed lighting. | ![Blender appearance preview](docs/images/pipeline/appearance.png) |
+| ![Photo-derived preview](docs/images/pipeline/appearance.png) | **Native handoff / features** - Import/conform geometry, apply explicit native edits and optionally assemble a rig. **LLM:** no. **GPU:** required for the validated full-rig editor path. **Needs:** UE 5.8, MetaHuman content/plugins and compatible assets; Blender prepares import files. Photo skin/hair transfer remains incomplete. | ![Current native character, shown in an animation frame](docs/images/pipeline/native.png) |
+| ![Existing native character](docs/images/pipeline/native.png) plus narration WAV | **reanimation** - Solve face/head motion from supplied audio, render and encode. **LLM:** no; no speech synthesis. **GPU:** UE rendering; configured NVENC encoding, explicit CPU encoder available. **Needs:** UE 5.8 Animator/MRQ plugins, assembled rig and FFmpeg; no Blender. | ![First and last frames of the resulting reel](docs/images/pipeline/reel.png) |
 
 Image provenance and resize/crop records: [pipeline media](docs/images/pipeline/provenance.json).
 The native thumbnail is an animated frame, not a neutral matched-camera render.
+These are stage-specific requirements, not simultaneous residency requirements;
+tool paths, devices and model preparation are covered by the module guides.
 
 ### Resources passed between stages
 
@@ -31,7 +35,8 @@ The native thumbnail is an animated frame, not a neutral matched-camera render.
 | `imageprocessing scan / cleanse` | Run manifest, portrait RGB, native-grid head RGB/alpha, source transforms, curation | `facefitting fit` and `generation reconstruct`; aligned analysis images do not replace native pixels |
 | `facefitting fit` | Neutral OBJ, identity parameters, observations, cameras, overlays, review scene | `appearance` uses the exact reviewed mesh and fitting evidence |
 | `facefitting appearance` | Hair-free OBJ/MTL, photo-colour PNG, coverage, geometry/UV NPZ, scene, approximate hair Alembic | `unreal-import` consumes mesh/material/texture; Alembic still needs validated native alignment/binding |
-| `facefitting unreal-import / unreal-conform` | Static-mesh or Character packages, native receipts, camera/landmark evidence | Native refinement/build boundary; no reusable automatic skin/groom/assembly handoff yet |
+| `facefitting unreal-import / unreal-conform` | Static-mesh or Character packages, native receipts, camera/landmark evidence | `unreal-features` accepts explicit edits and optional assembly; photo-guided geometry/skin/groom mapping remains incomplete |
+| `facefitting unreal-features / unreal-review` | Isolated Character revision, edit/reload receipts, optional runtime assets and neutral review frame | Validate native likeness before animation; failed assembly/inspection does not become an accepted rig |
 | Native rig/build | Assembled rigged Blueprint with Face mesh, head bone and facial post-process | `reanimation run` plus an independent mono PCM16 WAV |
 | `reanimation` | Performance, sequence/map, verified MP4, first/last PNGs, hashes | Playback/compositing; technical media checks do not certify likeness |
 | `generation` - alternative route | Sparse model, estimated cameras, fused samples, textured mesh and cleaned scene | `clean-mesh` / static Unreal import; current real-photo outputs are fragments, not a full head |
@@ -48,7 +53,7 @@ flowchart TB
         IMG -->|Native RGB, alpha and curated references| FIT["facefitting: MediaPipe + PyTorch / SciPy<br/>Shared head shape, cameras and photo appearance"]:::svc
         IMG -->|Masked hardlinked views| GEN["generation: COLMAP + Blender<br/>Alternative reconstruction and cleanup"]:::svc
         FIT -->|OBJ, texture and camera files| UE["Native handoff: Blender + UE 5.8<br/>Static import and Character conform"]:::ext
-        UE -.-> GAP["Missing automation<br/>Likeness refinement, skin/grooms and reusable build"]:::unknown
+        UE -.-> GAP["Missing photo-to-native mapping<br/>Validated likeness, skin and groom matching"]:::unknown
         GAP -.-> RIG["Assembled rigged MetaHuman Blueprint"]:::store
         RIG --> REEL["reanimation: UE Animator / MRQ + FFmpeg<br/>Audio solve, portrait rendering and encoding"]:::svc
         WAV["External narration WAV"]:::store --> REEL
@@ -69,6 +74,8 @@ flowchart TB
 **Backed by:** [module ownership and file-based communication](docs/dev.readme.md#architecture).
 Core capture/handoffs are a separate bookkeeping workflow, not an automatic
 consumer of every experimental job. Geometry validation requires supplied correspondences.
+For alternative face-first routes, repositories and small-model tradeoffs, see
+[photo-to-MetaHuman research](docs/imageprocessing/photo-to-metahuman-research.md).
 
 ## Quick setup
 

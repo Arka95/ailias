@@ -4,6 +4,9 @@
 
 Extract reviewable face groups, portraits and head-only foreground from photos.
 Original files remain unchanged; identity grouping and quality gates are heuristics.
+Reusable photo-feature extraction belongs here; native asset/control translation
+belongs downstream. The broader eye/skin/hair evidence contract is a
+[research proposal](photo-to-metahuman-research.md), not a completed extractor.
 
 ## Inputs and outputs
 

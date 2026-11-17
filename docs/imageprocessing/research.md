@@ -5,6 +5,15 @@
 Primary sources checked November 16, 2026. Images remain local; research queries
 did not include user photos or embeddings.
 
+## Photo-to-MetaHuman investigation
+
+[Face-first workflows, repositories and small models](photo-to-metahuman-research.md)
+(November 17, 2026) compares native fitting, neural reconstruction, official
+handoffs and commercial alternatives. It assigns reusable photo feature
+extraction to imageprocessing and native control/UV translation downstream.
+Small VLMs are optional descriptor helpers, not geometry or DNA generators;
+concurrent UE/model memory has not been measured.
+
 ## Model choices
 
 | Task | Choice | Why / tradeoff | Primary source |

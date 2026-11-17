@@ -7,11 +7,11 @@ read through WorkIQ on November 16, 2026. Project/folder name `ailias` was suppl
 by the owner. Mode: AUTO + RAPID_DEVELOPMENT.
 
 The source explicitly requires a mostly manual end-to-end run before automation.
-This implementation provides preparation/recording tools, plus local image
-processing, geometric comparison and experimental native generation. **The manual
-milestone itself has not been achieved**: real portraits were benchmarked, but no
-controlled capture set, Unreal conversion or final likeness review has been
-verified. A coherent photo-conditioned GNM head now exists, with
+This implementation provides preparation/recording tools, local image processing,
+geometric comparison and experimental native generation. **The complete capture
+and likeness milestone remains open.** Native import, conform, rigging, assembly
+and animation have run; the resulting personal face did not pass visual likeness
+review. A photo-conditioned GNM head exists, with
 [measured GPU speed/held-out evidence](facefitting/dev.readme.md#evidence).
 
 | Decision | Chosen option/configuration | Tradeoff / alternatives | Acceptance evidence |
@@ -30,7 +30,10 @@ verified. A coherent photo-conditioned GNM head now exists, with
 | Reconstruction | Experimental COLMAP 4.2.1 CUDA; strict default and explicit permissive PoC profile, separate from manual workflow | Native shared tool, no new model stack; early visual output may be fragmented rather than blocked | Strict 31-photo run blocked; permissive initialization/dense consistency produced 6,164 textured faces in 13 disconnected pieces, not a complete head; [evidence](generation/dev.readme.md#validation) |
 | Blender | Shared Blender 4.5.15 LTS, minimal cleanup, preserved UVs/cameras and CUDA renders | Avoid invented anatomy, smoothing and automatic component deletion; holes/lighting/likeness still need review | Actual textured mesh export and three non-flat renders on RTX 4070 SUPER |
 | Photo-conditioned head | Pinned GNM 3.0 prior; MediaPipe CPU observations; shared identity with per-photo camera/expression; CUDA autodiff Schur/LM | Coherent prior-driven anatomy, not a calibrated scan; no personalized albedo, rig or likeness approval | Fresh 63-view pipeline 372.859s CPU -> 42.187s CUDA; held-out error slightly better; [evidence](facefitting/dev.readme.md#evidence) |
-| Unreal | Installed UE 5.8.4; existing guarded Identity adapter; prefer head-only Custom Mesh as next experiment | Arbitrary GNM topology is not From Template topology. Required Core Data is missing; actual import, conform and shape drift remain unverified; cloud stays opt-in | Real owned-project commandlet loaded Python conforming APIs; doctor reports content separately; [investigation](generation/metahuman-workflow-investigation.md) |
+| Unreal | UE 5.8.4; head-only Custom Mesh conform plus scripted native feature edits and optional assembly/reload | Native topology/UV compatibility must be established for From Template. Conform uses the fitted geometry but does not transfer its skin/grooms; technical rig success is not likeness | Native packages and animation exist; current resemblance rejected, native/source shape drift still needs measurement; [face-first investigation](imageprocessing/photo-to-metahuman-research.md) |
+| Face-first route selection | Measure photo -> preserved fit -> native drift before more appearance/animation; bounded native refinement first, MICA comparator if source shape is limiting | MetahumanMaker is a relevant UE 5.8 bridge reference but targets Blender 5.2.x, not the installed 4.5.15; FLAME reconstruction still needs native conversion | Alternatives source-reviewed, not installed or locally benchmarked; [route comparison](imageprocessing/photo-to-metahuman-research.md#21-materially-different-routes) |
+| Reusable photo features | imageprocessing owns source-coordinate observations/regions/provenance; facefitting maps them to native controls and UVs | Reuse existing dense detector/parser; current parser has no beard/moustache/lash class. Generic iris prototype is not integrated upstream yet | Proposed contract and regional acceptance gates in [feature research](imageprocessing/photo-to-metahuman-research.md#23-what-imageprocessing-should-extract-separately) |
+| Optional small vision models | Existing CPU MediaPipe/parser first; compact VLM only for a reviewed descriptor gap; serial owned model/UE workers by default | SmolVLM publisher memory figures are not local peaks. VLM descriptions do not produce native DNA or measured geometry; preserve shared runtime | No model downloaded/benchmarked in this investigation; [size/resource evidence](imageprocessing/photo-to-metahuman-research.md#24-small-cnnvlm-models-and-the-12gb-gpu) |
 | Baseline | Three-view contact sheet plus human note | Supports initial visual comparison; no numeric likeness score | Real image output from synthetic fixtures |
 
 The source's future pipeline additionally calls for regional confidence based on
@@ -42,13 +45,15 @@ primitives are not a completed automated MetaHuman validation loop.
 ## Verified external references
 
 - [Epic: Mesh to MetaHuman](https://dev.epicgames.com/documentation/metahuman/mesh-to-metahuman?application_version=5.8)
-- [Epic: MetaHuman Creator Python scripting](https://dev.epicgames.com/documentation/metahuman/python-scripting-for-metahuman-creator)
+- [Epic: MetaHuman Creator Python scripting](https://dev.epicgames.com/documentation/metahuman/metahuman-creator-python-scripting-in-unreal-engine?lang=en-US)
 - [Epic: MetaHuman 5.8 release notes](https://dev.epicgames.com/documentation/metahuman/metahuman-5-8-release-notes-in-unreal-engine)
 
-Official pages and native prerequisites were checked on November 16, 2026.
+Official pages and native prerequisites were checked November 16-17, 2026.
 Blender/COLMAP and the new CUDA fitter ran locally; UE 5.8.4 metadata and the
 MetaHuman Character plugin are installed and Python API exposure was editor-tested
-in a NullRHI commandlet. No import/conform or rig validation is claimed. See
+in a commandlet. Subsequent import/conform, full-rig assembly and animation ran;
+the validated full-rig editing path uses D3D12/offscreen, not NullRHI. These checks
+do not establish likeness or a completed photographic appearance transfer. See
 [generation evidence and primary references](generation/dev.readme.md) and the
 imageprocessing research log. Documentation availability is not proof of local
 engine installation or compatibility.
