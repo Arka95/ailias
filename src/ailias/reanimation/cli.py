@@ -32,6 +32,8 @@ def add_parser(commands):
             action.add_argument("--character-yaw", type=float, help="Character yaw in degrees [-180,180]; camera follows its front")
             action.add_argument("--screen-position", nargs=2, type=float, metavar=("U", "V"),
                                 help="Head framing target in normalized screen coordinates; top-left 0,0, center .5,.5")
+            action.add_argument("--keep-frames", action="store_true",
+                                help="Retain every source frame for debugging; default keeps only first/last frames")
 
 
 def execute(args, data_root):
@@ -65,7 +67,8 @@ def execute(args, data_root):
             overrides[field] = value
     policy = replace(policy, **overrides)
     with store.lock():
+        options = {"keep_frames": True} if args.keep_frames else {}
         report = create_reel(store, args.audio, args.editor, args.project, policy,
-                             blueprint=args.blueprint, encoder=args.ffmpeg)
+                             blueprint=args.blueprint, encoder=args.ffmpeg, **options)
     return report, 0 if report["status"] in {
         "audio_solved_awaiting_rigged_metahuman", "video_rendered_awaiting_visual_review"} else 2

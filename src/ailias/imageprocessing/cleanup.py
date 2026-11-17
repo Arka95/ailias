@@ -3,50 +3,15 @@
 Protects curated and downstream-referenced results rather than deleting by age alone.
 """
 
-import json
 import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ailias.resources import cleanup_owned_files
+from ailias.resources import (
+    cleanup_owned_files, metadata_documents as _documents, referenced_paths as _references,
+)
 from ailias.storage import Store, atomic_json, digest
-
-
-def _documents(store: Store):
-    paths = [store.path, store.resolve(str(Path("imageprocessing") / "selection.json")),
-             store.resolve(str(Path("imageprocessing") / "curation.json"))]
-    for collection in ("runs", "selections", "comparisons", "cleansing"):
-        root = store.resolve(str(Path("imageprocessing") / collection))
-        if root.exists():
-            paths.extend(root.rglob("*.json"))
-    geometry = store.resolve("geometry")
-    if geometry.exists():
-        paths.extend(geometry.rglob("*.json"))
-    generation = store.resolve("generation")
-    for collection, filename in (("runs", "manifest.json"), ("inputs", "sources.json")):
-        paths.extend((generation / collection).glob(f"*\\{filename}"))
-    for path in paths:
-        if path.is_file():
-            # Unknown or malformed metadata is not safe to garbage-collect around.
-            yield path, json.loads(path.read_text(encoding="utf-8"))
-
-
-def _references(store: Store, value):
-    if isinstance(value, dict):
-        for nested in value.values():
-            yield from _references(store, nested)
-    elif isinstance(value, list):
-        for nested in value:
-            yield from _references(store, nested)
-    elif isinstance(value, str) and ("\\" in value or "/" in value):
-        try:
-            path = Path(value)
-            path = path.resolve() if path.is_absolute() else store.resolve(value)
-        except (ValueError, OSError):
-            return
-        if path.is_relative_to(store.root.resolve()):
-            yield path
 
 
 def cleanup_alias(store: Store, keep_run: str | None = None,

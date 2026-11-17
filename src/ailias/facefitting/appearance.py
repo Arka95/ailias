@@ -16,6 +16,7 @@ from ailias.facefitting.model import HeadModel
 from ailias.facefitting.pipeline import inspect_fit
 from ailias.facefitting.texture import choose_texture_views, uv_surface_map, validate_material_textures
 from ailias.imageprocessing.pipeline import component
+from ailias.resources import finalize_resources
 from ailias.settings import PROJECT_ROOT
 from ailias.storage import atomic_json
 
@@ -218,15 +219,26 @@ def run_appearance(store, job, policy, generation, tools):
     finally:
         for temporary in temporary_photos:
             if temporary.parent.resolve() == root.resolve() and temporary.name.startswith("photo-"):
-                temporary.unlink(missing_ok=True)
-        if (root / "semantics.json").is_file():
-            saved = json.loads((root / "semantics.json").read_text())
-            for photo in saved.get("photos", []):
-                photo.pop("data", None)
-            saved["temporary_photo_arrays_removed"] = True
-            atomic_json(root / "semantics.json", saved)
-            report["artifacts"]["semantics"] = store.reference_artifact(root / "semantics.json")
-        report["temporary_photo_arrays_removed"] = True
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError:
+                    pass
+        semantics_path = root / "semantics.json"
+        if semantics_path.is_file():
+            try:
+                saved = json.loads(semantics_path.read_text())
+                for photo in saved.get("photos", []):
+                    photo.pop("data", None)
+                saved["temporary_photo_arrays_removed"] = not any(p.exists() for p in temporary_photos)
+                atomic_json(semantics_path, saved)
+            except (OSError, ValueError, TypeError, AttributeError) as error:
+                report.setdefault("error", {"type": type(error).__name__,
+                                            "message": "Invalid semantics receipt"})
+                report["status"] = "failed"
+            if semantics_path.stat().st_size:
+                report["artifacts"]["semantics"] = store.reference_artifact(semantics_path)
         report["total_seconds"] = round(time.monotonic()-started, 3)
+        finalize_resources(store, report, path)
+        report["temporary_photo_arrays_removed"] = not any(p.exists() for p in temporary_photos)
         atomic_json(path, report)
     return report

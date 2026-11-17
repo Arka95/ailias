@@ -131,6 +131,14 @@ and a manifest under `data\arka\reanimation\runs\JOB_ID`. Native assets are
 created under a new `/Game/Ailias/Reanimation/RJOB_ID` namespace. Existing
 characters, scenes and source WAVs are not overwritten.
 
+After encoding/verification, the MP4 and first/last source PNGs are retained;
+interior PNGs and uncommitted partial outputs are removed. Failures also retain
+first/last available diagnostic frames and logs, without claiming a valid video.
+Append `--keep-frames` to `run` to preserve the entire source sequence for debugging.
+Older remnants can be previewed with `python -m ailias cleanup --alias arka`;
+add `--apply` only after reviewing the plan. Referenced frames and changed videos
+are protected. See [cleanup safeguards](../dev.readme.md#resource-cleanup).
+
 A video is published only after exact contiguous portrait frames, native success,
 H.264/AAC metadata, decoded frame count and audio/video duration checks.
 `video_rendered_awaiting_visual_review` means the file passed technical checks,
@@ -144,7 +152,7 @@ narration encoded as AAC. Native processing/rendering exited cleanly in
 24.789333 seconds. Both streams decode completely, and all manifest artifact
 hashes verify. These are technical coverage checks, not phoneme-sync certification.
 
-21 isolated units pass, covering media gates, placement, named/legacy aliases and the
+Isolated units cover media gates, cleanup/diagnostic-frame retention, placement, named/legacy aliases and the
 equivalent external-audio inputs with Yapit/MCP unavailable. Earlier technical fixtures crashed with
 `0xC0000005`; the startup-script-owned shutdown change now passes on real Taro
 renders. No exit-code gate is bypassed. See the [development evidence](dev.readme.md)

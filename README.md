@@ -105,6 +105,18 @@ results, original photos or models.
 Explicit `imageprocessing cleanup` migrates verified legacy source copies and
 reclaims unused generated assets. See the module guide before pruning old runs.
 
+For cross-pipeline remnants, preview first, then apply:
+
+```powershell
+python -m ailias cleanup --alias arka
+python -m ailias cleanup --alias arka --apply
+```
+
+Cleanup covers owned job scratch and redundant reel frames, preserving approved
+baselines, referenced results, original inputs and shared models/tools. Reel jobs
+keep the video and first/last frames by default; use `reanimation run --keep-frames`
+to retain the full sequence. [Cleanup rules and explicit old-job pruning](docs/dev.readme.md#resource-cleanup).
+
 After manually reviewing/removing portrait crops, freeze those decisions:
 
 ```powershell

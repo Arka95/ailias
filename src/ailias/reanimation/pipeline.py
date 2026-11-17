@@ -9,6 +9,7 @@ from pathlib import Path
 
 from ailias.generation.tools import NativeTools
 from ailias.reanimation.media import encode_command, inspect_audio, inspect_frames, verify_video
+from ailias.resources import finalize_resources
 from ailias.storage import atomic_json
 
 REQUIRED_PLUGINS = ("PythonScriptPlugin", "EditorScriptingUtilities", "MetaHuman",
@@ -45,7 +46,8 @@ def inspect_job(store, job):
     return report
 
 
-def create_reel(store, audio, editor, project, policy, *, blueprint=None, encoder=None, tools=None):
+def create_reel(store, audio, editor, project, policy, *, blueprint=None, encoder=None, tools=None,
+                keep_frames=False):
     if blueprint and not re.fullmatch(r"/Game/(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)?", blueprint):
         raise ValueError("MetaHuman Blueprint must be a /Game asset path")
     source_audio = inspect_audio(audio, policy.max_audio_seconds)
@@ -58,7 +60,8 @@ def create_reel(store, audio, editor, project, policy, *, blueprint=None, encode
     report = {"revision": revision, "status": "blocked" if readiness["blockers"] else "running",
               "readiness": readiness, "audio": source_audio, "policy": policy.to_dict(),
               "framing": policy.framing(), "placement": policy.placement(), "artifacts": {},
-              "blueprint": blueprint, "video_verified": False, "likeness_verified": False}
+              "blueprint": blueprint, "video_verified": False, "likeness_verified": False,
+              "keep_frames": keep_frames}
     report["artifacts"]["audio"] = store.reference_artifact(audio)
     manifest = root / "manifest.json"
     atomic_json(manifest, report)
@@ -66,18 +69,18 @@ def create_reel(store, audio, editor, project, policy, *, blueprint=None, encode
         return report
     request_path, receipt = root / "request.json", root / "native-receipt.json"
     frames = root / "frames"
-    frames.mkdir()
     frame_count = math.ceil(source_audio["duration_seconds"]*policy.fps)
     request = {"destination": f"/Game/Ailias/Reanimation/R{revision}",
                "audio": str(audio.resolve()), "receipt": str(receipt), "blueprint": blueprint,
                "policy": policy.to_dict(), "framing": policy.framing(), "placement": policy.placement(),
                "frames": str(frames), "frame_count": frame_count}
-    atomic_json(request_path, request)
-    report["artifacts"]["worker"] = store.copy_artifact(
-        Path(__file__).with_name("unreal_worker.py"), str(root.relative_to(store.root) / "worker"))
     native = tools or NativeTools(editor.parent, policy.timeout_seconds)
     native.paths["unreal"] = editor.resolve()
     try:
+        frames.mkdir()
+        atomic_json(request_path, request)
+        report["artifacts"]["worker"] = store.copy_artifact(
+            Path(__file__).with_name("unreal_worker.py"), str(root.relative_to(store.root) / "worker"))
         report["runtime"] = native.run("unreal", "reanimation", [
             str(project.resolve()), "-ExecutePythonScript=" + str(store.artifact_path(report["artifacts"]["worker"])),
             "-unattended", "-nop4", "-nosplash", "-AllowCommandletRendering",
@@ -128,8 +131,17 @@ def create_reel(store, audio, editor, project, policy, *, blueprint=None, encode
             except (OSError, ValueError):
                 pass
     finally:
+        retained_frames = []
+        images = sorted(path for path in frames.glob("frame.*.png")
+                        if path.is_file() and path.stat().st_size)
+        if keep_frames:
+            retained_frames = images
+        if images:
+            for name, image in (("first_frame", images[0]), ("last_frame", images[-1])):
+                report["artifacts"].setdefault(name, store.reference_artifact(image))
         for path in (request_path, receipt):
             if path.is_file() and path.stat().st_size:
                 report["artifacts"][path.name] = store.reference_artifact(path)
+        finalize_resources(store, report, manifest, retained_frames)
         atomic_json(manifest, report)
     return report

@@ -1,6 +1,8 @@
 """Test local Character solve/commit contracts with a fake editor and no native/model execution."""
 
 import json
+import itertools
+import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,6 +13,7 @@ from PIL import Image
 
 from ailias.facefitting.unreal_conform import conform_head
 from ailias.facefitting.unreal_conform_worker import run
+from ailias.facefitting.tracking_worker import TRACKING_FOV_DEGREES, frontal_frame
 from ailias.storage import Store, atomic_json
 
 
@@ -106,7 +109,7 @@ class CharacterConformTests(unittest.TestCase):
 
 
 class ConformPersistenceTests(unittest.TestCase):
-    def conform(self, outcome):
+    def conform(self, outcome, baseline_mode=None):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
@@ -117,6 +120,17 @@ class ConformPersistenceTests(unittest.TestCase):
         source.write_text("synthetic head")
         scene = imported_path.parent / "scene.blend"
         scene.write_bytes(b"synthetic scene")
+        selected_scene = imported_path.parent / "working.blend"
+        if baseline_mode:
+            selected_scene.write_bytes(b"synthetic selected baseline")
+            baseline_path = store.resolve("facefitting\\working-baseline.json")
+            atomic_json(baseline_path, {
+                "status": "owner_selected_working_baseline", "revision": "selected",
+                "appearance_revision": "another" if baseline_mode == "wrong-appearance" else "appearance",
+                "artifacts": {"scene": store.reference_artifact(selected_scene),
+                              "source_scene": store.reference_artifact(scene)}})
+            if baseline_mode == "tampered":
+                selected_scene.write_bytes(b"changed selected baseline")
         project = root / "Project" / "Review.uproject"
         project.parent.mkdir()
         project.write_text("{}")
@@ -129,6 +143,10 @@ class ConformPersistenceTests(unittest.TestCase):
 
         def launch(name, operation, args, directory, environment=None):
             if name == "blender":
+                expected = selected_scene if baseline_mode else scene
+                self.assertIn(expected.resolve(), args)
+                tracking_request = json.loads(Path(args[-1]).read_text())
+                self.assertEqual(tracking_request["camera_mode"], "frontal" if baseline_mode else "retained")
                 Image.new("RGBA", (1, 1)).save(directory / "tracking-view.png")
                 atomic_json(directory / "tracking-camera.json", {})
             else:
@@ -166,6 +184,18 @@ class ConformPersistenceTests(unittest.TestCase):
         self.assertTrue(store.verify(result["artifacts"]["tracking-camera.json"]))
         self.assertFalse(result["likeness_verified"])
 
+    def test_selected_baseline_scene_drives_a_new_frontal_tracking_view(self):
+        store, result = self.conform("saved", "valid")
+        self.assertEqual(result["status"], "head_conformed_awaiting_review")
+        self.assertEqual(result["working_baseline"]["revision"], "selected")
+        self.assertFalse(result["working_baseline"]["baseline_scene_modified"])
+        self.assertTrue(all(store.verify(reference) for reference in result["input_dependencies"]))
+
+    def test_changed_or_unrelated_baseline_is_rejected_before_native_work(self):
+        for mode in ("tampered", "wrong-appearance"):
+            with self.subTest(mode=mode), self.assertRaisesRegex(ValueError, "baseline"):
+                self.conform("saved", mode)
+
     def test_native_success_without_package_is_failure_and_cleans_temporary_pixels(self):
         _, result = self.conform("missing_package")
         self.assertEqual(result["status"], "failed")
@@ -174,6 +204,26 @@ class ConformPersistenceTests(unittest.TestCase):
         _, result = self.conform("malformed")
         self.assertEqual(result["status"], "failed")
         self.assertTrue(result["native_receipt_unreadable"])
+
+
+class FrontalTrackingTests(unittest.TestCase):
+    def test_frontal_camera_contains_the_entire_head_with_margin_and_tracks_translation(self):
+        for translation in ((0, 0, 0), (1, -2, 3)):
+            bounds = [[value+shift for value, shift in zip(point, translation)]
+                      for point in itertools.product((-1, 1), (-2, 2), (-.5, .5))]
+            target, position = frontal_frame(bounds)
+            self.assertEqual(target, list(translation))
+            tangent = math.tan(math.radians(TRACKING_FOV_DEGREES)/2)
+            for x, y, z in bounds:
+                depth = position[2]-z
+                self.assertGreater(depth, 0)
+                self.assertLessEqual(abs((x-position[0])/depth/tangent), 1/1.2 + 1e-10)
+                self.assertLessEqual(abs((y-position[1])/depth/tangent), 1/1.2 + 1e-10)
+
+    def test_invalid_head_bounds_cannot_produce_a_tracking_camera(self):
+        for bounds in ([(0, 0, 0)]*8, [(0, 0, 0), (float("nan"), 1, 1)]):
+            with self.subTest(bounds=bounds), self.assertRaises(ValueError):
+                frontal_frame(bounds)
 
 
 if __name__ == "__main__":

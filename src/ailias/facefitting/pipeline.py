@@ -19,6 +19,7 @@ from ailias.generation.inputs import prepare_inputs
 from ailias.imageprocessing.curation import load_filter
 from ailias.imageprocessing.pipeline import component, load_run
 from ailias.imageprocessing.settings import ProcessingPolicy
+from ailias.resources import finalize_resources
 from ailias.storage import atomic_json
 
 
@@ -274,6 +275,7 @@ def run_fit(store, run, group, policy, generation_policy, tools):
         report.update(status="failed", error={"type": type(error).__name__, "message": str(error)})
     finally:
         report["total_seconds"] = round(time.monotonic()-started, 3)
+        finalize_resources(store, report, manifest)
         atomic_json(manifest, report)
     return report
 

@@ -33,6 +33,9 @@ def add_parser(commands):
             action.add_argument("--editor", type=Path, required=True)
             action.add_argument("--project", type=Path, required=True)
             action.add_argument("--generation-config", type=Path, default=DEFAULT_GENERATION_CONFIG)
+        if name == "unreal-conform":
+            action.add_argument("--baseline", type=Path,
+                                help="Selected Blender baseline JSON; defaults to this alias's working-baseline.json when present")
         if name == "appearance":
             action.add_argument("--appearance-config", type=Path,
                                 default=DEFAULT_CONFIG.with_name("appearance.json"))
@@ -61,7 +64,7 @@ def execute(args, data_root):
         if args.facefitting_action == "unreal-conform":
             from ailias.facefitting.unreal_conform import conform_head
             result = conform_head(store, args.job, args.editor, args.project, generation,
-                                  NativeTools(tools_root, generation.timeout_seconds))
+                                  NativeTools(tools_root, generation.timeout_seconds), baseline=args.baseline)
             return result, 0 if result["status"] == "head_conformed_awaiting_review" else 2
         if args.facefitting_action == "unreal-import":
             from ailias.facefitting.unreal_handoff import import_appearance

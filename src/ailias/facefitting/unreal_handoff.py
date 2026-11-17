@@ -8,6 +8,7 @@ import numpy as np
 
 from ailias.facefitting.appearance import inspect_appearance
 from ailias.generation.unreal import asset_path, readiness
+from ailias.resources import finalize_resources
 from ailias.storage import atomic_json
 
 
@@ -38,16 +39,17 @@ def import_appearance(store, revision, editor, project, tools):
     if probe["blockers"]:
         return report
     from ailias.generation import unreal_worker
-    worker = store.copy_artifact(Path(unreal_worker.__file__), str(root.relative_to(store.root) / "worker"))
+    worker = None
     receipt = root / "import-receipt.json"
     request = root / "request.json"
     destination = asset_path(f"/Game/Ailias/PhotoHeads/{store.root.name.replace('-', '_')}/"
                               f"R{revision.replace('-', '_')}_{root.name[:8]}")
-    atomic_json(request, {"operation": "import", "receipt": str(receipt),
-                          "mesh": str(store.artifact_path(source["artifacts"]["head_only_mesh"])),
-                          "destination": destination, "report_geometry": True})
-    tools.paths["unreal"] = Path(probe["editor"])
     try:
+        worker = store.copy_artifact(Path(unreal_worker.__file__), str(root.relative_to(store.root) / "worker"))
+        atomic_json(request, {"operation": "import", "receipt": str(receipt),
+                              "mesh": str(store.artifact_path(source["artifacts"]["head_only_mesh"])),
+                              "destination": destination, "report_geometry": True})
+        tools.paths["unreal"] = Path(probe["editor"])
         report["runtime"] = tools.run("unreal", "photo-head-import", [
             probe["project"], "-run=pythonscript", f"-script={store.artifact_path(worker)}",
             "-unattended", "-nop4", "-nosplash", "-NullRHI", "-stdout", "-FullStdOutLogOutput",
@@ -78,9 +80,12 @@ def import_appearance(store, revision, editor, project, tools):
         report.update(status="failed", error={"type": type(error).__name__, "message": str(error)},
                       project_may_contain_partial_outputs=True)
     finally:
-        report["artifacts"]["worker"] = worker
-        report["artifacts"]["request"] = store.reference_artifact(request)
-        if receipt.is_file():
+        if worker:
+            report["artifacts"]["worker"] = worker
+        if request.is_file() and request.stat().st_size:
+            report["artifacts"]["request"] = store.reference_artifact(request)
+        if receipt.is_file() and receipt.stat().st_size:
             report["artifacts"]["receipt"] = store.reference_artifact(receipt)
+        finalize_resources(store, report, manifest)
         atomic_json(manifest, report)
     return report

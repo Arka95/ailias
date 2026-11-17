@@ -186,7 +186,7 @@ class ReelTests(unittest.TestCase):
         self.assertNotIn("-shortest", command)
         self.assertEqual(command[command.index("-frames:v")+1], "3")
 
-    def job(self, outcome, blueprint=None):
+    def job(self, outcome, blueprint=None, keep_frames=False):
         project = self.root / "Review.uproject"
         atomic_json(project, {"Plugins": [{"Name": name, "Enabled": True} for name in REQUIRED_PLUGINS]})
         editor = self.root / "UnrealEditor-Cmd.exe"
@@ -195,6 +195,12 @@ class ReelTests(unittest.TestCase):
 
         def launch(name, operation, args, directory, environment):
             request = json.loads(Path(environment["AILIAS_REANIMATION_REQUEST"]).read_text())
+            if outcome == "partial_frames":
+                for number in range(3):
+                    Image.new("RGB", (90, 160)).save(
+                        Path(request["frames"]) / f"frame.{number:06d}.png")
+                (directory / "portrait-reel.mp4").write_bytes(b"partial encoding")
+                raise ValueError("native render interrupted")
             performance = request["destination"] + "/Performance.Performance"
             if outcome != "missing":
                 package = project.parent / "Content" / Path(*request["destination"].split("/")[2:])
@@ -210,8 +216,32 @@ class ReelTests(unittest.TestCase):
             return {"seconds": 0}
 
         result = create_reel(store, self.audio(), editor, project, ReelPolicy(),
-                             blueprint=blueprint, tools=SimpleNamespace(paths={}, run=launch))
+                             blueprint=blueprint, tools=SimpleNamespace(paths={}, run=launch),
+                             keep_frames=keep_frames)
         return store, result
+
+    def test_failed_render_removes_partial_video_and_interior_frames_but_keeps_diagnostics(self):
+        store, result = self.job("partial_frames")
+        root = store.artifact_path(result["artifacts"]["first_frame"]).parent
+        self.assertEqual(result["status"], "failed")
+        self.assertFalse((root.parent / "portrait-reel.mp4").exists())
+        self.assertEqual([path.name for path in sorted(root.glob("*.png"))],
+                         ["frame.000000.png", "frame.000002.png"])
+        self.assertEqual(result["cleanup"]["errors"], 0)
+        self.assertEqual(inspect_job(store, result["revision"])["integrity_problems"], [])
+
+    def test_keep_frames_preserves_failed_render_source_frames_when_requested(self):
+        store, result = self.job("partial_frames", keep_frames=True)
+        root = store.artifact_path(result["artifacts"]["first_frame"]).parent
+        self.assertEqual(len(list(root.glob("*.png"))), 3)
+        self.assertTrue(result["keep_frames"])
+
+    def test_cleanup_failure_does_not_replace_the_original_native_failure(self):
+        with patch("ailias.resources.cleanup_owned_files", side_effect=PermissionError):
+            _, result = self.job("crash")
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("exit_3221225477", result["error"]["message"])
+        self.assertEqual(result["cleanup"]["errors"], 1)
 
     def test_audio_solve_without_rig_never_claims_video(self):
         store, result = self.job("saved")

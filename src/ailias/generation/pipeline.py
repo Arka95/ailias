@@ -17,7 +17,7 @@ from ailias.generation.matching import matching_summary
 from ailias.generation.mesh import ply_header, textured_ply_to_obj
 from ailias.generation.settings import GenerationPolicy
 from ailias.imageprocessing.pipeline import component, new_id
-from ailias.resources import cleanup_owned_files
+from ailias.resources import finalize_resources
 from ailias.storage import Store, atomic_json
 
 
@@ -50,14 +50,7 @@ def inspect_job(store: Store, job: str):
 
 
 def finalize_job(store: Store, report: dict, path: Path):
-    retained = [str(path.relative_to(store.root))]
-    retained.extend(artifact["path"] for artifact in report["artifacts"].values()
-                    if artifact.get("storage") != "external")
-    retained.extend(str(p.relative_to(store.root)) for p in (path.parent / "logs").glob("*.log"))
-    if report["status"] == "running":
-        report["status"] = "interrupted"
-    report["cleanup"] = cleanup_owned_files(
-        store, str(path.parent.relative_to(store.root)), retained)
+    finalize_resources(store, report, path, retain_metadata=False)
     atomic_json(path, report)
 
 
@@ -134,13 +127,10 @@ def reconstruct(store: Store, run: str, group: str, tools, policy: GenerationPol
     atomic_json(path, report)
     start = time.monotonic()
     work = root / "work"
-    work.mkdir()
     output = root / "reconstruction"
-    output.mkdir()
     view = store.resolve(inputs["manifest"]).parent
     images, masks = view / "images", view / "masks"
     database, sparse = work / "database.db", work / "sparse"
-    sparse.mkdir()
 
     def colmap(operation, command, options):
         report["current_step"] = operation
@@ -151,6 +141,9 @@ def reconstruct(store: Store, run: str, group: str, tools, policy: GenerationPol
         report["steps"].append(tools.run("colmap", operation, args, root))
 
     try:
+        work.mkdir()
+        output.mkdir()
+        sparse.mkdir()
         colmap("feature-extraction", "feature_extractor", {
             "database_path": database, "image_path": images,
             "ImageReader.mask_path": masks, "ImageReader.camera_model": "SIMPLE_PINHOLE",

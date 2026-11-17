@@ -25,6 +25,9 @@ Use it as the starting reference for incremental accuracy and feature work.
 Keep this baseline intact; improved samples and corrections must produce new
 revisions with comparisons against it. Selecting a baseline does not itself
 implement an automatic warm-start option in the fitting CLI.
+Do not refit/regenerate geometry or save additional `.blend` copies without an
+explicit owner request. Current personal-head work reuses this existing scene
+and refines the native Character in Unreal.
 
 Current limitations include texture seams, generic eyes and expression
 mismatch. Working-baseline selection is not final calibrated-likeness approval
@@ -196,13 +199,33 @@ validated ready-to-bind Unreal groom. OBJ eye optics/skin shading are only a pre
 
 ## Native Character draft and hair later
 
-`unreal-conform` requires the existing verified import and its project. It renders
-a genuine perspective tracking view, preserves the measured camera, tracks native
+`unreal-conform` requires the existing verified import and its project. It defaults
+to `facefitting\working-baseline.json` when present; `--baseline MANIFEST` selects
+an explicit owner-approved baseline. It verifies all pinned files and that the
+baseline derives from the imported appearance revision. For that baseline it uses
+a temporary frontal tracking camera in memory, without changing its shifted
+perspective review camera, geometry or saved `.blend`. Legacy appearance-only
+jobs retain their existing camera path. It tracks native
 face contours and creates a new head-only Character. Native solver coordinates
 are `(GNM X,Z,Y)*100`, matching the Character's +Y-facing template; this rotates
 the target and camera together without changing the saved +X-facing static preview.
 It commits face/body state, hashes the saved package and removes temporary RGBA
 pixels. It makes no cloud, texture-synthesis or rig request.
+
+Baseline-backed job `79893d83e1cb4c58a6574db06c6a828e` saved/reloaded the native
+draft after 93.391 seconds of native solving. All 12 baseline hashes verify;
+its 17,821 source vertices match the approved OBJ within `5e-10` model units.
+The photo-derived skin and facial hair have **not** been transferred. Raw landmark
+movement is mostly global repositioning, not likeness evidence: translation-removed
+RMS is 0.56579 native units, similarity-aligned RMS 0.41629. The draft's appearance
+and final shape remain unfinished/unapproved. No complete personal MetaHuman exists.
+The interactive editor resaved the package on close before resource cleanup, so
+the original solve manifest's package hash no longer matches; it is not silently
+rebased. A separate read-only audit found 0.01671 native-unit RMS landmark
+difference from the original solve, versus 0.56571 from the factory template
+after removing translation. This is a 79-landmark check, not full-mesh or likeness
+validation. The current package is preserved, with separate audit evidence under
+`facefitting\reviews\79893d83e1cb4c58a6574db06c6a828e-current-native-audit.json`.
 
 Job `73508d43f43540eaafa792c527abc083` saved a real Character in 81.375 seconds
 of native execution, tracked 16 curves and survived a separate editor reload.

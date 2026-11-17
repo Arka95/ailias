@@ -88,7 +88,8 @@ conform, production appearance transfer and rigging remain unverified.
 |---|---|
 | `settings.py` | Validated policy and one configuration source |
 | `storage.py` | Session boundary, writer lock, atomic manifests, source references, managed handoff artifacts, history |
-| `resources.py` | Conservative cleanup of unreferenced files inside one owned job folder |
+| `resources.py` | Owned-job finalization, junction-safe traversal and cross-pipeline dependencies |
+| `maintenance.py` | Dry-run-first remnant cleanup and guarded explicit old-job pruning |
 | `intake.py` | Lightweight image checks, manual review, angular coverage |
 | `workflow.py` | Ordered manual artifact contracts, baseline generation, integrity status |
 | `cli.py` | CLI argument schema, JSON output and exit codes |
@@ -125,3 +126,51 @@ from discovery/package installation. Unreal API execution still requires actual
 installed-version validation for Character conform and rigging. Fitted-head
 static import is verified separately. Clay geometry is owner-approved;
 photographic appearance/final likeness are not, and no MetaHuman is complete.
+
+## Resource cleanup
+
+Every producing pipeline has an owned-file finalizer: image scanning/cleansing,
+selection, geometry comparisons, reconstruction/input preparation, head fitting,
+appearance, static-head import, native conform and reanimation. Atomic writes and
+model downloads remove their own temporary files. Finalizers run on success and
+failure; completed artifacts, requests/receipts and diagnostic logs are retained
+where part of that pipeline's contract. Reconstruction retains its existing
+stricter policy of dropping uncommitted requests and partial Blender outputs.
+Intake/manual attachments retain content-addressed user inputs; they are not scratch.
+
+Native jobs now record a `resource_ownership` inventory. Uncommitted partial outputs
+and scratch are discarded. Reanimation retains the first/last available frames
+even on failure, removes partial videos and interior frames, and keeps published
+verified MP4s. `--keep-frames` explicitly retains every source PNG instead.
+Explicitly cancelled revisions also release interior frames when their existing
+video still matches its recorded hash; the video and boundary frames stay intact.
+Neither cleanup path automatically deletes Unreal packages, shared model/tool
+caches, original photos or selected/user-edited Blender assets.
+
+```powershell
+python -m ailias cleanup --alias arka
+python -m ailias cleanup --alias arka --apply
+python -m ailias cleanup --alias arka --prune-job 'facefitting\appearance\OBSOLETE_REVISION'
+python -m ailias cleanup --alias arka --prune-job 'facefitting\appearance\OBSOLETE_REVISION' --apply
+```
+
+`OBSOLETE_REVISION` must be an actual generated job ID; the default is a JSON-only
+dry run, not deletion. `--prune-job` is repeatable and required to remove whole
+historical jobs; there is no age-only purge. Pruning refuses retained references,
+active/interrupted jobs, changed/missing registered outputs and unregistered owner
+files. Approved-baseline/review metadata and downstream manifests are read across
+all pipelines, including when legacy `imageprocessing cleanup` reclaims PNG assets.
+Legacy absolute audit references are recognized without requiring metadata rewrites.
+
+Application holds the alias writer lock and rechecks metadata, candidate hashes
+and symlink/junction boundaries before unlinking exact files. Corrupt metadata
+fails closed; partial deletion errors are counted rather than reported as success.
+Receipts live under `data\ALIAS\maintenance\cleanups`; cleanup receipts do not
+become live artifact references. Default remnant cleanup never rewrites retained
+job manifests, and rerunning it is idempotent.
+
+Focused units in `ailias.tests.test_resources` and the affected module suites use
+temporary fixtures/fake native workers. They cover failure cleanup, cross-pipeline
+protection, dry-run/application, edited outputs, stale plans, linked paths and
+video-frame retention. No native render, model inference or cloud request is
+needed to validate resource ownership.

@@ -27,6 +27,11 @@ def parser() -> argparse.ArgumentParser:
     add_generation(commands)
     add_facefitting(commands)
     add_reanimation(commands)
+    cleanup = commands.add_parser("cleanup", help="Preview or apply dependency-safe generated-resource cleanup")
+    cleanup.add_argument("--alias", required=True, help="ailias character/session name")
+    cleanup.add_argument("--apply", action="store_true", help="Delete planned files; default is dry-run only")
+    cleanup.add_argument("--prune-job", action="append", default=[], metavar="RELATIVE_JOB",
+                         help="Explicit obsolete generated job to remove, only if unchanged and unreferenced; repeatable")
     for name, help_text in (
         ("init", "Create a session without replacing existing data"),
         ("intake", "Reference and quality-check photos from a folder or selection.json"),
@@ -66,6 +71,11 @@ def parser() -> argparse.ArgumentParser:
 
 def execute(args) -> tuple[dict, int]:
     policy, configured_root = load_settings(args.config)
+    if args.command == "cleanup":
+        from ailias.maintenance import cleanup_resources
+        report = cleanup_resources(Store(args.data_root or configured_root, args.alias),
+                                   apply=args.apply, prune_jobs=args.prune_job)
+        return report, 2 if report["errors"] else 0
     if args.command in {"imageprocessing", "geometry", "generation", "facefitting", "reanimation"}:
         if args.command == "imageprocessing":
             from ailias.imageprocessing.cli import execute as run_processing
