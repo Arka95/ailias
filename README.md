@@ -171,6 +171,11 @@ native rendering and audio/video checks:** 743 frames, 1080x1920 at 30 fps,
 dimmer lighting and sharp focus. This is a sample character, not the owner's
 personal MetaHuman; subjective lip-sync review remains separate.
 
+Named controls include `--alias arka`, `--voice testuser --script SCRIPT.json`
+through the existing, unmodified Yapit MCP, and `--resolution 540x960` for drafts.
+Use `--audio WAV` instead to skip synthesis; production defaults stay 1080x1920.
+See the module guide for native character selection and independent placement.
+
 | Document | Dev guide | Purpose |
 |---|---|---|
 | [Workflow](docs/workflow.md) | [Development](docs/dev.readme.md) | CLI contracts, capture and manual handoffs |

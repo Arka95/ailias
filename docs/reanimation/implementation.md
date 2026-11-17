@@ -68,7 +68,12 @@ Control Rig is Unreal's editable rig animation system. Native settings are in
 The [module architecture](dev.readme.md#workflow-and-communication) describes each
 implemented component and its channels. Narration generation is upstream via
 local Yapit MCP, not an embedded UE provider or a replacement for the user's
-voice. The module consumes a verified WAV file synchronously.
+voice. Explicit `--voice`/`--script` now orchestrates that existing MCP tool
+through `src\ailias\reanimation\narration.py`; `--audio` consumes a verified WAV
+directly without synthesis. `--alias` names the output session and
+`--resolution` overrides only that run. Yapit remains an unmodified dependency;
+local launch settings select its runtime/provider. Voice provenance must match
+the requested profile before native work begins.
 
 The host launches its own editor through the process API and exchanges local
 JSON requests/receipts. UE imports a SoundWave, solves a Performance, exports a

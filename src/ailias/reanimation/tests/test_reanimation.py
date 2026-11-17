@@ -31,12 +31,44 @@ class ReelTests(unittest.TestCase):
             stream.writeframes(array.array("h", [0 if silent else 1000]*2400).tobytes())
         return path
 
-    def cli_args(self, extra=()):
+    def cli_args(self, extra=(), alias="subject"):
         from ailias.cli import parser
         return parser().parse_args([
-            "reanimation", "run", "subject", "--audio", str(self.root / "voice.wav"),
+            "reanimation", "run", *([alias] if alias else []), "--audio", str(self.root / "voice.wav"),
             "--editor", str(self.root / "UnrealEditor-Cmd.exe"),
             "--project", str(self.root / "Review.uproject"), *extra])
+
+    def test_named_and_legacy_aliases_select_the_same_store(self):
+        from ailias.reanimation.cli import execute
+
+        with patch("ailias.reanimation.pipeline.create_reel",
+                   return_value={"status": "audio_solved_awaiting_rigged_metahuman"}) as native:
+            for alias, extra in (("subject", []), (None, ["--alias", "subject"]),
+                                  ("subject", ["--alias", "subject"])):
+                execute(self.cli_args(extra, alias), self.root / "data")
+                self.assertEqual(native.call_args.args[0].root, self.root.resolve() / "data" / "subject")
+
+    def test_missing_or_conflicting_alias_never_starts_native_work(self):
+        from ailias.reanimation.cli import execute
+
+        with patch("ailias.reanimation.pipeline.create_reel") as native:
+            for alias, extra in ((None, []), ("subject", ["--alias", "different"])):
+                with self.subTest(alias=alias), self.assertRaises(ValueError):
+                    execute(self.cli_args(extra, alias), self.root / "data")
+            native.assert_not_called()
+        self.assertFalse((self.root / "data").exists())
+
+    def test_named_alias_works_with_status_job_positional(self):
+        from ailias.cli import parser
+        from ailias.reanimation.cli import execute
+
+        with patch("ailias.reanimation.pipeline.inspect_job",
+                   return_value={"integrity_problems": []}) as inspect:
+            for arguments in (["subject", "a"*32], ["--alias", "subject", "a"*32]):
+                args = parser().parse_args(["reanimation", "status", *arguments])
+                self.assertEqual(execute(args, self.root / "data")[1], 0)
+                self.assertEqual(inspect.call_args.args[0].root, self.root.resolve() / "data" / "subject")
+                self.assertEqual(inspect.call_args.args[1], "a"*32)
 
     def test_cli_resolution_override_preserves_lighting_and_camera_without_changing_preset(self):
         from ailias.reanimation.cli import execute
@@ -139,7 +171,7 @@ class ReelTests(unittest.TestCase):
         self.assertNotIn("-shortest", command)
         self.assertEqual(command[command.index("-frames:v")+1], "3")
 
-    def job(self, outcome, blueprint=None):
+    def job(self, outcome, blueprint=None, narration=None):
         project = self.root / "Review.uproject"
         atomic_json(project, {"Plugins": [{"Name": name, "Enabled": True} for name in REQUIRED_PLUGINS]})
         editor = self.root / "UnrealEditor-Cmd.exe"
@@ -163,7 +195,8 @@ class ReelTests(unittest.TestCase):
             return {"seconds": 0}
 
         result = create_reel(store, self.audio(), editor, project, ReelPolicy(),
-                             blueprint=blueprint, tools=SimpleNamespace(paths={}, run=launch))
+                             blueprint=blueprint, tools=SimpleNamespace(paths={}, run=launch),
+                             narration=narration)
         return store, result
 
     def test_audio_solve_without_rig_never_claims_video(self):
@@ -172,6 +205,17 @@ class ReelTests(unittest.TestCase):
         self.assertFalse(result["video_verified"])
         self.assertTrue(store.verify(result["artifacts"]["performance"]))
         self.assertEqual(inspect_job(store, result["revision"])["integrity_problems"], [])
+
+    def test_reel_keeps_generated_voice_evidence_in_integrity_checks(self):
+        evidence = self.root / "narration.json"
+        atomic_json(evidence, {"voice": "selected"})
+        reference = Store(self.root / "data", "subject").reference_artifact(evidence)
+        store, result = self.job("saved", narration={
+            "voice": "selected", "style": "default", "artifacts": {"narration_manifest": reference}})
+        self.assertEqual(result["narration"]["voice"], "selected")
+        self.assertEqual(inspect_job(store, result["revision"])["integrity_problems"], [])
+        atomic_json(evidence, {"voice": "changed"})
+        self.assertIn("narration_manifest", inspect_job(store, result["revision"])["integrity_problems"])
 
     def test_success_receipt_without_native_performance_package_is_failure(self):
         _, result = self.job("missing")
