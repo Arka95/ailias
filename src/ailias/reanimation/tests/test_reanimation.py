@@ -31,6 +31,73 @@ class ReelTests(unittest.TestCase):
             stream.writeframes(array.array("h", [0 if silent else 1000]*2400).tobytes())
         return path
 
+    def cli_args(self, extra=()):
+        from ailias.cli import parser
+        return parser().parse_args([
+            "reanimation", "run", "subject", "--audio", str(self.root / "voice.wav"),
+            "--editor", str(self.root / "UnrealEditor-Cmd.exe"),
+            "--project", str(self.root / "Review.uproject"), *extra])
+
+    def test_cli_resolution_override_preserves_lighting_and_camera_without_changing_preset(self):
+        from ailias.reanimation.cli import execute
+
+        config = self.root / "custom.json"
+        atomic_json(config, {"width": 720, "height": 1280, "key_lumens": 750})
+        framing = ReelPolicy().framing()
+        for extra, dimensions, lumens in (
+                ([], (1080, 1920), 900),
+                (["--resolution", "540x960"], (540, 960), 900),
+                (["--reel-config", str(config)], (720, 1280), 750),
+                (["--reel-config", str(config), "--resolution", "540X960"], (540, 960), 750)):
+            with self.subTest(extra=extra), patch(
+                    "ailias.reanimation.pipeline.create_reel",
+                    return_value={"status": "audio_solved_awaiting_rigged_metahuman"}) as native:
+                _, code = execute(self.cli_args(extra), self.root / "data")
+                policy = native.call_args.args[4]
+                self.assertEqual(code, 0)
+                self.assertEqual((policy.width, policy.height), dimensions)
+                self.assertEqual(policy.key_lumens, lumens)
+                self.assertEqual(policy.framing(), framing)
+        self.assertEqual(json.loads(config.read_text())["width"], 720)
+
+    def test_invalid_cli_resolution_never_launches_native_or_creates_a_job(self):
+        from ailias.reanimation.cli import execute
+
+        with patch("ailias.reanimation.pipeline.create_reel") as native:
+            for value in ("bad", "1920x1080", "541x960", "1080x0", "1080x1920x30"):
+                with self.subTest(value=value), self.assertRaises(ValueError):
+                    execute(self.cli_args(["--resolution", value]), self.root / "data")
+            native.assert_not_called()
+        self.assertFalse((self.root / "data").exists())
+
+    def test_cli_selected_model_audio_and_placement_reach_the_reel_job(self):
+        from ailias.reanimation.cli import execute
+
+        model = "/Game/Characters/AnotherPerson/BP_Person"
+        audio = self.root / "another-voice.wav"
+        args = self.cli_args([
+            "--blueprint", model, "--audio", str(audio),
+            "--character-position", "40", "60", "0", "--character-yaw", "30",
+            "--screen-position", ".45", ".52"])
+        with patch("ailias.reanimation.pipeline.create_reel",
+                   return_value={"status": "video_rendered_awaiting_visual_review"}) as native:
+            execute(args, self.root / "data")
+        self.assertEqual(native.call_args.args[1], audio)
+        self.assertEqual(native.call_args.kwargs["blueprint"], model)
+        policy = native.call_args.args[4]
+        self.assertEqual(policy.character_location_cm, [40, 60, 0])
+        self.assertEqual(policy.character_yaw_degrees, 30)
+        self.assertEqual(policy.subject_screen_position, [.45, .52])
+
+    def test_camera_shift_maps_normalized_screen_placement_in_rotated_rig_axes(self):
+        policy = ReelPolicy(character_yaw_degrees=90, subject_screen_position=(.25, .75))
+        placement = policy.placement()
+        for actual, expected in zip(placement["front"], (-1, 0, 0)):
+            self.assertAlmostEqual(actual, expected)
+        for actual, expected in zip(placement["camera_target_shift_cm"], (0, 7.3125, 13)):
+            self.assertAlmostEqual(actual, expected)
+        self.assertEqual(ReelPolicy().placement()["camera_target_shift_cm"], (0, 0, 0))
+
     def test_portrait_lens_geometry_preserves_face_field_of_view(self):
         policy = ReelPolicy()
         framing = policy.framing()
@@ -42,7 +109,9 @@ class ReelTests(unittest.TestCase):
         for values in ({"width": 1920}, {"fps": True}, {"mood_intensity": float("nan")},
                        {"background_srgb": [1, 2, 3]}, {"encoder": "auto"},
                        {"exposure_compensation_ev": -13}, {"exposure_compensation_ev": True},
-                       {"light_size_cm": 0}, {"light_size_cm": float("inf")}):
+                       {"light_size_cm": 0}, {"light_size_cm": float("inf")},
+                       {"character_location_cm": [0, 0]}, {"character_location_cm": [0, True, 0]},
+                       {"subject_screen_position": [1.1, .5]}, {"character_yaw_degrees": 181}):
             with self.subTest(values=values), self.assertRaises(ValueError):
                 ReelPolicy(**values)
 
@@ -196,6 +265,8 @@ class ReelTests(unittest.TestCase):
         normalize_subject_root(sequence, actor_class, unreal)
         self.assertEqual([channel.value for channel in channels], [0, 0, 0, 0, 0, 0, 1, 1, 1])
         self.assertEqual(head_keys, [1, 2, 3])
+        normalize_subject_root(sequence, actor_class, unreal, (40, 60, 0), 30)
+        self.assertEqual([channel.value for channel in channels], [40, 60, 0, 0, 0, 30, 1, 1, 1])
         channels[0].value, channels[-1].keys = 50, 1
         with self.assertRaisesRegex(ValueError, "animated MetaHuman root"):
             normalize_subject_root(sequence, actor_class, unreal)

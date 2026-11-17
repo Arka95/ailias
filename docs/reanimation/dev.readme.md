@@ -69,7 +69,7 @@ export of a native audio track alone is not treated as an MP4 audio guarantee.
 & C:\projectWorkspace\.venv\Scripts\python.exe -m unittest ailias.reanimation.tests.test_reanimation -v
 ```
 
-Thirteen units use temporary media, fake native execution and mocked decoding.
+Seventeen units use temporary media, fake native execution and mocked decoding.
 They do not load UE, speech models or GPU hardware. No additional dependencies
 or linter were introduced.
 
@@ -86,6 +86,7 @@ Separate explicitly run integration evidence, all Git-ignored:
 | `runs\5a0ae3435a1546f181ee87ee1032a267\manifest.json` and `reload-check.json` | Actual narration solved in 38.453 seconds of editor runtime, 742 processed frames; Performance saved, separately reloaded and exportable; all manifest artifact hashes valid |
 | `taro-dependencies.json`, `taro-migration.json` and `taro-rig-audit.json` | Native Taro-only dependency migration: 441 target packages registered, no Ada, all source hashes match the downloaded cache; actual Blueprint, Face/head and facial post-process load in UE 5.8; facial bones confirm +Y front |
 | `previews\fe1cc961aa6c4539b4847361b93f4d95` | Actual 1080x1920 sharp-focus preview with unchanged accepted camera, softer/dimmer lighting, eight samples, exact chroma-green PNG background and clean native exit |
+| `previews\84e369f9f5ab4ef1a91d5cd9917ed99d` | Three actual 540x960 frames with world position `(40,60,0)`, yaw 30 degrees and screen anchor `(.45,.52)`; native camera target matches independent transform/shift arithmetic; exit 0 |
 | `runs\7f59ccf3576645c2b452dbbdab985d19\manifest.json` | Complete actual CLI integration: native exit 0 in 216.015 seconds, 743 frames, 1080x1920/30 fps NVIDIA H.264 with original narration AAC; both streams completely decoded, timing checked, artifact hashes verified |
 
 Yapit initially stalled loading SciPy after other native imports. An isolated
@@ -112,8 +113,9 @@ fix does not prove a native stack match with the earlier community report.
 
 The first Taro preview showed only green because native audio export adds a
 static reference-pose translation/yaw, while portrait framing used the origin.
-`normalize_subject_root` resets only the selected actor's static nine-channel
-root transform; face/head Control Rig keys remain untouched. Missing/ambiguous
+`normalize_subject_root` sets only the selected actor's static nine-channel
+root transform to the requested position/yaw (identity by default); face/head
+Control Rig keys remain untouched. Missing/ambiguous
 subjects or an animated root fail rather than discard motion.
 
 Early drafts were 540x960 with one temporal sample, and manual focus targeted
@@ -123,6 +125,18 @@ field. Larger 200 cm lights, a 900-lumen key, 65% fill and -5.5 EV exposure
 implement the owner's softer/dimmer request without moving the accepted camera.
 The unlit background compensates exposure; disabling the tone curve and lens
 effects keeps measured PNG background samples at `(0,255,0)`.
+Resolution remains independently configurable: `run --resolution WIDTHxHEIGHT`
+overrides the selected policy for that job only, while its 9:16 ratio preserves
+the camera geometry. Future iterative tests should use 540x960 unless a
+full-resolution quality check is needed; production defaults remain 1080x1920.
+
+`ReelPolicy.placement()` rotates front/right axes with character yaw and maps
+normalized screen placement to a parallel camera-target shift. Native staging
+measures the head on a reference actor at the same requested world transform,
+then positions lights around that head rather than the shifted camera target.
+The host persists both policy and derived placement in requests/manifests.
+Model Blueprint and audio paths remain independent inputs; voice generation
+and profile selection are upstream, not silently synthesized by this module.
 
 The review project is `data\arka\unreal\ReanimationReview`. Its static heads and
 Character drafts are not substituted for the required rig. The completed sample

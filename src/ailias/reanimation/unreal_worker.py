@@ -75,7 +75,7 @@ def linear_colour(rgb, unreal, exposure_compensation_ev=0):
     return unreal.LinearColor(*(convert(value)*2**(-exposure_compensation_ev) for value in rgb), 1)
 
 
-def normalize_subject_root(sequence, actor_class, unreal):
+def normalize_subject_root(sequence, actor_class, unreal, location=(0, 0, 0), yaw=0):
     subjects = [binding for binding in sequence.get_bindings()
                 if (template := binding.get_object_template()) is not None
                 and template.get_class() == actor_class]
@@ -89,8 +89,8 @@ def normalize_subject_root(sequence, actor_class, unreal):
     channels = section.get_channels_by_type(unreal.MovieSceneScriptingDoubleChannel)
     if len(channels) != 9 or any(channel.get_num_keys() for channel in channels):
         raise ValueError("Refusing to replace an unexpected or animated MetaHuman root")
-    # Native audio export adds a reference-pose offset/yaw unrelated to our origin-framed camera.
-    for channel, value in zip(channels, (0, 0, 0, 0, 0, 0, 1, 1, 1)):
+    # Replace native audio export's reference-pose offset with the requested actor placement.
+    for channel, value in zip(channels, (*location, 0, 0, yaw, 1, 1, 1)):
         channel.set_default(value)
 
 
@@ -101,7 +101,9 @@ def stage(request, performance, unreal):
     actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
     if not levels.new_level(destination + "/PortraitStage"):
         raise RuntimeError("Could not create an isolated portrait map")
-    reference = actors.spawn_actor_from_class(actor_class, unreal.Vector())
+    reference = actors.spawn_actor_from_class(
+        actor_class, unreal.Vector(*policy["character_location_cm"]),
+        unreal.Rotator(yaw=policy["character_yaw_degrees"]))
     try:
         components = reference.get_components_by_class(unreal.SkeletalMeshComponent)
         faces = [component for component in components if component.get_name().lower() == "face"]
@@ -131,19 +133,19 @@ def stage(request, performance, unreal):
     sequence = unreal.MetaHumanPerformanceExportUtils.export_level_sequence(performance, settings)
     if not isinstance(sequence, unreal.LevelSequence):
         raise RuntimeError("Native audio performance did not export a playable MetaHuman sequence")
-    normalize_subject_root(sequence, actor_class, unreal)
+    normalize_subject_root(sequence, actor_class, unreal,
+                           policy["character_location_cm"], policy["character_yaw_degrees"])
     rate = sequence.get_display_rate()
     # Export owns key timing. Converting the whole sequence by changing display rate would retime keys.
     frames = request["frame_count"]
     sequence.set_playback_start_seconds(0)
     sequence.set_playback_end_seconds(frames/policy["fps"])
-    direction = {"+X": (1, 0, 0), "-X": (-1, 0, 0),
-                 "+Y": (0, 1, 0), "-Y": (0, -1, 0)}[policy["front_axis"]]
-    front = unreal.Vector(*direction)
-    right = unreal.Vector(direction[1], -direction[0], 0)
-    location = center + front*request["framing"]["camera_distance_cm"]
+    front = unreal.Vector(*request["placement"]["front"])
+    right = unreal.Vector(*request["placement"]["right"])
+    view_center = center + unreal.Vector(*request["placement"]["camera_target_shift_cm"])
+    location = view_center + front*request["framing"]["camera_distance_cm"]
     camera = actors.spawn_actor_from_class(unreal.CineCameraActor, location)
-    camera.set_actor_rotation(unreal.MathLibrary.find_look_at_rotation(location, center), False)
+    camera.set_actor_rotation(unreal.MathLibrary.find_look_at_rotation(location, view_center), False)
     component = camera.get_cine_camera_component()
     filmback = component.get_editor_property("filmback")
     filmback.sensor_width = request["framing"]["sensor_width_mm"]
@@ -202,9 +204,12 @@ def stage(request, performance, unreal):
     return sequence, {"sequence": sequence.get_path_name(), "map": destination + "/PortraitStage",
                       "material": material.get_path_name(),
                       "camera": {"location": [location.x, location.y, location.z],
-                                 "target": [center.x, center.y, center.z], **request["framing"]},
+                                 "target": [view_center.x, view_center.y, view_center.z], **request["framing"]},
                       "native_sequence_fps": rate.numerator/rate.denominator,
-                      "subject_root": "Identity transform; native face/head Control Rig keys preserved",
+                      "subject_root": {"location_cm": policy["character_location_cm"],
+                                       "yaw_degrees": policy["character_yaw_degrees"],
+                                       "screen_position": policy["subject_screen_position"],
+                                       "face_head_controls_preserved": True},
                       "focus": "Depth of field disabled for sharp face and keyable edges",
                       "body_gestures": "Not synthesized; audio generates face and head movement only"}
 

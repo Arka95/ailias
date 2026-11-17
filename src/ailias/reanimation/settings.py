@@ -20,6 +20,9 @@ class ReelPolicy:
     framing_height_cm: float = 52
     head_center_offset_cm: float = 6
     front_axis: str = "+Y"
+    character_location_cm: tuple = (0, 0, 0)
+    character_yaw_degrees: float = 0
+    subject_screen_position: tuple = (.5, .5)
     background_srgb: tuple = (0, 1, 0)
     exposure_compensation_ev: float = -5.5
     mood_intensity: float = .7
@@ -41,7 +44,7 @@ class ReelPolicy:
         for name in ("focal_length_mm", "sensor_height_mm", "framing_height_cm",
                      "head_center_offset_cm", "mood_intensity", "key_lumens", "fill_ratio",
                      "temperature_kelvin", "max_audio_seconds", "exposure_compensation_ev",
-                     "light_size_cm"):
+                     "light_size_cm", "character_yaw_degrees"):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
                 raise ValueError(f"{name} must be finite")
@@ -58,6 +61,16 @@ class ReelPolicy:
             raise ValueError("Exposure compensation must be between -12 and 12 EV")
         if not 50 <= self.light_size_cm <= 400:
             raise ValueError("Soft light size must be between 50 and 400 cm")
+        if not -180 <= self.character_yaw_degrees <= 180:
+            raise ValueError("Character yaw must be between -180 and 180 degrees")
+        for name, count in (("character_location_cm", 3), ("subject_screen_position", 2)):
+            values = getattr(self, name)
+            if (not isinstance(values, (tuple, list)) or len(values) != count or
+                    any(isinstance(v, bool) or not isinstance(v, (int, float))
+                        or not math.isfinite(v) for v in values)):
+                raise ValueError(f"{name} requires {count} finite coordinates")
+        if any(not 0 <= value <= 1 for value in self.subject_screen_position):
+            raise ValueError("Screen position must use normalized coordinates in [0,1]")
         if not (0 < self.key_lumens <= 10000 and 3000 <= self.temperature_kelvin <= 8000
                 and 0 < self.max_audio_seconds <= 600):
             raise ValueError("Invalid lighting or bounded audio duration")
@@ -85,6 +98,18 @@ class ReelPolicy:
 
     def to_dict(self):
         return asdict(self)
+
+    def placement(self):
+        x, y = {"+X": (1, 0), "-X": (-1, 0), "+Y": (0, 1), "-Y": (0, -1)}[self.front_axis]
+        angle = math.radians(self.character_yaw_degrees)
+        front = (x*math.cos(angle)-y*math.sin(angle), x*math.sin(angle)+y*math.cos(angle), 0)
+        right = (front[1], -front[0], 0)
+        u, v = self.subject_screen_position
+        framing = self.framing()
+        shift = -(u-.5)*framing["visible_width_cm"]
+        return {"front": front, "right": right,
+                "camera_target_shift_cm": (right[0]*shift, right[1]*shift,
+                                           (v-.5)*framing["visible_height_cm"])}
 
 
 def load_policy(path: Path = DEFAULT_CONFIG):

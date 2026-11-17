@@ -158,7 +158,7 @@ Evidence: `pipeline.py:48`, `media.py:35`, `config\reanimation.json`.
 | Visual quality | Owner must review the actual rigged face, lip sync, excited delivery, headroom, green background and natural-style lighting |
 | No false likeness claim | Static/head-only drafts never satisfy the rig gate; technical file verification is not visual approval |
 
-Thirteen isolated units currently pass. Full CLI job
+Seventeen isolated units currently pass. Full CLI job
 `7f59ccf3576645c2b452dbbdab985d19` passes native exit, 743-frame 1080x1920/30 fps
 rendering, NVIDIA encoding, complete H.264/AAC decode, duration and integrity
 checks. Subjective lip-sync/acting acceptance remains open. Runtime receipts, not this design, determine

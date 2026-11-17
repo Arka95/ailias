@@ -36,6 +36,31 @@ python -m ailias reanimation status arka JOB_ID
 Blueprint must have a compiled class, one `Face` skeletal component, a `head`
 bone and a RigLogic post-process animation Blueprint.
 
+The default portrait preset is **1080x1920 (1080p, 9:16)**. For draft testing,
+append `--resolution 540x960` to the same `run` command. Any supported even 9:16
+size is selectable. The per-run override takes precedence over `--reel-config`
+without rewriting it or changing the camera/framing, lighting or voice.
+Without an override, the selected policy's dimensions apply.
+
+| Choice | Per-run configuration |
+|---|---|
+| Character/model | `--blueprint /Game/YourCharacter/BP_Character`; any compatible assembled MetaHuman, not hardcoded to Taro |
+| Voice audio | `--audio C:\path\to\chosen-voice.wav`; the renderer does not hardcode PocketTTS/testuser |
+| Resolution | `--resolution 540x960`, or the selected policy's width/height; production default 1080x1920 |
+| World placement | `--character-position X Y Z` in centimeters and `--character-yaw DEGREES` |
+| On-screen placement | `--screen-position U V`, normalized top-left `(0,0)` through bottom-right `(1,1)`; default `0.5 0.5` |
+
+Voice **synthesis** remains upstream: choose the profile/provider when generating
+the WAV through Yapit, then select that WAV here. There is no built-in
+`--voice` generation flag in this renderer.
+
+Placement flags override `character_location_cm`, `character_yaw_degrees` and
+`subject_screen_position` in the selected JSON policy. The screen anchor is the
+head framing target, not the character's feet. The camera follows the declared
+neutral front after yaw; its parallel framing shift positions that target on
+screen without changing lens perspective, face lighting or voice. Defaults keep
+the accepted composition at the world origin. Every job records these choices.
+
 Omit `--blueprint` and `--ffmpeg` to solve audio only. That produces a saved
 Performance asset with status `audio_solved_awaiting_rigged_metahuman`; it does
 **not** produce or claim a video. Audio must be nonsilent mono PCM16 WAV,
@@ -102,7 +127,7 @@ narration encoded as AAC. Native processing/rendering exited cleanly in
 24.789333 seconds. Both streams decode completely, and all manifest artifact
 hashes verify. These are technical coverage checks, not phoneme-sync certification.
 
-**Thirteen isolated units pass.** Earlier technical fixtures crashed with
+**Seventeen isolated units pass.** Earlier technical fixtures crashed with
 `0xC0000005`; the startup-script-owned shutdown change now passes on real Taro
 renders. No exit-code gate is bypassed. See the [development evidence](dev.readme.md)
 for the fixes and retained failures.

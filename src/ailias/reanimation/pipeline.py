@@ -57,7 +57,7 @@ def create_reel(store, audio, editor, project, policy, *, blueprint=None, encode
     root.mkdir(parents=True, exist_ok=False)
     report = {"revision": revision, "status": "blocked" if readiness["blockers"] else "running",
               "readiness": readiness, "audio": source_audio, "policy": policy.to_dict(),
-              "framing": policy.framing(), "artifacts": {},
+              "framing": policy.framing(), "placement": policy.placement(), "artifacts": {},
               "blueprint": blueprint, "video_verified": False, "likeness_verified": False}
     report["artifacts"]["audio"] = store.reference_artifact(audio)
     manifest = root / "manifest.json"
@@ -70,7 +70,7 @@ def create_reel(store, audio, editor, project, policy, *, blueprint=None, encode
     frame_count = math.ceil(source_audio["duration_seconds"]*policy.fps)
     request = {"destination": f"/Game/Ailias/Reanimation/R{revision}",
                "audio": str(audio.resolve()), "receipt": str(receipt), "blueprint": blueprint,
-               "policy": policy.to_dict(), "framing": policy.framing(),
+               "policy": policy.to_dict(), "framing": policy.framing(), "placement": policy.placement(),
                "frames": str(frames), "frame_count": frame_count}
     atomic_json(request_path, request)
     report["artifacts"]["worker"] = store.copy_artifact(

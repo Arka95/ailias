@@ -21,3 +21,16 @@ geometry; better reference samples must lead to new revisions, not overwrites.
 Compare improvements with this baseline and show each completed visual iteration.
 Do not treat working-baseline selection as final likeness or rigging approval.
 The separate Taro reanimation test must not depend on improving this personal head.
+
+## Reanimation iteration quality
+
+The default production portrait preset is 1080x1920, 9:16. Keep resolution
+configurable; prefer `--resolution 540x960` for iterative tests unless checking
+final-resolution clarity. Resolution changes must not move the approved camera
+or silently change lighting, voice or source assets. Label draft previews as
+drafts rather than using their softness to judge final quality.
+Model Blueprint, narration WAV, resolution, world placement/yaw and normalized
+screen anchor must remain independently selectable. Preserve the accepted
+default composition; use explicit overrides for placement experiments. Voice
+profile/provider selection happens upstream through Yapit, not a fictional
+renderer voice flag.
