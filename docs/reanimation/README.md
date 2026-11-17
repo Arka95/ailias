@@ -28,7 +28,7 @@ $ue = 'C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor-Cmd
 $project = 'C:\path\to\your\ExistingMetaHuman.uproject'
 $ffmpeg = 'C:\projectWorkspace\.venv\Lib\site-packages\imageio_ffmpeg\binaries\ffmpeg-win-x86_64-v7.1.exe'
 python -m ailias reanimation doctor --alias arka --editor $ue --project $project --ffmpeg $ffmpeg
-python -m ailias reanimation run --alias arka --audio C:\path\to\narration.wav --editor $ue --project $project --blueprint /Game/MetaHumans/Arka/BP_Arka --ffmpeg $ffmpeg
+python -m ailias reanimation run --alias arka --voice C:\path\to\narration.wav --editor $ue --project $project --blueprint /Game/MetaHumans/Arka/BP_Arka --ffmpeg $ffmpeg
 python -m ailias reanimation status --alias arka JOB_ID
 ```
 
@@ -50,42 +50,26 @@ Without an override, the selected policy's dimensions apply.
 |---|---|
 | Character/session namespace | `--alias arka`; separate from the Yapit voice profile |
 | Character/model | `--blueprint /Game/YourCharacter/BP_Character`; any compatible assembled MetaHuman, not hardcoded to Taro |
-| Voice profile | `--voice testuser --script C:\path\to\reviewed-script.json`; actually calls the existing Yapit MCP server |
-| Existing voice audio | `--audio C:\path\to\chosen-voice.wav`; mutually exclusive with `--voice`, with no synthesis |
+| Supplied voice audio | `--voice C:\path\to\chosen-voice.wav`, or compatibility spelling `--audio`; any source, with no synthesis |
 | Resolution | `--resolution 540x960`, or the selected policy's width/height; production default 1080x1920 |
 | World placement | `--character-position X Y Z` in centimeters and `--character-yaw DEGREES` |
 | On-screen placement | `--screen-position U V`, normalized top-left `(0,0)` through bottom-right `(1,1)`; default `0.5 0.5` |
 
-### Select a Yapit voice
+### Supply narration from any source
 
-The optional host dependency is `ailias[reanimation-voice]` (MCP SDK 2.x);
-existing-WAV commands do not import it. Copy `config\yapit.example.json` to
-Git-ignored `config\yapit.local.json`, then set the existing server command,
-working directory and environment to your installed Yapit runtime and voice
-data. `--yapit-config PATH` selects another configuration. No Yapit code, voice
-profile, runtime installation or saved provider default is modified.
+Generate or record audio separately, then supply its WAV to ailias. Yapit is
+one possible upstream tool, not a module, runtime or test dependency. No speech
+model, MCP SDK, voice profile, script or TTS server is required by this renderer.
 
 ```powershell
-python -m ailias reanimation run --alias arka --voice testuser --script C:\path\to\reviewed-script.json --resolution 540x960 --editor $ue --project $project --blueprint /Game/MetaHumans/Taro/BP_Taro --ffmpeg $ffmpeg
+python -m ailias reanimation run --alias arka --voice C:\path\to\narration.wav --resolution 540x960 --editor $ue --project $project --blueprint /Game/MetaHumans/Taro/BP_Taro --ffmpeg $ffmpeg
 ```
 
-`--script` is reviewed Yapit Script JSON with `title` and `beats`, not a prompt.
-ailias passes that object and the actual `voice` to MCP `generate_audio`, checks
-the returned provenance matches the requested profile, validates/copies the WAV,
-then supplies it to the unchanged native solve/render pipeline. Configure the
-TTS backend/model/device in the Yapit launch environment; none is silently
-substituted. `--style` defaults to `default`; named styles need enrolled
-references. Omit `--seconds` for natural speech duration, or supply Yapit's
-5-180-second target (validated upstream within +/-33%, not time-stretched).
-The resulting WAV must also satisfy the reel policy's audio-duration limit.
-
-Each call uses a unique output workspace and disables Yapit speech caching for
-fresh synthesis. Request/response, selected voice, copied provider provenance
-and artifact hashes are retained under `reanimation\narration\ID` and referenced
-by the reel manifest. Synthesis errors stop before Unreal starts. Existing
-`--audio` commands do not launch Yapit. The workspace's local configuration
-uses the existing PocketTTS CPU runtime and cached model; it does not change
-the shared CUDA installation or claim GPU support for PocketTTS.
+Here `--voice` means the supplied **audio file**, not a Yapit profile name.
+`--audio` selects the same input and preserves older commands. The renderer
+validates the WAV, records its hash, drives animation from it and muxes that
+same recording into the video. It never generates or replaces speech. Input
+must meet the format/duration constraints below regardless of its provider.
 
 Placement flags override `character_location_cm`, `character_yaw_degrees` and
 `subject_screen_position` in the selected JSON policy. The screen anchor is the
@@ -97,8 +81,8 @@ the accepted composition at the world origin. Every job records these choices.
 Omit `--blueprint` and `--ffmpeg` to solve audio only. That produces a saved
 Performance asset with status `audio_solved_awaiting_rigged_metahuman`; it does
 **not** produce or claim a video. Audio must be nonsilent mono PCM16 WAV,
-16-96 kHz, at most 120 seconds by default. `--voice` orchestrates upstream Yapit
-MCP generation; `--audio` accepts an already generated WAV unchanged.
+16-96 kHz, at most 120 seconds by default. Both `--voice` and `--audio` accept
+an already generated or recorded WAV unchanged.
 
 ## Camera, light and GPU policy
 
@@ -160,18 +144,8 @@ narration encoded as AAC. Native processing/rendering exited cleanly in
 24.789333 seconds. Both streams decode completely, and all manifest artifact
 hashes verify. These are technical coverage checks, not phoneme-sync certification.
 
-Named-option integration job **`eb02c4b1d3e745d1b2b7a6a8563f172f`** uses
-`--alias arka --voice testuser --script JSON --resolution 540x960`: fresh
-PocketTTS CPU narration, then **204 frames / 6.8 seconds** of Taro video.
-Native processing exited cleanly in 71.922 seconds; NVENC/AAC encoding, both
-complete decodes and all artifact hashes pass. The actual draft MP4 was opened.
-Before/after hashes of **191 tracked Yapit files** match exactly, preserving
-pre-existing Yapit changes. Evidence is under
-`data\arka\reanimation\validation\named-options-20261117`.
-The accepted full-resolution reel above remains unchanged.
-
-**29 isolated units pass**, covering media gates, placement, named/legacy aliases and the
-optional real-MCP request path using a fake SDK. Earlier technical fixtures crashed with
+21 isolated units pass, covering media gates, placement, named/legacy aliases and the
+equivalent external-audio inputs with Yapit/MCP unavailable. Earlier technical fixtures crashed with
 `0xC0000005`; the startup-script-owned shutdown change now passes on real Taro
 renders. No exit-code gate is bypassed. See the [development evidence](dev.readme.md)
 for the fixes and retained failures.

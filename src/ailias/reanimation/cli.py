@@ -21,13 +21,8 @@ def add_parser(commands):
             action.add_argument("--project", type=Path, required=True)
             action.add_argument("--ffmpeg", type=Path)
         if name == "run":
-            source = action.add_mutually_exclusive_group(required=True)
-            source.add_argument("--audio", type=Path, help="Existing mono PCM16 narration WAV; no synthesis")
-            source.add_argument("--voice", help="Existing Yapit voice profile, e.g. testuser; requires --script")
-            action.add_argument("--script", type=Path, help="Reviewed Yapit Script JSON for --voice (title and beats)")
-            action.add_argument("--yapit-config", type=Path, help="Existing Yapit MCP launch settings; default config\\yapit.local.json")
-            action.add_argument("--seconds", type=float, help="Optional Yapit duration target, 5-180 seconds; otherwise natural duration")
-            action.add_argument("--style", default="default", help="Yapit delivery style; named styles require enrolled references")
+            action.add_argument("--voice", "--audio", dest="audio", type=Path, required=True,
+                                metavar="WAV", help="Supplied mono PCM16 narration WAV from any source; no voice generation")
             action.add_argument("--blueprint", help="/Game path to an assembled rigged MetaHuman Blueprint; omit for audio solve only")
             action.add_argument("--reel-config", type=Path, default=DEFAULT_CONFIG)
             action.add_argument("--resolution", metavar="WIDTHxHEIGHT",
@@ -69,31 +64,8 @@ def execute(args, data_root):
         if value is not None:
             overrides[field] = value
     policy = replace(policy, **overrides)
-    voice_selected = args.voice is not None
-    if voice_selected and not args.voice.strip():
-        raise ValueError("--voice must name an existing Yapit voice profile")
-    if voice_selected and args.script is None:
-        raise ValueError("--voice requires --script with reviewed Yapit Script JSON")
-    if args.audio and (args.script is not None or args.yapit_config is not None
-                       or args.seconds is not None or args.style != "default"):
-        raise ValueError("--script, --yapit-config, --seconds and --style apply only to --voice, not --audio")
-    if voice_selected:
-        readiness = doctor(args.editor, args.project, args.ffmpeg)
-        if args.blueprint and args.ffmpeg is None:
-            readiness["blockers"].append("Rendering requires --ffmpeg for final H.264/AAC video")
-        if readiness["blockers"]:
-            return {"status": "blocked", "readiness": readiness}, 2
     with store.lock():
-        options = {"blueprint": args.blueprint, "encoder": args.ffmpeg}
-        audio = args.audio
-        if voice_selected:
-            from ailias.reanimation.narration import DEFAULT_YAPIT_CONFIG, generate_narration
-
-            narration = generate_narration(
-                store, args.voice, args.script, args.yapit_config or DEFAULT_YAPIT_CONFIG,
-                seconds=args.seconds, style=args.style, max_audio_seconds=policy.max_audio_seconds)
-            audio = narration["audio"]
-            options["narration"] = narration
-        report = create_reel(store, audio, args.editor, args.project, policy, **options)
+        report = create_reel(store, args.audio, args.editor, args.project, policy,
+                             blueprint=args.blueprint, encoder=args.ffmpeg)
     return report, 0 if report["status"] in {
         "audio_solved_awaiting_rigged_metahuman", "video_rendered_awaiting_visual_review"} else 2

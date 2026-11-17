@@ -7,7 +7,7 @@
 | Owner | ailias workspace |
 | Status | Full Taro narration reel technically verified; subjective performance review remains |
 | Last updated | 2026-11-17 |
-| Services in scope | Local Yapit narration, UE 5.8 adapter, FFmpeg |
+| Services in scope | Externally supplied narration, UE 5.8 adapter, FFmpeg |
 | Reviewers | Workspace owner; no separate team/on-call owner established |
 
 ## 1. Problem Statement
@@ -68,12 +68,11 @@ Control Rig is Unreal's editable rig animation system. Native settings are in
 The [module architecture](dev.readme.md#workflow-and-communication) describes each
 implemented component and its channels. Narration generation is upstream via
 local Yapit MCP, not an embedded UE provider or a replacement for the user's
-voice. Explicit `--voice`/`--script` now orchestrates that existing MCP tool
-through `src\ailias\reanimation\narration.py`; `--audio` consumes a verified WAV
-directly without synthesis. `--alias` names the output session and
-`--resolution` overrides only that run. Yapit remains an unmodified dependency;
-local launch settings select its runtime/provider. Voice provenance must match
-the requested profile before native work begins.
+voice. The module consumes a verified external WAV synchronously through
+`--voice WAV` or compatibility spelling `--audio WAV`. `--alias` names the
+output session and `--resolution` overrides only that run. Yapit is one possible
+upstream audio producer, not an ailias module, runtime or test dependency.
+Audio from any source follows the same validation and unchanged native pipeline.
 
 The host launches its own editor through the process API and exchanges local
 JSON requests/receipts. UE imports a SoundWave, solves a Performance, exports a

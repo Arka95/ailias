@@ -45,8 +45,7 @@ def inspect_job(store, job):
     return report
 
 
-def create_reel(store, audio, editor, project, policy, *, blueprint=None, encoder=None, tools=None,
-                narration=None):
+def create_reel(store, audio, editor, project, policy, *, blueprint=None, encoder=None, tools=None):
     if blueprint and not re.fullmatch(r"/Game/(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)?", blueprint):
         raise ValueError("MetaHuman Blueprint must be a /Game asset path")
     source_audio = inspect_audio(audio, policy.max_audio_seconds)
@@ -61,9 +60,6 @@ def create_reel(store, audio, editor, project, policy, *, blueprint=None, encode
               "framing": policy.framing(), "placement": policy.placement(), "artifacts": {},
               "blueprint": blueprint, "video_verified": False, "likeness_verified": False}
     report["artifacts"]["audio"] = store.reference_artifact(audio)
-    if narration is not None:
-        report["narration"] = {"voice": narration["voice"], "style": narration["style"], "transport": "MCP stdio"}
-        report["artifacts"].update(narration["artifacts"])
     manifest = root / "manifest.json"
     atomic_json(manifest, report)
     if readiness["blockers"]:

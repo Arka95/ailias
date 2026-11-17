@@ -32,7 +32,8 @@ drafts rather than using their softness to judge final quality.
 Model Blueprint, narration WAV, resolution, world placement/yaw and normalized
 screen anchor must remain independently selectable. Preserve the accepted
 default composition; use explicit overrides for placement experiments. Voice
-profile/provider selection happens upstream through the existing Yapit MCP.
-`reanimation run --voice NAME --script JSON` explicitly orchestrates that tool;
-`--audio WAV` never synthesizes. Preserve this distinction and do not modify
-Yapit to implement ailias options.
+profile/provider selection happens outside ailias. `reanimation run --voice WAV`
+and compatibility spelling `--audio WAV` consume supplied audio from any source.
+Do not add Yapit, its models or MCP as module/test dependencies or modify Yapit
+to implement ailias options. Once these controls work, prioritize personal
+MetaHuman generation from the selected Blender working baseline.

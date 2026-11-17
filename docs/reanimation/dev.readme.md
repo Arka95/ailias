@@ -8,12 +8,10 @@ and constructs explicit FFmpeg commands. `pipeline.py` owns unique jobs,
 timeouts, hashes and publication gates. `unreal_worker.py` runs inside UE's
 Python interpreter; it imports no host package.
 
-`narration.py` is an optional host-side MCP adapter. `--voice` passes reviewed
-Script JSON and the selected profile to the existing Yapit `generate_audio`
-tool over owned stdio, then validates and copies its WAV/provenance before
-the workflow below. `--audio` enters that workflow directly without importing
-MCP or starting Yapit. Launch settings come from ignored local JSON; the adapter
-does not edit Yapit or the shared model environment.
+`--voice WAV` and compatibility spelling `--audio WAV` supply external narration
+directly. There is no TTS adapter or Yapit/MCP dependency. Generate speech or
+record it separately; this module validates the provided media and does not
+select synthesis profiles, rewrite words or replace the supplied voice.
 
 ## Workflow and communication
 
@@ -73,15 +71,14 @@ export of a native audio track alone is not treated as an MP4 audio guarantee.
 ## Tests and operational boundaries
 
 ```powershell
-& C:\projectWorkspace\.venv\Scripts\python.exe -m unittest ailias.reanimation.tests.test_reanimation ailias.reanimation.tests.test_narration -v
+& C:\projectWorkspace\.venv\Scripts\python.exe -m unittest ailias.reanimation.tests.test_reanimation -v
 ```
 
-29 units use temporary media, fake native execution, a fake MCP SDK and mocked
-decoding. They cover named/legacy aliases, actual voice/script request
-forwarding, fresh synthesis, provider-voice mismatch, tool/time-out failures,
-audio duration and preflight gates. They do not load UE, speech models or GPU
-hardware. Voice synthesis adds an optional `reanimation-voice` extra for the
-host MCP SDK; no new linter or speech/GPU dependency is installed.
+21 units use temporary audio/image fixtures, fake native execution and mocked
+decoding. They cover named/legacy aliases, equivalent `--voice`/`--audio` input
+with Yapit/MCP unavailable, audio duration, placement and publication gates.
+They do not load UE, speech models or GPU hardware, start a TTS server or need
+Yapit installed. No new dependency or linter is introduced.
 
 Separate explicitly run integration evidence, all Git-ignored:
 
@@ -98,7 +95,6 @@ Separate explicitly run integration evidence, all Git-ignored:
 | `previews\fe1cc961aa6c4539b4847361b93f4d95` | Actual 1080x1920 sharp-focus preview with unchanged accepted camera, softer/dimmer lighting, eight samples, exact chroma-green PNG background and clean native exit |
 | `previews\84e369f9f5ab4ef1a91d5cd9917ed99d` | Three actual 540x960 frames with world position `(40,60,0)`, yaw 30 degrees and screen anchor `(.45,.52)`; native camera target matches independent transform/shift arithmetic; exit 0 |
 | `runs\7f59ccf3576645c2b452dbbdab985d19\manifest.json` | Complete actual CLI integration: native exit 0 in 216.015 seconds, 743 frames, 1080x1920/30 fps NVIDIA H.264 with original narration AAC; both streams completely decoded, timing checked, artifact hashes verified |
-| `runs\eb02c4b1d3e745d1b2b7a6a8563f172f\manifest.json` and `validation\named-options-20261117\verification.json` | Actual named `--alias`/`--voice`/`--resolution` CLI: fresh testuser/PocketTTS CPU speech, 204 frames, 540x960, 6.8-second video, native exit 0 in 71.922 seconds; complete video/audio decode and artifact hashes pass; all 191 tracked Yapit files match their pre-run hashes |
 
 Yapit initially stalled loading SciPy after other native imports. An isolated
 import check passed; pre-importing `scipy.linalg` before the actual MCP entrypoint
@@ -147,17 +143,14 @@ measures the head on a reference actor at the same requested world transform,
 then positions lights around that head rather than the shifted camera target.
 The host persists both policy and derived placement in requests/manifests.
 Model Blueprint and audio paths remain independent inputs. Explicit `--voice`
-selects upstream profile generation through MCP; `--audio` never synthesizes.
+and compatibility spelling `--audio` select the supplied WAV, never synthesis.
 `--alias` selects the output namespace, not an implicit voice or Blueprint.
 
-Narration jobs retain their request, MCP response, server stderr, copied WAV
-and provider provenance in a new namespace. The native reel manifest includes
-these artifact references, so `status` checks their hashes too. A missing
-editor/project or video encoder blocks before speech generation. A failed
-MCP call or invalid/mismatched returned audio never reaches Unreal. Server
-stdio is owned and closed by the MCP client; unrelated processes and Yapit
-source/profile/configuration files are not changed. The host deadline includes
-initialization and synthesis. No previous generation is replayed.
+The source audio is referenced by hash and checked again after animation.
+`status` verifies it with the other job artifacts. Source-provider metadata
+is not required: fixtures, microphone recordings and externally synthesized
+audio all enter the same format/media gates. Yapit source, profiles, model
+environments and services are outside this module's execution boundary.
 
 The review project is `data\arka\unreal\ReanimationReview`. Its static heads and
 Character drafts are not substituted for the required rig. The completed sample
