@@ -16,7 +16,8 @@ All items below are open; none is implied complete by a manual handoff receipt.
 | 8 | Bounded refinement and rollback | Measurable multi-view acceptance, preserved revisions, one-step rollback and iteration cap |
 | 9 | Animation validation and sign-off | Blink, brows, smile, mouth, purse, jaw and speech-like expression results; human approval |
 | 10 | Session curation and recovery UX | Explicit photo removal, history inspection and rollback commands without data loss |
-| 11 | Validate the separate [reanimation module](../reanimation/README.md) on an existing assembled MetaHuman | Real PocketTTS/testuser narration and 742-frame native speech solve/reload succeeded; NVIDIA encoding passed. Corrected GPU fixture writes green frames but both editors crash on shutdown (`0xC0000005`); do not ignore the exit code. Also need genuine rigged Blueprint, actual face/head render and visual review. Does not authorize restarting stopped likeness repair |
+| 11 | Collect subjective sign-off for the separate [reanimation module](../reanimation/README.md) | Actual CLI job `7f59ccf3576645c2b452dbbdab985d19` passes native rendering, 743-frame 1080x1920/30fps NVIDIA H.264/AAC integration, full decode, timing and integrity checks; owner still reviews lip sync and acting. Does not authorize restarting stopped likeness repair |
+| 12 | Optional apparel selection | Deferred opt-in feature, not a blocker for the current video. Requested enabled default: actual dark-green crew-neck T-shirt, with style/color/compatible asset overrides. Disabled preserves original clothing. Need native garment-fit/animation tests and independent backdrop configuration; no apparel implementation is claimed |
 
 Completed infrastructure: CUDA imageprocessing on all 192 requested photos,
 corrected grouping, one shared workspace environment, source references instead

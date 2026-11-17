@@ -20,12 +20,14 @@ class ReelPolicy:
     framing_height_cm: float = 52
     head_center_offset_cm: float = 6
     front_axis: str = "+Y"
-    background_srgb: tuple = (.565, .933, .565)
+    background_srgb: tuple = (0, 1, 0)
+    exposure_compensation_ev: float = -5.5
     mood_intensity: float = .7
-    key_lumens: float = 1400
-    fill_ratio: float = .35
+    key_lumens: float = 900
+    fill_ratio: float = .65
+    light_size_cm: float = 200
     temperature_kelvin: float = 5600
-    temporal_samples: int = 4
+    temporal_samples: int = 8
     warmup_frames: int = 32
     encoder: str = "h264_nvenc"
     max_audio_seconds: float = 120
@@ -38,7 +40,8 @@ class ReelPolicy:
                 raise ValueError(f"{name} must be a positive integer")
         for name in ("focal_length_mm", "sensor_height_mm", "framing_height_cm",
                      "head_center_offset_cm", "mood_intensity", "key_lumens", "fill_ratio",
-                     "temperature_kelvin", "max_audio_seconds"):
+                     "temperature_kelvin", "max_audio_seconds", "exposure_compensation_ev",
+                     "light_size_cm"):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
                 raise ValueError(f"{name} must be finite")
@@ -51,6 +54,10 @@ class ReelPolicy:
             raise ValueError("Invalid close-up lens/framing dimensions")
         if not 0 <= self.mood_intensity <= 1 or not 0 < self.fill_ratio <= 1:
             raise ValueError("Mood and fill ratio must be in range")
+        if not -12 <= self.exposure_compensation_ev <= 12:
+            raise ValueError("Exposure compensation must be between -12 and 12 EV")
+        if not 50 <= self.light_size_cm <= 400:
+            raise ValueError("Soft light size must be between 50 and 400 cm")
         if not (0 < self.key_lumens <= 10000 and 3000 <= self.temperature_kelvin <= 8000
                 and 0 < self.max_audio_seconds <= 600):
             raise ValueError("Invalid lighting or bounded audio duration")

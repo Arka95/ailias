@@ -164,11 +164,12 @@ and the [researched UE 5.8 route](docs/generation/metahuman-workflow-investigati
 
 The separate [reanimation module](docs/reanimation/README.md) accepts narration
 and an **already assembled rigged MetaHuman Blueprint**. It implements native
-audio-driven face/head animation, a light-green portrait stage, GPU rendering
-and explicit NVIDIA video encoding. **A personalized talking reel is not yet
-validated: no assembled rig is available in the review project, and the local
-GPU fixture crashes during editor shutdown after frame output.** Audio can be
-solved independently; this does not restart the stopped likeness experiments.
+audio-driven face/head animation, a chroma-green portrait stage, GPU rendering
+and explicit NVIDIA video encoding. **A complete Taro sample reel now passes
+native rendering and audio/video checks:** 743 frames, 1080x1920 at 30 fps,
+24.77 seconds, with PocketTTS/testuser narration. The latest version uses softer,
+dimmer lighting and sharp focus. This is a sample character, not the owner's
+personal MetaHuman; subjective lip-sync review remains separate.
 
 | Document | Dev guide | Purpose |
 |---|---|---|
@@ -177,5 +178,5 @@ solved independently; this does not restart the stopped likeness experiments.
 | [Geometry metrics](docs/geometry/README.md) | [Metric internals](docs/geometry/dev.readme.md) | Identity similarity versus actual geometric errors |
 | [Generation](docs/generation/README.md) | [Native adapters and validation](docs/generation/dev.readme.md) | COLMAP, Blender, guarded UE 5.8 handoffs and honest failure states |
 | [Head fitting](docs/facefitting/README.md) | [Fit internals and measured evidence](docs/facefitting/dev.readme.md) | CUDA head fitting, photographic preview, approximate hair and verified static-head UE import |
-| [Reanimation](docs/reanimation/README.md) | [Native adapter and validation](docs/reanimation/dev.readme.md) | Existing rig plus narration to GPU-rendered portrait reel; human output awaits rig validation |
+| [Reanimation](docs/reanimation/README.md) | [Native adapter and validation](docs/reanimation/dev.readme.md) | Existing rig plus narration to GPU-rendered portrait reel; Taro audio/video integration verified |
 | [Implementation scope](docs/analysis.md) | [Remaining work](docs/todo/README.md) | Decisions, source and deferred functionality |

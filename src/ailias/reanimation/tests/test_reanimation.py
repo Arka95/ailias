@@ -40,7 +40,9 @@ class ReelTests(unittest.TestCase):
         self.assertAlmostEqual(framing["visible_width_cm"], 29.25)
         self.assertAlmostEqual(framing["camera_distance_cm"], 122.7777778)
         for values in ({"width": 1920}, {"fps": True}, {"mood_intensity": float("nan")},
-                       {"background_srgb": [1, 2, 3]}, {"encoder": "auto"}):
+                       {"background_srgb": [1, 2, 3]}, {"encoder": "auto"},
+                       {"exposure_compensation_ev": -13}, {"exposure_compensation_ev": True},
+                       {"light_size_cm": 0}, {"light_size_cm": float("inf")}):
             with self.subTest(values=values), self.assertRaises(ValueError):
                 ReelPolicy(**values)
 
@@ -152,6 +154,54 @@ class ReelTests(unittest.TestCase):
             unreal_worker.finished(None, True)
         self.assertEqual(keepalive, [False])
         self.assertEqual(json.loads(receipt.read_text())["status"], "frames_rendered")
+
+    def test_chroma_backdrop_compensates_manual_exposure_without_adding_red_or_blue(self):
+        from ailias.reanimation.unreal_worker import linear_colour
+
+        unreal = SimpleNamespace(LinearColor=lambda *values: values)
+        for exposure in (-5, 0, 2):
+            with self.subTest(exposure=exposure):
+                colour = linear_colour((0, 1, 0), unreal, exposure)
+                self.assertEqual(colour, (0, 2**(-exposure), 0, 1))
+                self.assertEqual(colour[1]*2**exposure, 1)
+        self.assertAlmostEqual(linear_colour((.5, 0, 0), unreal)[0], .2140411405)
+
+    def test_native_export_offset_is_removed_without_changing_head_animation(self):
+        from ailias.reanimation.unreal_worker import normalize_subject_root
+
+        class Channel:
+            def __init__(self, value):
+                self.value = value
+                self.keys = 0
+
+            def get_num_keys(self):
+                return self.keys
+
+            def set_default(self, value):
+                self.value = value
+
+        class TransformTrack:
+            def get_sections(self):
+                return [SimpleNamespace(get_channels_by_type=lambda _: channels)]
+
+        actor_class = object()
+        channels = [Channel(value) for value in (50, 0, 0, 0, 0, 90, 1, 1, 1)]
+        head_keys = [1, 2, 3]
+        binding = SimpleNamespace(
+            get_object_template=lambda: SimpleNamespace(get_class=lambda: actor_class),
+            get_tracks=lambda: [TransformTrack(), SimpleNamespace(keys=head_keys)])
+        sequence = SimpleNamespace(get_bindings=lambda: [binding])
+        unreal = SimpleNamespace(MovieScene3DTransformTrack=TransformTrack,
+                                 MovieSceneScriptingDoubleChannel=Channel)
+        normalize_subject_root(sequence, actor_class, unreal)
+        self.assertEqual([channel.value for channel in channels], [0, 0, 0, 0, 0, 0, 1, 1, 1])
+        self.assertEqual(head_keys, [1, 2, 3])
+        channels[0].value, channels[-1].keys = 50, 1
+        with self.assertRaisesRegex(ValueError, "animated MetaHuman root"):
+            normalize_subject_root(sequence, actor_class, unreal)
+        self.assertEqual(channels[0].value, 50)
+        with self.assertRaisesRegex(ValueError, "exactly one"):
+            normalize_subject_root(SimpleNamespace(get_bindings=lambda: []), actor_class, unreal)
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | Owner | ailias workspace |
-| Status | Audio solve verified; rendering blocked on native shutdown crash and assembled rig |
+| Status | Full Taro narration reel technically verified; subjective performance review remains |
 | Last updated | 2026-11-17 |
 | Services in scope | Local Yapit narration, UE 5.8 adapter, FFmpeg |
 | Reviewers | Workspace owner; no separate team/on-call owner established |
@@ -14,24 +14,28 @@
 
 Generate a forward-facing, energetic 9:16 reel from an **existing rigged
 MetaHuman** and Yapit PocketTTS narration using the existing `testuser` voice.
-Keep a light-green background, close-up camera and soft natural-style face
+Keep a chroma-key green background, close-up camera and soft natural-style face
 lighting. Do not restart the stopped likeness-generation experiments or present
 their unrigged output as a finished person.
 
-**Gap A:** the isolated review project has no assembled MetaHuman Blueprint. This is a
-material input blocker, not evidence that a static head can be animated.
-Evidence: retained `data\arka\reanimation\capability.json` and the input gate in
+**Gap A, resolved for sample testing:** the initially absent assembled rig is now
+the migrated Taro Blueprint. All 441 dependency packages register in the target;
+the actual Face mesh, head bone and facial post-process load successfully.
+Evidence: `data\arka\reanimation\taro-migration.json` and `taro-rig-audit.json`.
+Static heads still do not satisfy the input gate in
 `src\ailias\reanimation\unreal_worker.py:62`.
 
-**Gap B:** even with native exportable speech data, actual lip-sync quality,
+**Gap B, subjective review remains:** even with native exportable speech data, actual lip-sync quality,
 face crop and natural-style skin illumination need a render of that rig.
 Technical checks are load-bearing; speed does not waive them. This is a local
 workspace task; no separate production team or on-call contact is established.
 
-**Gap C:** corrected green-stage GPU fixtures write their frames, then both
+**Gap C, resolved in the tested workflow:** corrected green-stage GPU fixtures wrote their frames, then both
 editor executables exit with `0xC0000005`. A deferred shutdown also failed.
 Do not treat a successful MRQ callback as a successful editor process; further
-native retries are stopped. Evidence: `reanimation-renderer-check2.log` through
+fixture retries were stopped. The startup-owner shutdown change now passes real
+Taro previews and complete CLI job `7f59ccf3576645c2b452dbbdab985d19`.
+Historical evidence: `reanimation-renderer-check2.log` through
 `reanimation-renderer-check4.log` under `data\arka\unreal`.
 
 The owner explicitly approved a free marketplace character for testing:
@@ -79,16 +83,18 @@ For 1080x1920 output, portrait filmback width is
 `36 mm * 1080 / 1920 = 20.25 mm`. With an 85 mm lens and 52 cm visible height,
 similar triangles give `distance = 52 * 85 / 36 = 122.78 cm`; visible width is
 `52 * 9 / 16 = 29.25 cm`. Place the eye-level camera toward the explicitly
-configured neutral front axis, aim at the head socket plus 6 cm, set manual
-focus at that distance and aperture f/5.6. These are configurable initial
-composition choices, not a measured fit for an unavailable rig
-(`settings.py:14`, `unreal_worker.py:78`).
+configured neutral front axis and aim at the head socket plus 6 cm. Depth of
+field is disabled: focusing at the head joint softened the eyes. These framing
+values were checked on the actual Taro rig; the owner accepted its position
+(`settings.py:14`, `unreal_worker.py:97`, current job's native receipt).
 
-Use a large unlit light-green plane behind the performer and two 100x100 cm,
-5600 K RectLights. Initial key is 1400 lumens, fill 490 lumens. Broad sources
-and weaker fill are the intended soft-daylight treatment; actual face exposure,
-skin tone, headroom and head-motion clipping require visual acceptance.
-Background color is not guaranteed pixel-exact through tone mapping.
+Use an unlit chroma-green plane and two 200x200 cm, 5600 K RectLights.
+The current key is 900 lumens, fill 585 lumens (65%), exposure -5.5 EV, and
+eight temporal samples are used. These settings follow the owner's softer,
+dimmer feedback. Disable tone curve, bloom, vignette and lens flare; compensate
+background emission for exposure. The actual full-resolution PNG preview
+verifies `(0,255,0)` at four background samples; video compression may alter
+pixels. Evidence: `previews\fe1cc961aa6c4539b4847361b93f4d95\image-check.json`.
 
 ### Data model
 
@@ -146,14 +152,16 @@ Evidence: `pipeline.py:48`, `media.py:35`, `config\reanimation.json`.
 |---|---|
 | Correct narration provider/voice | Actual Yapit MCP result retained: PocketTTS/testuser, CPU, 24.74-second nonsilent WAV; voice hashes unchanged |
 | Native audio solve | Real job processed 742 frames in 38.453 seconds of editor runtime; saved Performance independently reloaded and exportable; artifact hashes valid |
-| GPU applicability | Actual NVIDIA encode/decode checks passed; D3D12 wrote three 1080x1920 green frames after the test camera was corrected, but post-render process failure blocks end-to-end acceptance |
-| Portrait configuration | Real UE filmback, camera cut, lights and MRQ settings APIs checked; human framing not yet accepted |
+| GPU applicability | Actual full Taro D3D12 render and NVIDIA NVENC encoding pass with native exit 0; installed speech inference remains CPU |
+| Portrait configuration | Actual 1080x1920 character render inspected; owner accepted face position, then requested softer/dimmer lighting, sharper focus and chroma green |
 | Final file | Exact contiguous 1080x1920 frames, native render success, 30 fps H.264/AAC, decoded frame count and audio/video timing |
 | Visual quality | Owner must review the actual rigged face, lip sync, excited delivery, headroom, green background and natural-style lighting |
 | No false likeness claim | Static/head-only drafts never satisfy the rig gate; technical file verification is not visual approval |
 
-Eleven isolated units currently pass. Full human acceptance remains open because
-the assembled rig is missing and native shutdown fails. Runtime receipts, not this design, determine
+Thirteen isolated units currently pass. Full CLI job
+`7f59ccf3576645c2b452dbbdab985d19` passes native exit, 743-frame 1080x1920/30 fps
+rendering, NVIDIA encoding, complete H.264/AAC decode, duration and integrity
+checks. Subjective lip-sync/acting acceptance remains open. Runtime receipts, not this design, determine
 whether any particular job solved or rendered successfully.
 Measured evidence is retained under
 `data\arka\reanimation\narration\20261117_pocket_testuser_9c37a2` and
@@ -165,18 +173,20 @@ Measured evidence is retained under
 |---|---|---|
 | RA-1: Narration provenance | Real local MCP call, PocketTTS/testuser, bounded energetic script, WAV and device evidence | Complete; no voice substitution |
 | RA-2: Reanimation adapter | Policy, native solve/export, portrait stage, GPU renderer, explicit NVENC and exact publication checks; consumes RA-1 WAV | Implemented; native speech solve/reload and NVIDIA encoding verified; rendering fails closed on gap C |
-| RA-3: Human render acceptance | Address gaps A/B/C: resolve native shutdown, supply an assembled rig, then render and inspect actual facial/head animation, crop and skin lighting | Blocked; plan a 1-2 week acceptance/hardening work item, not a measured runtime estimate |
+| RA-3: Human render acceptance | Taro rig, clean native shutdown, sharp portrait staging and actual narration integration | Technical checks complete on job `7f59ccf3576645c2b452dbbdab985d19`; owner review of lip sync/acting remains |
 
 For RA-3 use the selected free Taro sample; do not wait for or resume the owner's
 face generation. The shutdown investigation also found a
 [matching community report for UE 5.8.4](https://forums.unrealengine.com/t/editor-intermittently-crashes-with-0xc0000005-after-log-file-closed-heap-free-during-static-destruction-of-a-slate-notification-after-icu-teardown/2852372).
 It implicates late Slate notification destruction after internationalization
 teardown. This is a lead, not a confirmed native stack match. The adapter now
-lets the startup-script owner clear its notification and request exit; runtime
-verification remains open.
+lets the startup-script owner clear its notification and request exit; the
+tested Taro workflow now exits cleanly.
 
-No future body-gesture synthesis or identity-repair work is included in this
-milestone.
+Optional apparel selection is deferred and must not block current video/audio
+integration. When enabled its requested default is a dark-green crew-neck
+T-shirt; current output preserves the original hoodie. No wardrobe selection,
+body-gesture synthesis or identity repair is claimed in this milestone.
 
 ## 5. Reference Links
 

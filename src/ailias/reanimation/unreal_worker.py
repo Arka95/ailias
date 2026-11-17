@@ -69,10 +69,29 @@ def rig_class(path, unreal):
     return blueprint, actor_class
 
 
-def linear_colour(rgb, unreal):
+def linear_colour(rgb, unreal, exposure_compensation_ev=0):
     def convert(value):
         return value/12.92 if value <= .04045 else ((value+.055)/1.055)**2.4
-    return unreal.LinearColor(*(convert(value) for value in rgb), 1)
+    return unreal.LinearColor(*(convert(value)*2**(-exposure_compensation_ev) for value in rgb), 1)
+
+
+def normalize_subject_root(sequence, actor_class, unreal):
+    subjects = [binding for binding in sequence.get_bindings()
+                if (template := binding.get_object_template()) is not None
+                and template.get_class() == actor_class]
+    if len(subjects) != 1:
+        raise ValueError("Export must contain exactly one bound MetaHuman actor")
+    tracks = [track for track in subjects[0].get_tracks()
+              if isinstance(track, unreal.MovieScene3DTransformTrack)]
+    if len(tracks) != 1 or len(tracks[0].get_sections()) != 1:
+        raise ValueError("Exported MetaHuman must have one static root transform section")
+    section = tracks[0].get_sections()[0]
+    channels = section.get_channels_by_type(unreal.MovieSceneScriptingDoubleChannel)
+    if len(channels) != 9 or any(channel.get_num_keys() for channel in channels):
+        raise ValueError("Refusing to replace an unexpected or animated MetaHuman root")
+    # Native audio export adds a reference-pose offset/yaw unrelated to our origin-framed camera.
+    for channel, value in zip(channels, (0, 0, 0, 0, 0, 0, 1, 1, 1)):
+        channel.set_default(value)
 
 
 def stage(request, performance, unreal):
@@ -112,6 +131,7 @@ def stage(request, performance, unreal):
     sequence = unreal.MetaHumanPerformanceExportUtils.export_level_sequence(performance, settings)
     if not isinstance(sequence, unreal.LevelSequence):
         raise RuntimeError("Native audio performance did not export a playable MetaHuman sequence")
+    normalize_subject_root(sequence, actor_class, unreal)
     rate = sequence.get_display_rate()
     # Export owns key timing. Converting the whole sequence by changing display rate would retime keys.
     frames = request["frame_count"]
@@ -131,9 +151,19 @@ def stage(request, performance, unreal):
     component.set_editor_property("filmback", filmback)
     component.set_editor_property("current_focal_length", policy["focal_length_mm"])
     component.set_editor_property("current_aperture", 5.6)
+    post_process = component.get_editor_property("post_process_settings")
+    for name, value in {
+        "auto_exposure_method": unreal.AutoExposureMethod.AEM_MANUAL,
+        "auto_exposure_apply_physical_camera_exposure": False,
+        "auto_exposure_bias": policy["exposure_compensation_ev"],
+        "bloom_intensity": 0, "vignette_intensity": 0, "lens_flare_intensity": 0,
+    }.items():
+        post_process.set_editor_property("override_" + name, True)
+        post_process.set_editor_property(name, value)
+    component.set_editor_property("post_process_settings", post_process)
+    component.set_editor_property("post_process_blend_weight", 1)
     focus = component.get_editor_property("focus_settings")
-    focus.focus_method = unreal.CameraFocusMethod.MANUAL
-    focus.manual_focus_distance = request["framing"]["camera_distance_cm"]
+    focus.focus_method = unreal.CameraFocusMethod.DISABLE
     component.set_editor_property("focus_settings", focus)
     binding = sequence.add_possessable(camera)
     cuts = sequence.add_track(unreal.MovieSceneCameraCutTrack)
@@ -145,11 +175,12 @@ def stage(request, performance, unreal):
     background.set_actor_rotation(unreal.MathLibrary.make_rot_from_z(front), False)
     background.set_actor_scale3d(unreal.Vector(20, 20, 20))
     tools = unreal.AssetToolsHelpers.get_asset_tools()
-    material = tools.create_asset("LightGreenBackdrop", destination, unreal.Material, unreal.MaterialFactoryNew())
+    material = tools.create_asset("ChromaBackdrop", destination, unreal.Material, unreal.MaterialFactoryNew())
     material.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
     expression = unreal.MaterialEditingLibrary.create_material_expression(
         material, unreal.MaterialExpressionConstant3Vector)
-    expression.set_editor_property("constant", linear_colour(policy["background_srgb"], unreal))
+    expression.set_editor_property("constant", linear_colour(
+        policy["background_srgb"], unreal, policy["exposure_compensation_ev"]))
     unreal.MaterialEditingLibrary.connect_material_property(expression, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
     unreal.MaterialEditingLibrary.recompile_material(material)
     background.static_mesh_component.set_material(0, material)
@@ -160,8 +191,8 @@ def stage(request, performance, unreal):
         light.set_actor_rotation(unreal.MathLibrary.find_look_at_rotation(light_location, center), False)
         light.light_component.set_editor_property("intensity_units", unreal.LightUnits.LUMENS)
         light.light_component.set_intensity(policy["key_lumens"]*strength)
-        light.light_component.set_editor_property("source_width", 100)
-        light.light_component.set_editor_property("source_height", 100)
+        light.light_component.set_editor_property("source_width", policy["light_size_cm"])
+        light.light_component.set_editor_property("source_height", policy["light_size_cm"])
         light.light_component.set_editor_property("use_temperature", True)
         light.light_component.set_temperature(policy["temperature_kelvin"])
     unreal.EditorAssetLibrary.save_loaded_asset(material, only_if_is_dirty=False)
@@ -173,6 +204,8 @@ def stage(request, performance, unreal):
                       "camera": {"location": [location.x, location.y, location.z],
                                  "target": [center.x, center.y, center.z], **request["framing"]},
                       "native_sequence_fps": rate.numerator/rate.denominator,
+                      "subject_root": "Identity transform; native face/head Control Rig keys preserved",
+                      "focus": "Depth of field disabled for sharp face and keyable edges",
                       "body_gestures": "Not synthesized; audio generates face and head movement only"}
 
 
@@ -207,6 +240,7 @@ def render(request, sequence, result, unreal):
     output.flush_disk_writes_per_shot = True
     config.find_or_add_setting_by_class(unreal.MoviePipelineDeferredPassBase)
     config.find_or_add_setting_by_class(unreal.MoviePipelineImageSequenceOutput_PNG)
+    config.find_or_add_setting_by_class(unreal.MoviePipelineColorSetting).disable_tone_curve = True
     game = config.find_or_add_setting_by_class(unreal.MoviePipelineGameOverrideSetting)
     game.game_mode_override = unreal.MoviePipelineGameMode
     aa = config.find_or_add_setting_by_class(unreal.MoviePipelineAntiAliasingSetting)
