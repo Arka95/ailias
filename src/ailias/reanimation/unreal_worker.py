@@ -117,24 +117,37 @@ def stage(request, performance, unreal):
             raise ValueError("Face has no RigLogic post-process animation blueprint")
     finally:
         actors.destroy_actor(reference)
-    settings = unreal.MetaHumanPerformanceExportLevelSequenceSettings()
-    settings.show_export_dialog = False
-    settings.package_path = destination
-    settings.asset_name = "PortraitReel"
-    settings.target_meta_human_class = blueprint
-    for name in ("export_video_track", "export_depth_track", "export_image_plane",
-                 "export_identity", "export_camera", "export_transform_track"):
-        settings.set_editor_property(name, False)
-    settings.export_audio_track = True
-    settings.export_control_rig_track = True
-    settings.enable_meta_human_head_movement = True
-    settings.enable_control_rig_head_movement = True
-    settings.keep_frame_range = False
-    sequence = unreal.MetaHumanPerformanceExportUtils.export_level_sequence(performance, settings)
-    if not isinstance(sequence, unreal.LevelSequence):
-        raise RuntimeError("Native audio performance did not export a playable MetaHuman sequence")
-    normalize_subject_root(sequence, actor_class, unreal,
-                           policy["character_location_cm"], policy["character_yaw_degrees"])
+    if performance is None:
+        sequence = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
+            "NeutralReview", destination, unreal.LevelSequence, unreal.LevelSequenceFactoryNew())
+        if not isinstance(sequence, unreal.LevelSequence):
+            raise RuntimeError("Neutral review sequence could not be created")
+        sequence.set_display_rate(unreal.FrameRate(policy["fps"], 1))
+        subject = actors.spawn_actor_from_class(
+            actor_class, unreal.Vector(*policy["character_location_cm"]),
+            unreal.Rotator(yaw=policy["character_yaw_degrees"]))
+        if subject is None:
+            raise RuntimeError("Neutral review actor could not be instantiated")
+        sequence.add_possessable(subject)
+    else:
+        settings = unreal.MetaHumanPerformanceExportLevelSequenceSettings()
+        settings.show_export_dialog = False
+        settings.package_path = destination
+        settings.asset_name = "PortraitReel"
+        settings.target_meta_human_class = blueprint
+        for name in ("export_video_track", "export_depth_track", "export_image_plane",
+                     "export_identity", "export_camera", "export_transform_track"):
+            settings.set_editor_property(name, False)
+        settings.export_audio_track = True
+        settings.export_control_rig_track = True
+        settings.enable_meta_human_head_movement = True
+        settings.enable_control_rig_head_movement = True
+        settings.keep_frame_range = False
+        sequence = unreal.MetaHumanPerformanceExportUtils.export_level_sequence(performance, settings)
+        if not isinstance(sequence, unreal.LevelSequence):
+            raise RuntimeError("Native audio performance did not export a playable MetaHuman sequence")
+        normalize_subject_root(sequence, actor_class, unreal,
+                               policy["character_location_cm"], policy["character_yaw_degrees"])
     rate = sequence.get_display_rate()
     # Export owns key timing. Converting the whole sequence by changing display rate would retime keys.
     frames = request["frame_count"]
@@ -265,7 +278,9 @@ def main():
     import unreal
 
     request = json.loads(Path(os.environ["AILIAS_REANIMATION_REQUEST"]).read_text())
-    result = {"status": "running", "stage": "audio_solve", "cloud_requested": False,
+    neutral = request.get("neutral_review") is True
+    result = {"status": "running", "stage": "portrait_stage" if neutral else "audio_solve",
+              "cloud_requested": False, "neutral_review": neutral,
               "engine": unreal.SystemLibrary.get_engine_version(),
               "render_device": "D3D12 GPU", "likeness_generation": False}
     publish(request, result)
@@ -274,8 +289,10 @@ def main():
             raise ValueError("Reanimation adapter targets the verified UE 5.8 API")
         if request.get("blueprint"):
             rig_class(request["blueprint"], unreal)
-        performance, evidence = solve(request, unreal)
-        result.update(evidence)
+        performance = None
+        if not neutral:
+            performance, evidence = solve(request, unreal)
+            result.update(evidence)
         if not request.get("blueprint"):
             result.update(status="audio_solved_awaiting_rigged_metahuman", stage="rigged_input_required")
         else:

@@ -6,8 +6,10 @@ Fit one complete GNM head to multiple photographs, keeping identity separate
 from each view's camera and expression. Generate Blender geometry/appearance
 previews and hand a hair-free mesh to Unreal.
 
-**Not complete:** automated native resemblance refinement, photographic skin
-transfer, groom binding and a reusable rig/assembly pipeline.
+**Not complete:** automatic photo-guided native resemblance fitting and
+photographic skin transfer. Scripted feature profiles now persist native groom,
+iris, bounded sculpt and texture-override edits; their visual quality remains a
+separate check.
 
 ## Inputs and outputs
 
@@ -17,9 +19,12 @@ transfer, groom binding and a reusable rig/assembly pipeline.
 | `appearance` | Exact fitted mesh plus matching geometry-review record | Photo-colour atlas/coverage, UV geometry, approximate hair, scene and hair-free OBJ/MTL |
 | `unreal-import` | Verified appearance revision, UE editor/project | Textured static mesh/material/texture packages; not a MetaHuman |
 | `unreal-conform` | Verified import and optional pinned baseline | New head-only Character, tracked contours, camera and saved-package evidence |
+| `unreal-features` | Existing native Character, explicit feature profile, pinned baseline when present | Isolated Character revision, edit receipt and independent editor reload; optional runtime assembly |
+| `unreal-review` | Verified feature revision with runtime Blueprint | One neutral native frame, saved stage/camera policy and source hashes; no audio solve |
 
 Jobs are retained under `data\ALIAS\facefitting\runs`, `appearance`, `unreal`
-and `conforms`. A successful conform transfers geometric constraints, **not**
+and `conforms`; native edits/reviews use `features` and `native-reviews`.
+A successful conform transfers geometric constraints, **not**
 the Blender skin atlas, eye appearance or facial/scalp hair.
 
 ## Usage
@@ -34,6 +39,9 @@ $ue = 'C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor-Cmd
 $project = 'C:\path\to\Review.uproject'
 python -m ailias facefitting unreal-import subject APPEARANCE_REVISION --editor $ue --project $project
 python -m ailias facefitting unreal-conform subject IMPORT_JOB --editor $ue --project $project
+python -m ailias facefitting unreal-features subject --character /Game/Heads/Person.Person --profile C:\profiles\features.json --editor $ue --project $project
+python -m ailias facefitting unreal-features subject --character /Game/Heads/Person.Person --profile C:\profiles\features.json --assemble --editor $ue --project $project
+python -m ailias facefitting unreal-review subject FEATURE_JOB --editor $ue --project $project --resolution 540x960
 ```
 
 `appearance` requires `reviews\FIT_JOB-clay-approval.json` with decision
@@ -48,6 +56,13 @@ This is a technical dependency gate, not evidence that texture or final likeness
 | `appearance --appearance-config FILE` | `config\appearance.json` | Texture/hair preparation budgets |
 | `--generation-config FILE` | `config\generation.json` | Shared native tools, Blender device/render size and timeout; supported by fit, appearance, import and conform |
 | `unreal-conform --baseline FILE` | Alias `facefitting\working-baseline.json`, when present | Pinned existing scene/geometry/camera dependencies |
+| `unreal-features --profile FILE` | Required | Validated native edit policy; no inferred anatomical correspondences |
+| `unreal-features --baseline FILE` | Alias working baseline, when present | Verify every pinned source; never refit or rewrite its Blender scene |
+| `unreal-features --assemble` | Off | Build an optimized medium-quality runtime actor and verify its compiled face rig/bound groom components in a fresh editor |
+| `unreal-features --cloud-services` | Off | Allow missing native full-rig/source-texture requests; existing compatible data is reused |
+| `unreal-review --review-config FILE` | `config\reanimation.json` | Same documented camera, lights, placement, warmup and render policy as [reanimation](../reanimation/README.md#configuration) |
+| `unreal-review --resolution` | `540x960` | Even 9:16 review dimensions; does not change the stored camera/light defaults |
+| `unreal-review --diagnostic` | Off | Inspect retained runtime assets from a failed revision; does not mark its checks or likeness as passed |
 | Model specifications | `config\facefitting-models.json` | Source URLs, revisions, checksums and retained licenses; no CLI path override |
 
 ### Fitting: `config\facefitting.json`
@@ -83,6 +98,49 @@ GNM, MediaPipe, the surface correspondence and their license/readme records are 
 Shared native configuration is documented in [generation](../generation/README.md#configuration).
 Texture colour still contains source illumination; it is not intrinsic albedo.
 Unobserved texels are neutral-filled and excluded from measured coverage.
+
+### Native feature profile
+
+The profile edits a duplicate of the supplied Character, never a new default
+template. Omitted features remain unchanged. This is a scripted editing adapter,
+not an automatic photo-to-likeness optimizer.
+
+```json
+{
+  "version": 1,
+  "grooms": {
+    "Beard": {
+      "asset": "/MetaHumanCharacter/Optional/Grooms/Bindings/Beards/WI_Beard_S_Stubble.WI_Beard_S_Stubble",
+      "parameters": {"Melanin": 0.95, "Redness": 0.0}
+    }
+  }
+}
+```
+
+| Key | Default / range | Meaning |
+|---|---|---|
+| `version` | Required: `1` | Profile schema |
+| `sources` | `[]` | Optional verified artifact references: `path`, SHA256 and `storage: external` for absolute external files |
+| `grooms` | `{}` | Slot mapping; supported slots: `Hair`, `Eyebrows`, `Beard`, `Mustache`, `Eyelashes`, `Peachfuzz` |
+| `grooms.SLOT.asset` | Required for each selected slot | Existing compatible wardrobe asset under `/Game` or `/MetaHumanCharacter`; replaces the slot selection, not an appended duplicate |
+| `grooms.SLOT.parameters` | Omitted parameters unchanged | Optional `Melanin`, `Redness`, `Roughness`, each `[0,1]`; these are native material controls, not measured hair colours |
+| `eyes.global_tint_linear` | Unchanged | Three linear RGB multipliers in `[0,1]`, applied to both native irises |
+| `eyes.global_saturation` | Unchanged; `[0,4]` when supplied | Both irises' native saturation control |
+| `face_basecolor` | Unchanged | Existing Texture2D in verified native UV space; enables UE 5.8 texture/material overrides |
+| `sculpt.reference_landmarks` | Required with sculpt | Exact native control snapshot for this Character; stale geometry is rejected |
+| `sculpt.deltas` | Required with sculpt | Unique `{index, delta_cm: [x,y,z]}` edits in native coordinates |
+| `sculpt.max_displacement_cm` | Required with sculpt; `(0,2]` | Maximum individual edit and observed whole-face displacement budget |
+
+Sculpt inputs need anatomically justified targets. The adapter does not invent a
+mapping between GNM/MediaPipe points and native sculpt controls. Iris multipliers
+are not calibrated colour matching, and a GNM atlas is not a native-UV texture.
+
+With `--assemble`, edits and runtime assembly share one editor session, followed
+by an independent editor reload. Validated edits are saved before assembly, so
+an assembly failure does not discard that checkpoint. The current runtime
+inspector requires bound groom components: baked-only stubble at optimized
+LODs is not yet supported by that verification gate, even when native wardrobe
+selection persisted. Such runs remain failed, not appearance-approved.
 
 ## Current working baseline
 

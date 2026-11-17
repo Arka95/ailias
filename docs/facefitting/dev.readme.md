@@ -34,6 +34,8 @@ different numerical optimization; neither backend is a likeness certificate.
 | `unreal_handoff.py` | Static import, package hashes, declared basis and bounds checks |
 | `tracking_worker.py` | In-memory frontal tracking camera without rewriting the baseline scene |
 | `unreal_conform.py`, `unreal_conform_worker.py` | Local native Character solve, state commit and saved-package verification |
+| `native_features.py`, `native_features_worker.py` | Immutable-source Character duplication, validated sculpt/iris/texture/groom edits, optional native assembly and independent reload |
+| `native_review.py` | Hash-verified runtime review and one-frame neutral rendering through the reanimation worker; no narration or fitting |
 
 Photo projection uses source cameras, portrait offsets and actual resize ratios.
 Face parser boxes already use portrait coordinates; subtracting the source offset
@@ -61,11 +63,48 @@ Do not silently treat an RGB atlas as calibrated skin reflectance.
 | Baseline | Verify every pinned source; no new fit or saved `.blend` copy during native refinement |
 | Conform | Commit face/body state, save package, check actual file |
 | Rig/assembly | Saved packages, compiled actor/rigs and independent reload/render are separate from API return values |
+| Native features | D3D12/offscreen worker; original package and every baseline dependency must retain their hashes |
+| Native wardrobe | Edit `get_preview_collection`, call `on_edit_preview_collection` to persist selections/parameters, then independently reload |
 
 Absolute scale remains uncalibrated. A large raw displacement may be translation;
 use translation-removed/aligned diagnostics and actual visual comparisons.
 RMS zero across rigging only means those sampled native points stayed fixed,
 not that Blender-to-native likeness is correct.
+
+UE 5.8's editing preview owns a separate collection. Editing only
+`character.internal_collection` after registration does not update the assembled
+preview. The adapter uses the preview collection and explicitly propagates its
+changes back before saving. Groom slots use `set_single_slot_selection` to avoid
+duplicate selections. Every requested exposed parameter is checked after a fresh
+editor process; geometry must remain unchanged for appearance-only jobs.
+
+`--assemble` reuses a full rig and high-resolution textures when present.
+Editing and building run in one editor process; a second process independently
+reloads the Character and assembled actor. Feature properties, sculpt displacement
+and original-source hashes remain mandatory checks. Edits are saved before
+building, and feature state is checked again after assembly. Missing cloud
+prerequisites fail unless explicitly enabled. Runtime verification
+instantiates the compiled actor, checks its Face/head/RigLogic and every requested
+groom's binding, then destroys only that test actor. Neutral review uses a saved
+one-frame sequence without an audio performance; ordinary reanimation retains
+its existing audio solve/export path.
+
+The bound-component gate currently rejects baked-only short grooms; it does not
+verify native stubble baked into skin at lower LODs. A retained failed assembly
+can be inspected with `unreal-review --diagnostic`, without promoting its source
+status or claiming visual acceptance.
+
+Each feature receipt records `worker_seconds` and non-overlapping `stage_seconds`
+for loading, edit registration, preview assembly, feature checks, runtime
+assembly, Blueprint compilation, package saving and actor inspection. Host
+`apply_runtime`/`verify_runtime` durations also include editor startup and shutdown;
+worker stages are subsets, not additional wall time. Native phases are measured
+on the next execution; removing a process is not itself a measured speedup.
+
+The local full-rig Character requires D3D12 even for edit registration; NullRHI
+asserted in native skinned-mesh code. Do not silently substitute it. Job-owned
+temporary files use shared finalization; source/native packages are retained as
+hash-referenced evidence, not blindly deleted by filesystem cleanup.
 
 ## Configuration
 
@@ -99,6 +138,7 @@ shows the unresolved quality gap.
 python -m unittest ailias.facefitting.tests.test_fitting ailias.facefitting.tests.test_observations -v
 python -m unittest ailias.facefitting.tests.test_texture ailias.facefitting.tests.test_appearance -v
 python -m unittest ailias.facefitting.tests.test_unreal_conform ailias.facefitting.tests.test_unreal_handoff -v
+python -m unittest ailias.facefitting.tests.test_native_features ailias.facefitting.tests.test_native_review ailias.reanimation.tests.test_reanimation -v
 ```
 
 Units use synthetic geometry/fake observations and editors. Explicit hardware

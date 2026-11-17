@@ -12,7 +12,8 @@ JOB_COLLECTIONS = (
     ("imageprocessing", "cleansing"),
     ("generation", "runs"), ("generation", "inputs"),
     ("facefitting", "runs"), ("facefitting", "appearance"),
-    ("facefitting", "unreal"), ("facefitting", "conforms"),
+    ("facefitting", "unreal"), ("facefitting", "conforms"), ("facefitting", "features"),
+    ("facefitting", "native-reviews"),
     ("reanimation", "runs"),
 )
 
