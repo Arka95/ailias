@@ -151,7 +151,8 @@ The separate [reanimation module](docs/reanimation/README.md) accepts narration
 and an **already assembled rigged MetaHuman Blueprint**. It implements native
 audio-driven face/head animation, a light-green portrait stage, GPU rendering
 and explicit NVIDIA video encoding. **A personalized talking reel is not yet
-validated: no assembled rig is available in the review project.** Audio can be
+validated: no assembled rig is available in the review project, and the local
+GPU fixture crashes during editor shutdown after frame output.** Audio can be
 solved independently; this does not restart the stopped likeness experiments.
 
 | Document | Dev guide | Purpose |

@@ -183,8 +183,8 @@ def finished(executor, success):
                   stage="verify_frames_and_encode" if success else "native_render_failed",
                   render_success=bool(success))
     publish(REQUEST, RESULT)
+    # -ExecutePythonScript owns exit and must destroy its notification before quitting.
     unreal.EditorPythonScripting.set_keep_python_script_alive(False)
-    unreal.SystemLibrary.quit_editor()
 
 
 def render(request, sequence, result, unreal):
@@ -251,7 +251,6 @@ def main():
                       project_may_contain_partial_outputs=True)
         unreal.EditorPythonScripting.set_keep_python_script_alive(False)
     publish(request, result)
-    unreal.SystemLibrary.quit_editor()
 
 
 if __name__ == "__main__":

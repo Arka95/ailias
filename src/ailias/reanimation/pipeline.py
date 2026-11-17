@@ -122,6 +122,11 @@ def create_reel(store, audio, editor, project, policy, *, blueprint=None, encode
     except (OSError, ValueError, TypeError, KeyError, subprocess.TimeoutExpired) as error:
         report.update(status="failed", video_verified=False,
                       error={"type": type(error).__name__, "message": str(error)})
+        if receipt.is_file():
+            try:
+                report["native"] = json.loads(receipt.read_text())
+            except (OSError, ValueError):
+                pass
     finally:
         for path in (request_path, receipt):
             if path.is_file() and path.stat().st_size:

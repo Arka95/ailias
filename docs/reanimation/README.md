@@ -9,8 +9,9 @@ static heads and unassembled Character drafts are not suitable inputs.
 The adapter implements offline MetaHuman Animator full-face lip sync, generated
 blinks/head motion, an excited mood, a portrait camera, soft daylight-style
 lighting, a light-green backdrop and Movie Render Queue PNG output. FFmpeg then
-encodes H.264/AAC at 1080x1920, 30 fps. **Human rendering remains unvalidated until
-a genuine assembled rig is supplied.** Mood is not a replacement for an energetic
+encodes H.264/AAC at 1080x1920, 30 fps. **End-to-end rendering is blocked by a
+local post-render editor shutdown crash and the missing assembled rig.**
+Mood is not a replacement for an energetic
 voice recording, and this version does not generate arm or torso gestures.
 
 ## Commands
@@ -85,8 +86,18 @@ H.264/AAC metadata, decoded frame count and audio/video duration checks.
 `video_rendered_awaiting_visual_review` means the file passed technical checks,
 not that lip sync, likeness, headroom or lighting passed human review.
 
-Nine isolated units pass. Real UE camera/light/MRQ-setting checks and a
-three-frame 1080x1920 D3D12 render, NVENC encode and audio/video decode check passed.
-This fixture is only a green technical test with a synthetic tone, not a human
-reel or the requested voice narration. See the [development evidence](dev.readme.md)
+Eleven isolated units pass. Real UE camera/light/MRQ-setting checks, NVIDIA
+hardware encoding and audio/video decode checks passed. GPU rendering wrote
+three portrait frames, but this is **not a passing end-to-end renderer test**:
+corrected green-backdrop runs exited with `0xC0000005` after writing the frames,
+using both editor executables. No exit-code gate is bypassed.
+These fixtures are not a human reel or the requested voice narration.
+See the [development evidence](dev.readme.md)
 for the current native integration result and remaining rig blocker.
+
+The independent test subject selected on the owner's instruction is **Taro**
+from Epic's free [MetaHumans sample on Fab](https://www.fab.com/listings/0281d63e-71f7-4e07-a344-5fa721ac4d35).
+The listing contains assembled characters, not just meshes. It is legacy UE 5.5
+content; compatibility with this adapter will be tested after acquisition.
+Its Fab page and Epic Launcher are open, but the Launcher exposes no accessible
+download controls to the CLI. This sample does not depend on fitting the owner's face.

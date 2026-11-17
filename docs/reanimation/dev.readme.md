@@ -66,7 +66,7 @@ export of a native audio track alone is not treated as an MP4 audio guarantee.
 & C:\projectWorkspace\.venv\Scripts\python.exe -m unittest ailias.reanimation.tests.test_reanimation -v
 ```
 
-Nine units use temporary media, fake native execution and mocked decoding.
+Eleven units use temporary media, fake native execution and mocked decoding.
 They do not load UE, speech models or GPU hardware. No additional dependencies
 or linter were introduced.
 
@@ -77,7 +77,8 @@ Separate explicitly run integration evidence, all Git-ignored:
 | `capability.json` | Installed UE 5.8 API/enums and absence of assembled project Blueprints |
 | `stage-api-check.json` | Real camera filmback/cut-binding, RectLight, backdrop and MRQ setting APIs |
 | `nvenc-capability-check.mp4` | Actual 1080x1920, three-frame NVIDIA hardware encode, no human content |
-| `renderer-check\receipt.json` and `verified.json` | Actual D3D12 MRQ callback success, three exact 1080x1920 frames, NVENC/AAC encode and decoded frame/duration checks; green backdrop and synthetic technical tone only |
+| `renderer-check\receipt.json` and `verified.json` | Initial D3D12 test wrote three black frames due to a test-only camera rotation error; NVENC/AAC and decoded timing checks passed, but this is not acceptable stage output |
+| `renderer-check2` through `renderer-check4`, plus corresponding logs under `data\arka\unreal` | Corrected look-at camera produced green portrait frames, but the process exited with access violation `0xC0000005` after frame completion; both `UnrealEditor-Cmd.exe` and `UnrealEditor.exe` reproduce it |
 | `narration\20261117_pocket_testuser_9c37a2\mcp_receipt.json` and `yapit_provenance.json` | Actual MCP stdio `generate_audio`, PocketTTS/testuser, 24.74-second mono PCM16 at 24 kHz, existing CPU runtime; original voice hashes unchanged |
 | `runs\5a0ae3435a1546f181ee87ee1032a267\manifest.json` and `reload-check.json` | Actual narration solved in 38.453 seconds of editor runtime, 742 processed frames; Performance saved, separately reloaded and exportable; all manifest artifact hashes valid |
 
@@ -86,11 +87,28 @@ import check passed; pre-importing `scipy.linalg` before the actual MCP entrypoi
 resolved it without installs or package changes. The retained MCP receipt
 records the bounded command and exact existing CPU environment.
 
+The test-only camera used positional `Rotator` arguments incorrectly. Production
+staging already uses `find_look_at_rotation`, which the corrected fixture also
+uses. That change fixed the black image, **not** the shutdown crash. Deferring
+shutdown outside the MRQ completion callback also failed to repair the crash;
+that speculative change was removed. Further native render retries are stopped.
+The host treats a nonzero process exit as failure even when a native receipt
+says frames completed, retaining both pieces of evidence rather than encoding
+and publishing a nominally successful reel.
+
+A subsequent source-guided change removes the worker's direct `quit_editor()`.
+Installed `PythonScriptPlugin\Private\EditorUtilities\EditorPythonExecuter.cpp`
+already watches the keep-alive flag and calls `DestroyNotification()` before
+its own deferred editor exit. The adapter now yields exit to that owner rather
+than racing it. This lifecycle is unit-tested; **a clean native render exit
+with the change has not yet been verified**. No more fixture-render retries
+were performed after the full-editor comparison failed.
+
 The review project is `data\arka\unreal\ReanimationReview`. Its static heads and
-Character drafts are not substituted for the required rig. Full character
-export/render, actual face framing, natural skin illumination and subjective
-lip-sync quality remain blocked/unvalidated until a real assembled MetaHuman is
-available. Preserve failed receipts rather than weakening checks.
+Character drafts are not substituted for the required rig. Full character export/render, actual face framing, natural skin illumination and
+subjective lip-sync quality remain blocked/unvalidated. A real assembled
+MetaHuman **and a clean post-render editor exit** are required. Preserve failed
+receipts rather than weakening checks.
 
 Jobs are synchronous and serialized per alias, not a distributed queue. A crash
 can leave a `running` manifest and partial native assets; inspect logs and start

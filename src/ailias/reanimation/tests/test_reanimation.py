@@ -87,6 +87,8 @@ class ReelTests(unittest.TestCase):
                 "status": "audio_solved_awaiting_rigged_metahuman", "performance": performance,
                 "sound": request["destination"] + "/Narration.Narration",
                 "processed_frames": 0 if outcome == "empty" else 3})
+            if outcome == "crash":
+                raise ValueError("native exit_3221225477")
             return {"seconds": 0}
 
         result = create_reel(store, self.audio(), editor, project, ReelPolicy(),
@@ -110,6 +112,13 @@ class ReelTests(unittest.TestCase):
         self.assertEqual(result["status"], "failed")
         self.assertIn("processed animation frames", result["error"]["message"])
 
+    def test_native_receipt_cannot_override_a_process_failure(self):
+        _, result = self.job("crash")
+        self.assertEqual(result["status"], "failed")
+        self.assertFalse(result["video_verified"])
+        self.assertIn("exit_3221225477", result["error"]["message"])
+        self.assertEqual(result["native"]["processed_frames"], 3)
+
     def test_missing_encoder_blocks_video_before_native_execution(self):
         _, result = self.job("saved", "/Game/MetaHumans/Arka/BP_Arka")
         self.assertEqual(result["status"], "blocked")
@@ -130,6 +139,19 @@ class ReelTests(unittest.TestCase):
                     else:
                         with self.assertRaises(ValueError):
                             verify_video(Path("ffmpeg.exe"), Path("reel.mp4"), ReelPolicy(), 3)
+
+    def test_render_completion_yields_shutdown_to_startup_script_owner(self):
+        from ailias.reanimation import unreal_worker
+        keepalive = []
+        unreal = SimpleNamespace(EditorPythonScripting=SimpleNamespace(
+            set_keep_python_script_alive=keepalive.append))
+        receipt = self.root / "receipt.json"
+        with patch.dict("sys.modules", {"unreal": unreal}), \
+                patch.object(unreal_worker, "REQUEST", {"receipt": str(receipt)}), \
+                patch.object(unreal_worker, "RESULT", {}):
+            unreal_worker.finished(None, True)
+        self.assertEqual(keepalive, [False])
+        self.assertEqual(json.loads(receipt.read_text())["status"], "frames_rendered")
 
 
 if __name__ == "__main__":

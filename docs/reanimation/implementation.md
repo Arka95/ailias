@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | Owner | ailias workspace |
-| Status | Implemented adapter; human-render acceptance blocked on assembled rig |
+| Status | Audio solve verified; rendering blocked on native shutdown crash and assembled rig |
 | Last updated | 2026-11-17 |
 | Services in scope | Local Yapit narration, UE 5.8 adapter, FFmpeg |
 | Reviewers | Workspace owner; no separate team/on-call owner established |
@@ -27,6 +27,18 @@ Evidence: retained `data\arka\reanimation\capability.json` and the input gate in
 face crop and natural-style skin illumination need a render of that rig.
 Technical checks are load-bearing; speed does not waive them. This is a local
 workspace task; no separate production team or on-call contact is established.
+
+**Gap C:** corrected green-stage GPU fixtures write their frames, then both
+editor executables exit with `0xC0000005`. A deferred shutdown also failed.
+Do not treat a successful MRQ callback as a successful editor process; further
+native retries are stopped. Evidence: `reanimation-renderer-check2.log` through
+`reanimation-renderer-check4.log` under `data\arka\unreal`.
+
+The owner explicitly approved a free marketplace character for testing:
+**Taro from Epic's MetaHumans sample**. Acquisition is separate from the stopped
+personal-likeness pipeline; no generated owner head is a prerequisite.
+Source: [free listing](https://www.fab.com/listings/0281d63e-71f7-4e07-a344-5fa721ac4d35)
+and [Epic's sample guide](https://dev.epicgames.com/documentation/de-de/metahuman/metahumans-sample-for-unreal-engine-5?application_version=5.0-5.5).
 
 ## 2. Implementation
 
@@ -134,14 +146,14 @@ Evidence: `pipeline.py:48`, `media.py:35`, `config\reanimation.json`.
 |---|---|
 | Correct narration provider/voice | Actual Yapit MCP result retained: PocketTTS/testuser, CPU, 24.74-second nonsilent WAV; voice hashes unchanged |
 | Native audio solve | Real job processed 742 frames in 38.453 seconds of editor runtime; saved Performance independently reloaded and exportable; artifact hashes valid |
-| GPU applicability | Three-frame 1080x1920 D3D12 MRQ render, NVENC/AAC encode and decoded frame/duration checks passed on a green technical fixture with a synthetic tone; no human rendered |
+| GPU applicability | Actual NVIDIA encode/decode checks passed; D3D12 wrote three 1080x1920 green frames after the test camera was corrected, but post-render process failure blocks end-to-end acceptance |
 | Portrait configuration | Real UE filmback, camera cut, lights and MRQ settings APIs checked; human framing not yet accepted |
 | Final file | Exact contiguous 1080x1920 frames, native render success, 30 fps H.264/AAC, decoded frame count and audio/video timing |
 | Visual quality | Owner must review the actual rigged face, lip sync, excited delivery, headroom, green background and natural-style lighting |
 | No false likeness claim | Static/head-only drafts never satisfy the rig gate; technical file verification is not visual approval |
 
-Nine isolated units currently pass. Full human acceptance remains open because
-the assembled rig is missing. Runtime receipts, not this design, determine
+Eleven isolated units currently pass. Full human acceptance remains open because
+the assembled rig is missing and native shutdown fails. Runtime receipts, not this design, determine
 whether any particular job solved or rendered successfully.
 Measured evidence is retained under
 `data\arka\reanimation\narration\20261117_pocket_testuser_9c37a2` and
@@ -152,8 +164,16 @@ Measured evidence is retained under
 | Work item | Scope | State |
 |---|---|---|
 | RA-1: Narration provenance | Real local MCP call, PocketTTS/testuser, bounded energetic script, WAV and device evidence | Complete; no voice substitution |
-| RA-2: Reanimation adapter | Policy, native solve/export, portrait stage, GPU renderer, explicit NVENC and exact publication checks; consumes RA-1 WAV | Implemented; isolated units, actual native speech solve/reload and technical GPU render/encode/decode checks pass |
-| RA-3: Human render acceptance | Address gaps A/B: supply an assembled rig, then use RA-2 to render and inspect actual facial/head animation, crop and skin lighting | Blocked on rig; plan a 1-2 week acceptance/hardening work item, not a measured runtime estimate |
+| RA-2: Reanimation adapter | Policy, native solve/export, portrait stage, GPU renderer, explicit NVENC and exact publication checks; consumes RA-1 WAV | Implemented; native speech solve/reload and NVIDIA encoding verified; rendering fails closed on gap C |
+| RA-3: Human render acceptance | Address gaps A/B/C: resolve native shutdown, supply an assembled rig, then render and inspect actual facial/head animation, crop and skin lighting | Blocked; plan a 1-2 week acceptance/hardening work item, not a measured runtime estimate |
+
+For RA-3 use the selected free Taro sample; do not wait for or resume the owner's
+face generation. The shutdown investigation also found a
+[matching community report for UE 5.8.4](https://forums.unrealengine.com/t/editor-intermittently-crashes-with-0xc0000005-after-log-file-closed-heap-free-during-static-destruction-of-a-slate-notification-after-icu-teardown/2852372).
+It implicates late Slate notification destruction after internationalization
+teardown. This is a lead, not a confirmed native stack match. The adapter now
+lets the startup-script owner clear its notification and request exit; runtime
+verification remains open.
 
 No future body-gesture synthesis or identity-repair work is included in this
 milestone.
