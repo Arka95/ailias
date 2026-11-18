@@ -39,6 +39,7 @@ class UnrealSessionTests(unittest.TestCase):
             "worker_sha256": "fixture",
         })
         atomic_json(self.session.state, {"session_id": "owned", "status": "idle"})
+        (self.session.root / "editor.log").write_text('shaderplatform="PCD3D_SM6"\n')
 
     def test_project_writer_lock_is_shared_across_coordinators_and_released_after_exception(self):
         other = UnrealSession(self.project, self.editor)
@@ -79,6 +80,20 @@ class UnrealSessionTests(unittest.TestCase):
         self.assertEqual(process_identity(os.getpid()), first)
         self.assertGreater(first["created"], 0)
 
+    def test_process_exit_during_fingerprinting_is_not_reported_as_a_permission_failure(self):
+        from unittest.mock import Mock
+
+        for failure in ("times", "image"):
+            kernel = Mock()
+            kernel.OpenProcess.return_value = 1
+            kernel.WaitForSingleObject.side_effect = [258, 0]
+            kernel.GetProcessTimes.return_value = failure != "times"
+            kernel.QueryFullProcessImageNameW.return_value = False
+            with self.subTest(failure=failure), \
+                    patch("ailias.generation.unreal_session.ctypes.WinDLL", return_value=kernel):
+                self.assertIsNone(process_identity(42))
+            kernel.CloseHandle.assert_called_once_with(1)
+
     def test_stale_job_completion_cannot_complete_another_request(self):
         request = self.root / "request.json"
         receipt = self.root / "receipt.json"
@@ -90,6 +105,26 @@ class UnrealSessionTests(unittest.TestCase):
             with self.assertRaisesRegex(TimeoutError, "remains busy"):
                 self.session.run(None, request, "session-probe", self.root, "done", .01)
         self.assertFalse(receipt.exists())
+
+    def test_shader_failure_after_a_large_log_burst_overrides_native_success(self):
+        request, receipt = self.root / "request.json", self.root / "receipt.json"
+        atomic_json(request, {"receipt": str(receipt)})
+        status = {"status": "idle", "session_id": "owned", "pid": 42}
+        current = dict(status)
+
+        def submit(path, value):
+            atomic_json(path, value)
+            with (self.session.root / "editor.log").open("a") as log:
+                log.write("native output\n" * 100000)
+                log.write("Failed to compile Material /Plugin/M_Skin, Default Material will be used\n")
+            atomic_json(receipt, {"status": "done"})
+            current.update(status="completed", job_id=value["job_id"])
+
+        with patch.object(self.session, "_start", return_value=(status, True)), \
+                patch.object(self.session, "status", side_effect=lambda: dict(current)), \
+                patch("ailias.generation.unreal_session.atomic_json", side_effect=submit):
+            with self.assertRaisesRegex(ValueError, "refusing fallback/checkerboard"):
+                self.session.run(None, request, "assemble", self.root, "done", 1)
 
     def test_receipt_reuse_and_busy_editor_never_accept_a_new_job(self):
         request = self.root / "request.json"
@@ -116,6 +151,20 @@ class UnrealSessionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "running a job"):
                 self.session.stop()
 
+    def test_stop_waits_on_the_verified_process_handle_not_a_terminating_pid_query(self):
+        from unittest.mock import Mock
+
+        kernel = Mock()
+        kernel.OpenProcess.return_value = 99
+        kernel.WaitForSingleObject.return_value = 0
+        current = {"status": "completed", "pid": 42, "session_id": "owned"}
+        with patch.object(self.session, "status", side_effect=[
+                current, PermissionError("Process is terminating")]) as status, \
+                patch("ailias.generation.unreal_session.ctypes.WinDLL", return_value=kernel):
+            self.assertEqual(self.session.stop()["status"], "stopped")
+        status.assert_called_once()
+        kernel.CloseHandle.assert_called_once_with(99)
+
     def test_persistent_jobs_reuse_the_owned_session_and_independent_verification_stays_cold(self):
         tools = NativeTools(self.root)
         tools.paths["unreal"] = self.editor
@@ -133,6 +182,7 @@ class UnrealSessionTests(unittest.TestCase):
         self.assertEqual(warm.call_count, 2)
         self.assertEqual(cold.call_count, 1)
         self.assertEqual(cold.call_args.kwargs["environment"], {"REQUEST": "request.json"})
+        self.assertIn("-sm6", cold.call_args.args[2])
 
     def test_explicit_oneshot_mode_does_not_start_a_persistent_editor(self):
         tools = NativeTools(self.root)
@@ -166,6 +216,17 @@ class UnrealSessionTests(unittest.TestCase):
                 patch.object(UnrealSession, "status", return_value={"status": "idle"}):
             result, code = execute(args, self.root)
         self.assertEqual((result["status"], code), ("idle", 0))
+
+    def test_service_launcher_waits_without_reopening_a_terminating_process(self):
+        from types import SimpleNamespace
+
+        args = SimpleNamespace(generation_action="unreal-session", session_action="start",
+                               project=self.project, editor=self.editor, wait=True)
+        with patch.object(UnrealSession, "start", return_value={"status": "idle"}), \
+                patch.object(UnrealSession, "wait") as wait, \
+                patch.object(UnrealSession, "status", side_effect=AssertionError):
+            self.assertEqual(execute(args, self.root), ({"status": "idle"}, 0))
+        wait.assert_called_once()
 
     def test_invalid_wait_mode_is_rejected_before_starting_any_native_work(self):
         from types import SimpleNamespace

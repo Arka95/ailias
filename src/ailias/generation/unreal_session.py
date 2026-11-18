@@ -14,6 +14,7 @@ import uuid
 
 from ailias.settings import PROJECT_ROOT
 from ailias.storage import atomic_json, digest
+from ailias.generation.unreal_validation import validate_shader_output
 
 CONFIG = PROJECT_ROOT / "config" / "unreal-session.json"
 WORKER = Path(__file__).with_name("unreal_session_worker.py")
@@ -55,10 +56,16 @@ def process_identity(pid):
             raise ctypes.WinError(ctypes.get_last_error())
         times = [wintypes.FILETIME() for _ in range(4)]
         if not kernel.GetProcessTimes(handle, *(ctypes.byref(value) for value in times)):
-            raise ctypes.WinError(ctypes.get_last_error())
+            error = ctypes.get_last_error()
+            if kernel.WaitForSingleObject(handle, 100) == 0:
+                return None
+            raise ctypes.WinError(error)
         name, size = ctypes.create_unicode_buffer(32768), wintypes.DWORD(32768)
         if not kernel.QueryFullProcessImageNameW(handle, 0, name, ctypes.byref(size)):
-            raise ctypes.WinError(ctypes.get_last_error())
+            error = ctypes.get_last_error()
+            if kernel.WaitForSingleObject(handle, 100) == 0:
+                return None
+            raise ctypes.WinError(error)
         return {"pid": pid, "created": times[0].dwHighDateTime << 32 | times[0].dwLowDateTime,
                 "executable": os.path.normcase(str(Path(name.value).resolve()))}
     finally:
@@ -139,7 +146,7 @@ class UnrealSession:
             process = subprocess.Popen([
                 str(self.editor), str(self.project), f"-ExecutePythonScript={WORKER}",
                 "-unattended", "-nop4", "-nosplash", "-AllowCommandletRendering",
-                "-RenderOffscreen", "-d3d12", "-stdout", "-FullStdOutLogOutput",
+                "-RenderOffscreen", "-d3d12", "-sm6", "-stdout", "-FullStdOutLogOutput",
                 "-ExecCmds=mh.Character.FromCustomMeshImportShowIterations 0",
             ], cwd=self.project.parent, env=environment, stdin=subprocess.DEVNULL,
                 stdout=stream, stderr=subprocess.STDOUT,
@@ -168,6 +175,11 @@ class UnrealSession:
         with self.lock():
             status, reused = self._start()
             self.assert_idle()
+            engine_log = self.root / "editor.log"
+            with engine_log.open("rb") as stream:
+                startup = stream.read(1_048_576).decode("utf-8", errors="replace")
+            validate_shader_output(startup, require_platform=True)
+            log_offset, log_overlap, shader_error = engine_log.stat().st_size, "", None
             payload = json.loads(Path(request).read_text(encoding="utf-8"))
             receipt = Path(payload["receipt"])
             if receipt.exists():
@@ -183,6 +195,16 @@ class UnrealSession:
             atomic_json(self.inbox, envelope)
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
+                with engine_log.open("rb") as stream:
+                    stream.seek(log_offset)
+                    while output := stream.read(1_048_576):
+                        log_offset += len(output)
+                        text = log_overlap + output.decode("utf-8", errors="replace")
+                        try:
+                            validate_shader_output(text)
+                        except ValueError as error:
+                            shader_error = error
+                        log_overlap = text[-512:]
                 current = self.status()
                 if current["status"] == "stopped":
                     raise ValueError("Unreal editor exited before the job completed")
@@ -191,6 +213,8 @@ class UnrealSession:
                         raise ValueError(f"Unreal job failed; inspect {receipt}")
                     if not receipt.is_file():
                         raise ValueError("Unreal completed without the native receipt")
+                    if shader_error is not None:
+                        raise ValueError(f"{shader_error}; inspect {engine_log}") from shader_error
                     logs = Path(directory) / "logs"
                     logs.mkdir(parents=True, exist_ok=True)
                     log = logs / f"{operation}.log"
@@ -219,17 +243,35 @@ class UnrealSession:
             current = self.status()
             if current["status"] not in {"idle", "completed", "failed", "starting", "stopped"}:
                 raise ValueError("Unreal is still running a job; wait for its completion before stopping")
-            if current["status"] == "stopped":
-                return current
-            atomic_json(self.inbox, {"session_id": current["session_id"], "job_id": uuid.uuid4().hex,
-                                    "project": str(self.project), "operation": "session-stop"})
-            deadline = time.monotonic() + timeout
-            while time.monotonic() < deadline:
-                status = self.status()
-                if status["status"] == "stopped":
-                    return status
-                time.sleep(self.settings["poll_seconds"])
+            return self._wait_for_exit(current, timeout, shutdown=True)
+
+    def wait(self):
+        return self._wait_for_exit(self.status(), None)
+
+    def _wait_for_exit(self, current, timeout, *, shutdown=False):
+        if current["status"] == "stopped":
+            return current
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel.OpenProcess.restype = wintypes.HANDLE
+        kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        handle = kernel.OpenProcess(0x00100000, False, current["pid"])
+        if not handle:
+            raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            if shutdown:
+                atomic_json(self.inbox, {"session_id": current["session_id"], "job_id": uuid.uuid4().hex,
+                                        "project": str(self.project), "operation": "session-stop"})
+            # Retain the handle before shutdown; reopening a terminating PID can return access denied.
+            outcome = kernel.WaitForSingleObject(handle, int(timeout * 1000) if timeout is not None else 0xFFFFFFFF)
+            if outcome == 0:
+                return {"status": "stopped", "project": str(self.project)}
+            if outcome != 258:
+                raise ctypes.WinError(ctypes.get_last_error())
             raise TimeoutError("Owned Unreal editor has not completed shutdown")
+        finally:
+            kernel.CloseHandle(handle)
 
 
 def execute_unreal(tools, project, worker, request, operation, directory, request_variable,
@@ -241,6 +283,6 @@ def execute_unreal(tools, project, worker, request, operation, directory, reques
                       terminal_status, independent=independent, console_commands=console_commands)
     return tools.run("unreal", operation, [
         str(project), f"-ExecutePythonScript={worker}", "-unattended", "-nop4", "-nosplash",
-        "-AllowCommandletRendering", "-RenderOffscreen", "-d3d12", "-stdout", "-FullStdOutLogOutput",
+        "-AllowCommandletRendering", "-RenderOffscreen", "-d3d12", "-sm6", "-stdout", "-FullStdOutLogOutput",
         *([f"-ExecCmds={console_commands}"] if console_commands else []),
     ], directory, environment={request_variable: str(request)})

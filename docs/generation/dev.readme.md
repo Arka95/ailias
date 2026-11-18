@@ -21,6 +21,9 @@ Migrated Unreal adapters call `execute_unreal` with an explicit worker, request
 and terminal status, not inferred historical command lines. The persistent
 bootstrap uses Slate ticks to admit one hash-pinned worker module per job;
 asynchronous MRQ/capture work retains that module until its terminal receipt.
+The dispatch callback is unregistered while a synchronous worker is executing,
+then restored even after a worker exception. Native MetaHuman builds pump Slate;
+reentering Python dispatch there can consume a pending native exception.
 Unique job IDs and receipts prevent a stale completion from finishing a new job.
 Per-job console variables are restored before admission reopens. Renderer
 completion removes its delegate without releasing editor keep-alive; one-shot
@@ -28,11 +31,24 @@ workers retain their prior exit behavior.
 
 Only the owned bootstrap may end the persistent editor. Shutdown, dead/recycled
 PID detection and project exclusion are separate from alias `Store.lock`.
+Shutdown and the `start --wait` launcher retain an OS process handle rather
+than reopening a terminating PID, which Windows can reject with access denied.
 Native failures and unknown/incomplete receipts fail closed. Pending jobs cannot
 be overwritten during the interval before the next engine tick; host timeout
 does not imply native cancellation. Per-operation logs contain bounded session
 metadata; the owned engine's diagnostic output remains in `Saved\AiliasSession\editor.log`
 for its lifetime, replaced on the next owned startup.
+
+Persistent and independent/one-shot migrated launches explicitly select D3D12
+**and SM6**. Job admission checks the actual `PCD3D_SM6` startup metadata, not
+the GPU's advertised capability. New material-compilation failures reject a
+job even if assembly exported assets and wrote a success receipt. One-shot
+checks scan the complete log before truncating it; persistent checks stream
+only new output in bounded chunks and retain errors until native completion.
+This prevents accepting Unreal's default/checkerboard material as baked skin.
+The two known standalone `MF_skin_fuzzApply`/`MF_skin_bakedInputs` anonymous
+thumbnail previews are excluded, not their actual runtime/master materials.
+See the [native failure investigation](../reanimation/pipeline-optimization-investigation.md).
 
 Input identity includes source/portrait hashes, curation, masks/policy and selected
 views. Reusing an identical hardlinked view is not cached reconstruction.
@@ -75,7 +91,7 @@ Detailed research/ablations remain in [selection research](selection-research.md
 
 ```powershell
 python -m unittest ailias.generation.tests.test_generation ailias.generation.tests.test_unreal -v
-python -m unittest ailias.generation.tests.test_unreal_session ailias.generation.tests.test_unreal_session_worker -v
+python -m unittest ailias.generation.tests.test_unreal_session ailias.generation.tests.test_unreal_session_worker ailias.generation.tests.test_unreal_validation -v
 ```
 
 Fake native/editor objects and synthetic images cover option forwarding, input

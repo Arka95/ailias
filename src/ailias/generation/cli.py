@@ -53,7 +53,6 @@ def add_parser(commands):
 def execute(args, data_root: Path):
     if args.generation_action == "unreal-session":
         from ailias.generation.unreal_session import UnrealSession
-        import time
 
         if args.wait and args.session_action != "start":
             raise ValueError("--wait is only supported when starting the owned editor")
@@ -63,8 +62,7 @@ def execute(args, data_root: Path):
         else:
             result = getattr(session, args.session_action)()
         if args.wait:
-            while session.status()["status"] != "stopped":
-                time.sleep(1)
+            session.wait()
         return result, 0
 
     from ailias.generation.pipeline import clean_mesh, finalize_job, inspect_job, load_job, reconstruct

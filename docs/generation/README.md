@@ -137,6 +137,9 @@ editor exits. No HTTP/TCP listener or remote-execution setting is enabled.
 `config\unreal-session.json` selects `mode` (`persistent`, the default, or
 explicit `oneshot`), `startup_timeout_seconds` (`180`) and `poll_seconds` (`0.1`).
 Existing operation timeouts, devices, appearance and reel policies are unchanged.
+Migrated launches explicitly require D3D12/SM6. Admission checks the engine's
+actual shader-platform metadata; material-compilation failure rejects the
+result even if Unreal wrote exported assets and a successful receipt.
 Project-local control files live under `Saved\AiliasSession`; a Windows OS file
 lock excludes concurrent migrated-route writers across aliases. Legacy
 commandlets have not been migrated and must not run concurrently on that project.
@@ -145,8 +148,8 @@ busy even if its caller times out; it is never automatically replayed. A failed
 session must be inspected/stopped before reuse. Stop the owned session before
 switching its bootstrap code or reserving its memory for a different workload.
 
-Actual same-process probes and MRQ results, including the still-failed native
-skin, are recorded in the [optimization investigation](../reanimation/pipeline-optimization-investigation.md#implemented-milestone).
+Actual same-process probes, MRQ results and the native skin investigation are
+recorded in the [optimization investigation](../reanimation/pipeline-optimization-investigation.md#implemented-milestone).
 
 ## Limits and cleanup
 

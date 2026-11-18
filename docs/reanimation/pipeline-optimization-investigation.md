@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | Owner | ailias repository owner |
-| Status | Main-path persistent execution and redundant-reference removal implemented; native same-PID MRQ check passed; further optimization remains planned |
+| Status | Persistent execution, reference reuse and SM6 safety implemented; actual native skin-to-speaking-video path technically verified in one working editor; appearance approval and further optimization remain open |
 | Last updated | 2026-11-18 |
 | Services in scope | Photo preparation, fitting, native Character editing/assembly, portrait rendering, encoding |
 | Reviewers | Repository owner; additional reviewers: *(fill alias)* |
@@ -16,8 +16,9 @@ the publication boundary, not after every parameter adjustment. Running without
 a visible editor window is already implemented; running these MetaHuman editor
 operations without an initialized editor engine is a different problem.
 The owner subsequently prioritized implementation after the failed visual
-iteration completed. This milestone does not claim corrected skin or a final
-speaking video.
+iteration completed. The initial optimization milestone did not fix skin.
+The follow-up below fixes checkerboard output and validates a full speaking
+draft; exact photo complexion and likeness are still unapproved.
 
 ## 1. Problem Statement
 
@@ -122,11 +123,87 @@ than publishing successful completion before delegate removal.
 
 These are warm-job measurements, **not** an equivalent old-versus-new full-video
 benchmark. The first render includes additional asset/render warmup.
-No full search, rig, texture generation, assembly, narration solve or speaking
-video was rerun. The independent-verifier routing was covered by units; a second
+At that initial milestone, no full search, rig, texture generation, assembly,
+narration solve or speaking video was rerun. The independent-verifier routing was covered by units; a second
 real cold verifier was not run for this milestone. Actual render inspection
 still shows the native gray/checkerboard skin: performance validation does not
 close the appearance defect.
+
+### Native fallback and real-pipeline follow-up
+
+The original gray checkerboard is not an unselected complexion control.
+`data\arka\facefitting\features\f07f4c699d874bfd847ba468db1a6405\logs\native-features-apply.log:2358-2436`
+records `M_skin_unified_UI` failing `PCD3D_SM5` compilation with error X4510,
+exceeding the 16-sampler register limit. TextureGraph then exported the default
+material into `T_Head_BC` and the lower-LOD albedos. Correct saved picker values,
+texture paths and Blueprint compilation did not detect this baked failure.
+
+Migrated persistent and one-shot/cold launches now explicitly request `-sm6`,
+documented in [Epic's command-line reference](https://dev.epicgames.com/documentation/en-us/unreal-engine/unreal-engine-command-line-arguments-reference?application_version=5.8).
+`src\ailias\generation\unreal_validation.py` verifies actual `PCD3D_SM6` metadata and rejects
+material-compiler failure even after a zero native exit or successful receipt.
+Persistent validation streams new output in bounded chunks; cold validation
+scans the complete log before truncation. No photo recolouring or changed
+complexion values hide the fallback.
+Two precisely identified standalone function-thumbnail materials,
+`MF_skin_fuzzApply:Material_0` and `MF_skin_bakedInputs:Material_0`, lack preview
+input connections and are excluded; their actual master/runtime material
+compilation is still checked. The initial overly broad gate rejected a complete
+valid build on these thumbnails. Its exact completed job/worker/request hashes,
+all saved asset/input hashes and the corrected full log were revalidated before
+continuing with the independent verifier, without rerunning assembly.
+
+The first real SM6 build used GPU D3D12/SM6 with no skin material compilation
+failure, but exposed a separate persistent-dispatch defect. Native assembly
+pumps Slate while reporting known ControlRig upgrade exceptions; the dispatch
+callback reentered `time.monotonic` with a pending Python exception and consumed
+it, turning the build result into a generic `SystemError`. Evidence:
+`data\arka\reanimation\native-sm6-validation\eee880702b414bd081ffb903b7e1939d\sm6-native-interruption.log:2722-2744`.
+The repaired dispatcher unregisters itself during synchronous worker execution
+and restores its callback afterwards, including exceptions. Async jobs retain
+their normal completion polling. Shutdown/service waiting also retains an OS
+process handle, avoiding access-denied queries during process teardown.
+
+This follow-up reuses the fitted f07 head and disables cloud requests. A
+successful SM6 startup alone is not skin/video acceptance: native assembly,
+independent reload, saved baked-albedo pixels, actual accepted-lighting portrait
+and a full supplied-narration reel must pass separately.
+
+**Actual corrected native evidence**, preparation
+`data\arka\reanimation\native-sm6-validation\49fd444e11474fb081eb9a832a77550f\manifest.json`:
+
+| Check | Observed result |
+|---|---|
+| Corrected Character/runtime | Feature `35ed200aafe54149a30cd1f2e5406158`; native cinematic assembly, six face-skin material slots verified |
+| Working editor reuse | PID **20648**, session `0bfd279dd8294d6aaa6c5e2b06941a79`, used for assembly, neutral MRQ and saved-albedo export |
+| Native apply total | 254.008s; registration 44.400s, actual skin-property write 0.002s, assembly 160.847s, runtime save 34.412s |
+| Independent fresh-process reload | 147.656s, actual `PCD3D_SM6`, values/runtime/groom/rig and source hashes verified |
+| Neutral MRQ, accepted reel lighting | 35.062s, 540x960, `reanimation.json` -5.5EV; actual new image opened, no checkerboard or old forehead photo-fill edge |
+| Saved baked albedo | Exported persistent runtime assets only: body 4096x4096 and face 2048x2048, 2048x2048, 1024x1024; all RGB/chromatic rather than grayscale checkerboards |
+| Albedo inspection cost | 2.765s native export, same working PID; no transient synthesized texture export |
+| Geometry/source preservation | 0cm maximum native landmark displacement; original f07 Character SHA256 remains `3ea37ab66a6bba5f1e2a1fcb10b4bf4c36e23689fb819c795b54b80833fd6393` |
+| Avoided work | No source-photo processing, refitting, exhaustive search, rerigging or cloud requests |
+| Unit checks | 168 affected regressions passed in 17.712s; after thumbnail classification correction, 29 targeted shader/session/dispatcher units passed |
+| Actual complete speaking draft | Run `9e041123caf8430fbfd9c6fc3a539e62`, 743 decoded frames, 540x960, 30fps, 24.766667s video; full audio decode passed (24.789333s) |
+| Speaking-job latency | 123.078s total including encoding/verification; 117.297s native solve/render, **zero working-editor startup**, same PID 20648 |
+| Media/source integrity | H.264 NVENC requested and completed, supplied WAV SHA unchanged; all verified Character/runtime/input hashes remain unchanged |
+| Actual video inspection | Opened first/middle/last-frame contact sheet: speaking expression/pose change visible, no checkerboard or old forehead fill edge; explicit -5.5EV policy retained |
+| Post-video reuse | Real native probe completed in 0.360s in the same still-running PID 20648; working editor left available |
+
+Video SHA256:
+`5e85f4f8a6d9129459d14d439971e123f94be6db06cb72bf0e09ea083a975f91`.
+Actual output is
+`data\arka\reanimation\runs\9e041123caf8430fbfd9c6fc3a539e62\portrait-reel.mp4`;
+the preparation retains `video-first-middle-last.png` and exact review notes.
+
+This restores native material output, not calibrated photo complexion or personal
+likeness approval. The draft still appears lighter than the reference photograph.
+Cold verification, native assembly and asset saves remain
+substantial costs; these timings are not an equivalent old/new full-run benchmark.
+The transient source-texture PNG diagnostic crashed the original editor earlier;
+its assertion log is retained under
+`data\arka\diagnostics\native-skin-pipeline-20261118\editor-crash.log`.
+Only saved baked Texture2D assets were exported for this successful check.
 
 Successful zero-identity reference pairs are now shared within a requested
 identity search across identity-prior values, with separate caches per expression
@@ -386,9 +463,9 @@ mock-based units.
 
 #### E. Tests, rollout and concrete acceptance
 
-**New tests:** `src\ailias\generation\tests\test_unreal_session.py` and
-`test_unreal_session_worker.py` (proposed), plus native opt-in coverage under
-`src\integration_tests\test_unreal_session.py` (proposed). Unit tests use fake
+**Implemented tests:** `src\ailias\generation\tests\test_unreal_session.py`,
+`test_unreal_session_worker.py`, `test_unreal_validation.py`, plus native opt-in
+coverage in `src\integration_tests\generation\unreal_session_smoke.py`. Unit tests use fake
 transport/processes and introduce no engine/model imports. Real engine/GPU
 tests remain explicitly selected, not part of rapid-development discovery.
 
@@ -396,7 +473,7 @@ tests remain explicitly selected, not part of rapid-development discovery.
 |---|---|
 | Compatibility | Existing tool, feature, workflow, portrait and reel units pass unchanged before enabling persistent mode; no new dependencies or package upgrades required for the proposed Epic transport. |
 | Reuse | A cold start followed by at least three warm operations retains the same working PID/project and does not repeat engine startup. Record full wall time and nested spans; do not subtract unrelated samples. |
-| Correctness | Same geometry, explicit native complexion/grooms, camera, tone pipeline, exposure, voice and frame-count/decode gates as the approved baseline; actual new frames inspected. Current checkerboard skin remains a failure. |
+| Correctness | Same geometry, explicit native complexion/grooms, camera, tone pipeline, exposure, voice and frame-count/decode gates; actual new frames inspected. Checkerboard output is fixed; exact photo complexion and likeness remain unapproved. |
 | Isolation | Different aliases targeting one project cannot mutate concurrently; wrong session/project rejected; borrowed editor left running; timeout/cancel/disconnect cannot publish a stale result. |
 | Async lifecycle | Two sequential MRQ jobs complete without stopping the editor, leaking old delegates or assigning a late completion to the next job. A blocking cloud job reports cancellation pending if it cannot be interrupted safely. |
 | Recovery | Crash leaves explicit failed/unknown job state and prior saved artifacts intact. No automatic replay of an uncertain cloud/generation request or stale successful receipt. |
@@ -483,12 +560,13 @@ evidence lives under `data\arka`, not in a public telemetry dashboard:
 - [PyTorch profiler][profiler] (current docs; use only APIs supported by the
   existing pinned environment, no package upgrade implied).
 
-Still required: cold/warm traces, peak memory measurements, installed project
-remote-execution configuration verification and a real persistent async render
-proof. No external team aliases, dashboard, PR or standalone MetaHuman SDK
-benchmark was established.
+Still required: equivalent cold/warm full-run traces and peak memory
+measurements. Persistent async rendering and the real full speaking draft are
+now proven above. The remote-execution alternative was not enabled; the
+implemented mailbox does not depend on it. No external team aliases, dashboard,
+PR or standalone MetaHuman SDK benchmark was established.
 
-**Generation outcome during research:** native revision `185f5121` completed
+**Earlier generation outcome during research:** native revision `185f5121` completed
 application and independent reload in 317.859s/129.109s. Its actual review
 `64beeee4` still shows gray checkerboard face/body skin despite correct saved
 native controls and restored -5.5 EV exposure. It was rejected; no full video

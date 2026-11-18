@@ -84,6 +84,31 @@ class UnrealDispatcherTests(unittest.TestCase):
         atomic_json(self.root / "job.json", envelope)
         self.assertEqual(self.tick()["error_type"], "ProjectMismatch")
 
+    def test_native_slate_pumping_cannot_reenter_dispatch_or_steal_build_exceptions(self):
+        callbacks = [self.dispatcher.tick]
+        self.dispatcher.callback = callbacks[0]
+        self.unreal.unregister_slate_post_tick_callback = callbacks.remove
+
+        def register(callback):
+            callbacks.append(callback)
+            return callback
+
+        self.unreal.register_slate_post_tick_callback = register
+        receipt = self.enqueue("native-build", Path(__file__))
+
+        def build(request, keep_alive):
+            if callbacks:
+                raise SystemError("Reentrant Python callback consumed the native build exception")
+            raise RuntimeError("Original native build error")
+
+        with patch("ailias.generation.unreal_session_worker.exec", create=True), \
+                patch("ailias.generation.unreal_session_worker.importlib.util.module_from_spec",
+                      return_value=SimpleNamespace(main=build)):
+            self.assertEqual(self.tick()["status"], "failed")
+        self.assertEqual(json.loads(receipt.read_text())["error_type"], "RuntimeError")
+        self.assertEqual(callbacks, [self.dispatcher.tick])
+        self.assertIsNotNone(self.dispatcher.callback)
+
     def test_unknown_completion_status_does_not_release_the_editor(self):
         receipt = self.enqueue("async", Path(__file__))
         envelope = json.loads((self.root / "job.json").read_text())

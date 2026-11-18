@@ -92,6 +92,13 @@ class NativeTools:
         except (OSError, subprocess.TimeoutExpired) as error:
             failure = type(error).__name__
         finally:
+            if name == "unreal" and "-sm6" in args and failure is None and log.exists():
+                from ailias.generation.unreal_validation import validate_unreal_log
+
+                try:
+                    validate_unreal_log(log)
+                except ValueError as error:
+                    failure = str(error)
             if log.exists() and log.stat().st_size > MAX_LOG_BYTES:
                 with log.open("rb") as stream:
                     stream.seek(-MAX_LOG_BYTES, os.SEEK_END)

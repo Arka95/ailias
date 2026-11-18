@@ -114,7 +114,16 @@ class Dispatcher:
                                                              envelope["worker"])
                 self.module = importlib.util.module_from_spec(spec)
                 exec(compile(source, envelope["worker"], "exec"), self.module.__dict__)
-                self.module.main(request, keep_alive=True)
+                callback = self.callback
+                if callback is not None:
+                    self.unreal.unregister_slate_post_tick_callback(callback)
+                    self.callback = None
+                try:
+                    # Native builds pump Slate while holding Python exceptions.
+                    self.module.main(request, keep_alive=True)
+                finally:
+                    if callback is not None:
+                        self.callback = self.unreal.register_slate_post_tick_callback(self.tick)
             self.inspect_completion()
         except Exception as error:
             receipt = Path(envelope["request"]["receipt"])

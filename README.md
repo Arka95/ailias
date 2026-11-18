@@ -116,7 +116,7 @@ See each module guide below for defaults, units and parameter meanings.
 
 ## Current UE appearance - likeness not approved
 
-| Selected reference | Latest actual UE appearance |
+| Selected reference | Earlier editable UE appearance (f6b61b60) |
 |---|---|
 | ![Selected glasses-free reference](docs/images/pipeline/appearance-reference.png) | ![Native skin, eyes, brows, fringe, moustache and stubble](docs/images/pipeline/native-appearance.png) |
 
@@ -128,6 +128,13 @@ hair is still straighter than the reference and skin reflectance is not
 photometrically calibrated. This is not full-likeness approval.
 [Actual photo/UE comparison](docs/facefitting/images/ue-photo-appearance-comparison.png).
 [Skin before/after](docs/facefitting/images/ue-skin-before-after.png).
+
+The latest fitted-head runtime `35ed200a` fixes the baked checkerboard under
+verified SM6. Its complete 24.77-second speaking draft was decoded and visually
+inspected, reusing one working editor for assembly, portrait and video. Geometry
+and supplied narration are unchanged. Complexion still appears lighter than the
+reference, and likeness remains unapproved.
+[Actual run, timings and remaining work](docs/reanimation/pipeline-optimization-investigation.md#native-fallback-and-real-pipeline-follow-up).
 
 ## Retired Blender baseline
 
