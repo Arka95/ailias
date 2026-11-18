@@ -31,7 +31,7 @@ every-frame retention for short expressions. That full-rate run completed with
 2412 images (all 720 from GX012987). On November 18 the owner chose one-second
 sampling for future geometry work. All-frame mode remains available and rejects
 truncation/count mismatch; both modes keep exact presentation timestamps.
-See `video.py:sampled_frames` and `config/video-evidence.json`.
+See `evidence\video_sampling.py:sampled_frames` and `config/video-evidence.json`.
 
 Gap C: none of the first 239 successfully detected sampled faces met the strict
 neutral-expression threshold. This does **not** justify weakening the neutral
@@ -74,7 +74,7 @@ flowchart TB
         G --> P["Unapplied native sculpt profile"]:::store
     end
     MAIN ~~~ SUM
-    SUM["Figure - Video geometry proposal. Read top to bottom; blue is processing, green is retained data, yellow is a gate. Full expression evidence is retained; fitting selects views, not a reduced animation timeline. Native application and visual approval are separate. Backed by: video.py, native_video_fit.py and native_features.py."]:::caption
+    SUM["Figure - Video geometry proposal. Read top to bottom; blue is processing, green is retained data, yellow is a gate. Full expression evidence is retained; fitting selects views, not a reduced animation timeline. Native application and visual approval are separate. Backed by: evidence\video_sampling.py, geometry\video_identity_fitting.py and unreal\character_features.py."]:::caption
     style MAIN fill:none,stroke:none
     classDef svc fill:#cfe3ff,stroke:#2b6cb0,color:#0b2545
     classDef store fill:#d6f5df,stroke:#2f855a,color:#12351f
@@ -82,8 +82,8 @@ flowchart TB
     classDef caption fill:#f7f7f7,stroke:#999,color:#222,font-size:16px
 ```
 
-**Backed by:** `video.py:extract_evidence`, `select_expression_aware`;
-`native_video_fit.py:fit_native_video`. Mermaid source was reviewed; no rendered
+**Backed by:** `evidence\video_sampling.py:extract_evidence`, `select_expression_aware`;
+`geometry\video_identity_fitting.py:fit_native_video`. Mermaid source was reviewed; no rendered
 diagram check is claimed.
 
 **Decode/evidence** synchronously reads local MP4s through PyAV, writes processing
@@ -115,7 +115,7 @@ cannot change when fitted camera pose changes. The whole predicted mesh is
 bounded to 0.75 cm; applying/reloading the real Character and inspecting actual
 geometry/appearance remain distinct checks. A numerical proposal is not success.
 
-**Native application** uses `native_features.py` to duplicate the source,
+**Native application** uses `unreal\character_features.py` to duplicate the source,
 reassert approved skin/grooms, apply the source-specific sculpt profile and
 independently reload. It communicates with UE through local JSON requests and
 receipts; no cloud rig/texture request or Blender worker is part of this path.
@@ -183,8 +183,8 @@ erDiagram
     }
 ```
 
-**Backed by:** `video.py:extract_evidence`, `extract_audio`,
-`native_video_fit.py:fit_native_video`. One retained frame belongs to one source;
+**Backed by:** `evidence\video_sampling.py:extract_evidence`, `extract_audio`,
+`geometry\video_identity_fitting.py:fit_native_video`. One retained frame belongs to one source;
 an evidence revision may fail before selection/audio/profile exists.
 
 ### Configuration and use
@@ -263,7 +263,7 @@ The latest owner instruction supersedes re-extraction: `video-create` now
 requires `--evidence`. Only sampled image bytes and capture metadata are reused;
 landmarks, expression, parsing, colour evidence, identity and native assets are
 recomputed. No MP4 decode or earlier personal fit/profile is used.
-`sampled_photos.py`, `shared_identity.py`, `native_jobs.py` and `fresh_video.py`
+`evidence\photo_processing.py`, `geometry\identity_fitting.py`, `unreal\worker_process.py` and `workflows\photo_to_character.py`
 separate inference, numerical fitting, external-process failures and orchestration.
 Two CPU decoders prefetch four images; model instances are not concurrently reused.
 
@@ -393,8 +393,8 @@ likeness is not marked accepted by a successful decoder, optimizer or UE call.
 8. [INSTA: monocular neural head avatars](https://arxiv.org/abs/2211.12499).
 9. [PyAV clocks and presentation timestamps](https://pyav.org/docs/stable/api/time.html).
 
-Local source of truth: `src\ailias\facefitting\video.py`,
-`native_video_fit.py`, `native_response.py`, `native_features.py`, their focused
+Local source of truth: `src\ailias\facefitting\evidence\video_sampling.py`,
+`geometry\video_identity_fitting.py`, `unreal\sculpt_response.py`, `unreal\character_features.py`, their focused
 tests, `config\video-evidence.json` and immutable generated job manifests.
 Audio/video appearance is observed illumination, not intrinsic skin albedo.
 Exact ears/rear skull, lens calibration and physical millimetre accuracy are

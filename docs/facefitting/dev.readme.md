@@ -2,10 +2,41 @@
 
 # Facefitting internals
 
+## Package ownership
+
+The CLI dispatches commands; workflows compose the implementation packages.
+Unit tests live in responsibility-specific `tests` subpackages.
+
+| Package / module | Owns |
+|---|---|
+| `evidence` | Retained-image loading, per-image analysis, semantic extraction and explicit video sampling |
+| `geometry` | Head models, camera transforms, correspondence, optimization and fit/OBJ serialization |
+| `appearance` | UV rasterization, photo texture projection, observed-feature comparison and native profile mapping |
+| `unreal` | Native asset operations, editor-process request/receipt handling, persistence and portrait capture |
+| `blender` | Optional standalone scene, tracking, rendering and skin-wrapping workers |
+| `workflows` | End-to-end stage ordering, source ownership, failure reports and final result assembly |
+| `configuration.py` | Validated fitting, frame-quality/video and appearance policies |
+| `artifacts.py` | Saved fit/appearance manifest inspection and dependency verification |
+
+Geometry code does not import workflow orchestration. Shared OBJ/fit I/O lives
+in `geometry\artifact_io.py`; per-image analysis lives in
+`evidence\frame_analysis.py`, so processing retained photos does not import the
+video decoder module. Native feature validation remains the same pure-Python
+contract used by the standalone Unreal feature worker; mapping does not launch
+an editor or duplicate that schema.
+
+Internal Python paths and callable names changed, not the public commands or
+serialized contracts. `video-create --evidence`, existing stage/status values,
+worker request fields and the `fresh-video` artifact directory remain stable.
+Historical generated worker copies and personal assets are not rewritten.
+`unreal\character_portrait.py` renders an assembled runtime Blueprint;
+`unreal\character_portrait_worker.py` captures an editable editor Character.
+Neither filename implies likeness approval.
+
 ## Fresh sampled-photo path
 
-`fresh_video.py:create_fresh_video_head` and `fresh_video_worker.py` implement
-`video-create`. `sampled_photos.py` reads only image references and capture
+`workflows\photo_to_character.py:run_photo_to_character_pipeline` and `unreal\character_creation_worker.py` implement
+`video-create`. `evidence\photo_processing.py` reads only image references and capture
 metadata from retained samples; old landmark, expression and semantic results
 are discarded. Two CPU workers prefetch at most four decoded images per batch.
 Fresh dense inference and face parsing are serialized per model instance;
@@ -51,24 +82,24 @@ manual appearance profile.
 Focused fresh-worker units mock UE; real GPU/native execution is opt-in through
 the command. Existing fit/conform units cover the reused components.
 
-`native_jobs.py` owns native request/receipt handling. A nonzero process exit
+`unreal\worker_process.py` owns native request/receipt handling. A nonzero process exit
 still retains a readable worker failure receipt in the parent report. Missing
 or malformed receipts, timeouts, worker-declared failures and source-integrity
 failures cannot become successful stages. Photo failures include the face ID
 and preserve their original exception chain; cleanup errors are recorded
 without replacing the primary failure.
 
-`native_surface_worker.py` exports per-corner native skin UVs, retaining seams,
+`unreal\skin_texture_worker.py` exports per-corner native skin UVs, retaining seams,
 within the verifying editor process: the geometry-export mesh is not a saved
 cross-process asset. Its other operation imports a fresh Texture2D.
-`native_appearance.py` projects the same run's
+`appearance\skin_texture_projection.py` projects the same run's
 photos/cameras into that atlas; approximate nearest-prior expression offsets
 do not alter the native rest mesh. It retains coverage and explicit unseen fill.
-`native_photo_profile.py` consumes current regional colours and facial-hair
+`appearance\profile_mapping.py` consumes current regional colours and facial-hair
 darkness estimates, validates the resulting native profile and records all
-stock-groom/iris/lash assumptions. `apply_features(use_working_baseline=False)`
+stock-groom/iris/lash assumptions. `apply_character_features(use_working_baseline=False)`
 duplicates only this run's new Character, without loading an earlier personal
-baseline. `native_preview_worker.py` spawns that saved editor-native Character,
+baseline. `unreal\character_portrait_worker.py` spawns that saved editor-native Character,
 assembles its preview grooms and captures a new 540x960 draft after nonblocking
 editor ticks, using lighting/exposure from the existing reanimation policy.
 It does not claim an assembled runtime or request cloud services.
@@ -78,12 +109,13 @@ It does not claim an assembled runtime or request cloud services.
 
 | Component | Responsibility |
 |---|---|
-| `model.py` | Pinned GNM assets, validated numeric loading and surface correspondence |
-| `observations.py` | Compatibility imports from `imageprocessing.dense`; no duplicate detector implementation |
-| `fitting.py` | Camera initialization, region weights, CPU reference and shared evaluation |
-| `cuda.py` | Batched deformation/projection/loss, automatic derivatives and Schur/LM optimizer |
-| `pipeline.py` | Fresh jobs, held-out candidate comparison, all-view refit, exports and integrity |
-| `blender_worker.py` | Neutral-clay review scene/rendering; not the numerical fitter |
+| `geometry\head_model.py` | Pinned GNM assets, validated numeric loading and surface correspondence |
+| `evidence\landmark_detection.py` | Compatibility imports from `imageprocessing.dense`; no duplicate detector implementation |
+| `geometry\optimization.py` | Camera initialization, region weights, CPU reference and shared evaluation |
+| `geometry\cuda_optimization.py` | Batched deformation/projection/loss, automatic derivatives and Schur/LM optimizer |
+| `geometry\artifact_io.py` | Fit parameter serialization and OBJ export retaining per-corner UV seams |
+| `workflows\head_fitting.py` | Fresh jobs, held-out candidate comparison, all-view refit, exports and integrity |
+| `blender\clay_render_worker.py` | Neutral-clay review scene/rendering; not the numerical fitter |
 
 One shared identity explains all views; camera/expression parameters vary per
 photo. The neutral export omits per-photo expression. The 468 mapped face points
@@ -99,20 +131,20 @@ different numerical optimization; neither backend is a likeness certificate.
 
 | Component | Responsibility / invariant |
 |---|---|
-| `appearance.py` | Matching geometry-review gate, new revision, atlas/export assembly and cleanup |
-| `semantics_worker.py` | Fresh OpenCV CUDA semantics isolated from Torch imports |
-| `texture.py`, `texture_cuda.py` | UV rasterization, expression-aware projection, coverage/depth/semantic tests and linear-light blending |
-| `appearance_worker.py` | Photo material, generic eyes, approximate scalp hair, scene and hair-free export |
-| `unreal_handoff.py` | Static import, package hashes, declared basis and bounds checks |
-| `tracking_worker.py` | In-memory frontal tracking camera without rewriting the baseline scene |
-| `unreal_conform.py`, `unreal_conform_worker.py` | Local native Character solve, state commit and saved-package verification |
-| `photo_tracking.py` | Optional original-photo contour view using retained fitted extrinsics; full-frame alpha compositing avoids a cropped-camera principal-point error |
-| `native_features.py`, `native_features_worker.py` | Immutable-source Character duplication, validated sculpt/iris/texture/groom edits, optional native assembly and independent reload |
-| `native_review.py` | Hash-verified runtime review and one-frame neutral rendering through the reanimation worker; no narration or fitting |
-| `feature_comparison.py`, `native_reference.py` | Compare generic per-photo/render evidence and write bounded, source-pinned iris edit proposals without launching an editor |
-| `native_control_map.py` | Match exported API controls to installed canonical native vertex IDs; only exact named anatomy memberships, no nearest-region guesses |
-| `native_response.py`, `native_response_worker.py` | Source-pinned finite-difference sculpt-to-mesh calibration on an isolated unrigged copy; restore the entire native state and verify its exported mesh |
-| `native_correspondence.py` | Associate rendered landmarks with visible triangles of that same native mesh; exact vertex-ID rebinding abstains on changed triangulation |
+| `workflows\appearance_generation.py` | Matching geometry-review gate, new revision, atlas/export assembly and cleanup |
+| `evidence\semantic_parsing_worker.py` | Fresh OpenCV CUDA semantics isolated from Torch imports |
+| `appearance\uv_rasterization.py`, `appearance\cuda_texture_projection.py` | UV rasterization, expression-aware projection, coverage/depth/semantic tests and linear-light blending |
+| `blender\appearance_scene_worker.py` | Photo material, generic eyes, approximate scalp hair, scene and hair-free export |
+| `unreal\static_mesh_import.py` | Static import, package hashes, declared basis and bounds checks |
+| `blender\tracking_view_worker.py` | In-memory frontal tracking camera without rewriting the baseline scene |
+| `unreal\head_conforming.py`, `unreal\head_conforming_worker.py` | Local native Character solve, state commit and saved-package verification |
+| `geometry\photo_camera.py` | Optional original-photo contour view using retained fitted extrinsics; full-frame alpha compositing avoids a cropped-camera principal-point error |
+| `unreal\character_features.py`, `unreal\character_features_worker.py` | Immutable-source Character duplication, validated sculpt/iris/texture/groom edits, optional native assembly and independent reload |
+| `unreal\character_portrait.py` | Hash-verified runtime review and one-frame neutral rendering through the reanimation worker; no narration or fitting |
+| `appearance\feature_comparison.py`, `appearance\iris_color_matching.py` | Compare generic per-photo/render evidence and write bounded, source-pinned iris edit proposals without launching an editor |
+| `geometry\sculpt_control_mapping.py` | Match exported API controls to installed canonical native vertex IDs; only exact named anatomy memberships, no nearest-region guesses |
+| `unreal\sculpt_response.py`, `unreal\sculpt_response_worker.py` | Source-pinned finite-difference sculpt-to-mesh calibration on an isolated unrigged copy; restore the entire native state and verify its exported mesh |
+| `geometry\surface_correspondence.py` | Associate rendered landmarks with visible triangles of that same native mesh; exact vertex-ID rebinding abstains on changed triangulation |
 
 Photo projection uses source cameras, portrait offsets and actual resize ratios.
 Face parser boxes already use portrait coordinates; subtracting the source offset
@@ -327,15 +359,14 @@ shows the unresolved quality gap.
 ## Validation and development
 
 ```powershell
-python -m unittest ailias.facefitting.tests.test_fitting ailias.facefitting.tests.test_observations -v
-python -m unittest ailias.facefitting.tests.test_texture ailias.facefitting.tests.test_appearance -v
-python -m unittest ailias.facefitting.tests.test_unreal_conform ailias.facefitting.tests.test_unreal_handoff -v
-python -m unittest ailias.facefitting.tests.test_native_features ailias.facefitting.tests.test_native_review ailias.reanimation.tests.test_reanimation -v
-python -m unittest ailias.facefitting.tests.test_native_response ailias.facefitting.tests.test_native_correspondence -v
+python -m unittest discover -s src\ailias\facefitting -t src -v
 ```
 
-The combined photo-tracking, conform, control-map, feature, response and
-correspondence selection passed **60 focused tests**.
+The committed package reorganization passed **246 units** across facefitting
+and the affected application, resource, imageprocessing and reanimation suites.
+Those checks used an isolated copy of the exact staged source, excluding
+pre-existing experimental edits. This naming/ownership change did not rerun
+GPU/UE reconstruction; the real execution results above predate the refactor.
 
 Units use synthetic geometry/fake observations and editors. Explicit hardware
 tests are separate:

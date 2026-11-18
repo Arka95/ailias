@@ -1,1 +1,1 @@
-"""Explicit local dense observations and photo-conditioned head-prior fitting."""
+"""Photo-to-Character workflows with separate evidence, geometry and runtime adapters."""

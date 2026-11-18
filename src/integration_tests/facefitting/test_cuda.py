@@ -11,9 +11,9 @@ if os.environ.get("AILIAS_CUDA_FITTING_TESTS") != "1":
 import numpy as np
 import torch
 
-from ailias.facefitting.cuda import project as cuda_project
-from ailias.facefitting.fitting import fit, project
-from ailias.facefitting.settings import FitPolicy
+from ailias.facefitting.geometry.cuda_optimization import project as cuda_project
+from ailias.facefitting.geometry.optimization import fit, project
+from ailias.facefitting.configuration import FitPolicy
 
 
 class CudaNumericsTests(unittest.TestCase):

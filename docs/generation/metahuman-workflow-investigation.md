@@ -15,13 +15,13 @@
 **Gap A:** The first coherent GNM head is a fitting baseline, not evidence that
 this is the best likeness pipeline. Its 468 mapped face landmarks do not measure
 all 17,821 vertices, ears, skin detail or hidden anatomy
-(`facefitting\model.py:HeadModel.audit`, `facefitting\observations.py:observe`).
+(`facefitting\geometry\head_model.py:HeadModel.audit`, `facefitting\evidence\landmark_detection.py:observe`).
 **Gap B:** CPU numerical derivatives consumed about 90% of a 372.859s run
 ([measured evidence](../facefitting/dev.readme.md#evidence)).
 **Gap C:** The legacy Unreal conform code targets an already-solved Identity.
-The new `facefitting\unreal_handoff.py` imports a hair-free custom-head candidate,
+The new `facefitting\unreal\static_mesh_import.py` imports a hair-free custom-head candidate,
 but does not create/conform a MetaHuman Character. The separate
-`facefitting\unreal_conform.py` adapter now creates local head-only Character drafts.
+`facefitting\unreal\head_conforming.py` adapter now creates local head-only Character drafts.
 
 Local metadata verifies UE **5.8.4**, including the Character plugin and its
 editor subsystem header. A subsequent real NullRHI commandlet loaded the

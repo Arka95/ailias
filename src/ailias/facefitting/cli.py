@@ -3,7 +3,7 @@
 from dataclasses import replace
 from pathlib import Path
 
-from ailias.facefitting.settings import DEFAULT_CONFIG
+from ailias.facefitting.configuration import DEFAULT_CONFIG
 from ailias.generation.settings import DEFAULT_GENERATION_CONFIG
 from ailias.storage import Store
 
@@ -91,88 +91,90 @@ def add_parser(commands):
 def execute(args, data_root):
     if args.facefitting_action == "video-create":
         import json
-        from ailias.facefitting.fresh_video import create_fresh_video_head
-        from ailias.facefitting.settings import load_policy
-        from ailias.facefitting.video import VideoPolicy
-        from ailias.facefitting.appearance import load_appearance_policy
+        from ailias.facefitting.workflows.photo_to_character import run_photo_to_character_pipeline
+        from ailias.facefitting.configuration import load_policy
+        from ailias.facefitting.configuration import VideoPolicy
+        from ailias.facefitting.configuration import load_appearance_policy
         from ailias.generation.settings import load_settings
         from ailias.generation.tools import NativeTools
         store = Store(data_root, args.alias)
         generation, tools_root = load_settings(args.generation_config)
         with store.lock():
-            result = create_fresh_video_head(
+            result = run_photo_to_character_pipeline(
                 store, args.evidence, args.editor, args.project,
                 NativeTools(tools_root, generation.timeout_seconds), load_policy(args.fit_config),
                 video_policy=VideoPolicy(**json.loads(args.video_config.read_text(encoding="utf-8"))),
                 appearance_policy=load_appearance_policy(args.appearance_config))
         return result, 0 if result["status"] == "fresh_video_completed" else 2
     if args.facefitting_action == "native-control-map":
-        from ailias.facefitting.native_control_map import map_native_controls
+        from ailias.facefitting.geometry.sculpt_control_mapping import map_native_controls
         store = Store(data_root, args.alias)
         with store.lock():
             result = map_native_controls(store, args.topology, args.inspection,
                                          args.configuration, args.anatomy, args.source_package)
         return result, 0 if result["status"] == "mapped" else 2
     if args.facefitting_action == "compare-features":
-        from ailias.facefitting.feature_comparison import compare_features
+        from ailias.facefitting.appearance.feature_comparison import compare_features
         store = Store(data_root, args.alias)
         with store.lock():
             return compare_features(store, args.reference, args.reference_face_id,
                                     args.candidate, args.current_tint), 0
-    from ailias.facefitting.model import model_assets
-    from ailias.facefitting.pipeline import inspect_fit, run_fit
-    from ailias.facefitting.settings import load_policy
+    from ailias.facefitting.geometry.head_model import model_assets
+    from ailias.facefitting.artifacts import inspect_head_fit
+    from ailias.facefitting.workflows.head_fitting import fit_head_from_photos
+    from ailias.facefitting.configuration import load_policy
     from ailias.generation.settings import load_settings
     from ailias.generation.tools import NativeTools
 
     store = Store(data_root, args.alias)
     if args.facefitting_action == "status":
-        result = inspect_fit(store, args.job)
+        result = inspect_head_fit(store, args.job)
         return result, 2 if result["integrity_problems"] else 0
     if args.facefitting_action == "appearance-status":
-        from ailias.facefitting.appearance import inspect_appearance
-        result = inspect_appearance(store, args.job)
+        from ailias.facefitting.artifacts import inspect_head_appearance
+        result = inspect_head_appearance(store, args.job)
         return result, 2 if result["integrity_problems"] else 0
     with store.lock():
         if args.facefitting_action == "models":
             return {"assets": model_assets(store, install=True)}, 0
         generation, tools_root = load_settings(args.generation_config)
         if args.facefitting_action == "unreal-review":
-            from ailias.facefitting.native_review import render_review
+            from ailias.facefitting.unreal.character_portrait import render_character_portrait
             from ailias.reanimation.settings import load_policy as load_reel_policy
             try:
                 width, height = (int(value) for value in args.resolution.lower().split("x"))
             except ValueError as error:
                 raise ValueError("Review resolution must be WIDTHxHEIGHT") from error
             policy = replace(load_reel_policy(args.review_config), width=width, height=height)
-            result = render_review(store, args.job, args.editor, args.project, policy,
+            result = render_character_portrait(store, args.job, args.editor, args.project, policy,
                                    NativeTools(tools_root, policy.timeout_seconds),
                                    diagnostic=args.diagnostic)
             return result, 0 if result["status"] == "native_neutral_rendered_awaiting_visual_review" else 2
         if args.facefitting_action == "unreal-features":
-            from ailias.facefitting.native_features import apply_features
-            result = apply_features(store, args.character, args.profile, args.editor, args.project,
+            from ailias.facefitting.unreal.character_features import apply_character_features
+            result = apply_character_features(store, args.character, args.profile, args.editor, args.project,
                                     NativeTools(tools_root, generation.timeout_seconds),
                                     baseline=args.baseline, assemble=args.assemble,
                                     cloud_services=args.cloud_services)
             return result, 0 if result["status"] == "features_reloaded_awaiting_visual_review" else 2
         if args.facefitting_action == "unreal-conform":
-            from ailias.facefitting.unreal_conform import conform_head
+            from ailias.facefitting.unreal.head_conforming import conform_head
             result = conform_head(store, args.job, args.editor, args.project, generation,
                                   NativeTools(tools_root, generation.timeout_seconds), baseline=args.baseline,
                                   reference_face_id=args.reference_face_id, source_character=args.source_character)
             return result, 0 if result["status"] == "head_conformed_awaiting_review" else 2
         if args.facefitting_action == "unreal-import":
-            from ailias.facefitting.unreal_handoff import import_appearance
+            from ailias.facefitting.unreal.static_mesh_import import import_appearance
             result = import_appearance(store, args.job, args.editor, args.project,
                                        NativeTools(tools_root, generation.timeout_seconds))
             return result, 0 if result["status"] == "static_head_imported_for_review" else 2
         if args.facefitting_action == "appearance":
-            from ailias.facefitting.appearance import load_appearance_policy, run_appearance
-            result = run_appearance(store, args.job, load_appearance_policy(args.appearance_config),
+            from ailias.facefitting.configuration import load_appearance_policy
+            from ailias.facefitting.workflows.appearance_generation import generate_head_appearance
+            result = generate_head_appearance(store, args.job, load_appearance_policy(args.appearance_config),
                                     generation, NativeTools(tools_root, generation.timeout_seconds))
             return result, 0 if result["status"] == "awaiting_appearance_review" else 2
-        result = run_fit(store, args.run, args.group, load_policy(args.fit_config),
+        result = fit_head_from_photos(store, args.run, args.group, load_policy(args.fit_config),
                          replace(generation, use_cleansed_portraits=True),
                          NativeTools(tools_root, generation.timeout_seconds))
         return result, 0 if result["status"] == "awaiting_human_likeness_review" else 2

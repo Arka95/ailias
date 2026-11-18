@@ -25,9 +25,9 @@ not required to construct this pipeline.
 | Boundary | Verified behavior | Gap |
 |---|---|---|
 | Photo preparation | Detection, identity grouping, masks/alignment plus new regional geometry/colour/iris evidence profiles | **A:** separate beard/lash evidence and calibrated multi-view aggregation remain incomplete; [imageprocessing guide](README.md#reusable-feature-evidence) |
-| Numerical head fit | GNM, a statistical head-shape prior, is fitted jointly with per-photo cameras and expression; held-out views select identity complexity | **B:** conditional reprojection is not proof of correct 3D anatomy; [pipeline.py:101-175](../../src/ailias/facefitting/pipeline.py#L101-L175) |
-| Blender | Reviews/exports the fitted geometry; appearance projects photo colour and approximates scalp hair | Blender is not the identity estimator. Photo colour retains lighting; [appearance.py:61-118](../../src/ailias/facefitting/appearance.py#L61-L118) |
-| Native conform | Sends mesh vertices/triangles, tracked contours and a matched camera into Unreal's head-only solver | **C:** fitted geometry was used, but the resulting native identity was not validated as a likeness. `appearance_transferred=False`; [unreal_conform_worker.py:17-106](../../src/ailias/facefitting/unreal_conform_worker.py#L17-L106) |
+| Numerical head fit | GNM, a statistical head-shape prior, is fitted jointly with per-photo cameras and expression; held-out views select identity complexity | **B:** conditional reprojection is not proof of correct 3D anatomy; [head fitting workflow](../../src/ailias/facefitting/workflows/head_fitting.py) |
+| Blender | Reviews/exports the fitted geometry; appearance projects photo colour and approximates scalp hair | Blender is not the identity estimator. Photo colour retains lighting; [appearance workflow](../../src/ailias/facefitting/workflows/appearance_generation.py) |
+| Native conform | Sends mesh vertices/triangles, tracked contours and a matched camera into Unreal's head-only solver | **C:** fitted geometry was used, but the resulting native identity was not validated as a likeness. `appearance_transferred=False`; [native conform worker](../../src/ailias/facefitting/unreal/head_conforming_worker.py) |
 | Native editing/build | Explicit groom, iris, bounded sculpt and texture edits plus optional assembly/reload are implemented | **D:** automatic anatomical targets, native-UV skin transfer and visually verified full appearance remain incomplete; [facefitting guide](../facefitting/README.md#native-feature-profile) |
 
 The pipeline separated geometry fitting from appearance/native integration.
@@ -280,10 +280,10 @@ storage choice here. COLMAP's transient SQLite is unrelated reconstruction scrat
 | Area | Keep | Proposed change / gate |
 |---|---|---|
 | `imageprocessing\dense.py`, `appearance_features.py`, `feature_evidence.py` | Shared detector and versioned source-coordinate regional evidence implemented | Separate beard/lash evidence and multi-view visibility calibration remain |
-| `facefitting\observations.py`, `native_reference.py`, `feature_comparison.py` | Compatibility imports and downstream bounded photo/render comparison | Native anatomical/UV mapping still required; an iris proposal is not an applied edit |
+| `facefitting\evidence\landmark_detection.py`, `facefitting\appearance\iris_color_matching.py`, `feature_comparison.py` | Compatibility imports and downstream bounded photo/render comparison | Native anatomical/UV mapping still required; an iris proposal is not an applied edit |
 | `config\imageprocessing.json`, `cleansing.json` | Existing extraction/colour semantics | Any new feature policy must document pixels/units, sample sufficiency, cohort and abstention; no new keys implemented here |
 | `config\facefitting.json`, `appearance.json` | Explicit device, fit/texture budgets | Preserve pinned geometry; alternatives are research until separately evaluated |
-| `native_features.py`, `native_features_worker.py`, `native_review.py` | Isolated revisions, strict saved-state verification, neutral reviews | Semantic mapping, native-UV transfer and coordinated appearance remain required |
+| `facefitting\unreal\character_features.py`, `character_features_worker.py`, `character_portrait.py` | Isolated revisions, strict saved-state verification, neutral reviews | Semantic mapping, native-UV transfer and coordinated appearance remain required |
 | `generation` | Separate photogrammetry route | Do not relabel fragments as complete heads or mix its evidence with the prior fit |
 
 ## 3. Success Criteria

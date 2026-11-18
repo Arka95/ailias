@@ -66,7 +66,7 @@ Model download identities are pinned in the model adapters, separate from policy
 | `dense.py` | Task-scoped CPU MediaPipe predictions and reversible source coordinates; no GNM dependency |
 | `appearance_features.py` | Pure per-photo geometry ratios, semantic-region colour and pupil-excluding iris sampling |
 | `feature_evidence.py` | Validate input hashes/curation/transforms; retain versioned features and parser masks |
-| `facefitting\feature_comparison.py` | Downstream photo/render diagnostics and optional native eye-profile proposal; never edits a Character |
+| `facefitting\appearance\feature_comparison.py` | Downstream photo/render diagnostics and optional native eye-profile proposal; never edits a Character |
 
 `features` requires explicit observation reuse; `inspect-image` performs fresh
 dense inference on one image. Both parse actual native-resolution RGB, not the
