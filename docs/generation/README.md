@@ -112,6 +112,42 @@ automatic likeness refinement or runtime assembly.
 `unreal-doctor` checks editor/project/plugins and reports Core Data separately;
 readiness is not a completed solve.
 
+## Reusable Unreal editor
+
+The fresh-head workflow, native feature application, editable/assembled portrait
+reviews and reanimation now reuse one **owned offscreen UE 5.8 editor per project**.
+It starts lazily at the first native operation and remains available across CLI
+invocations. Independent geometry/feature verification still starts a fresh
+process; the working editor is not closed for it. Legacy import/conform and
+sculpt-response commandlet paths retain their existing one-shot lifecycle.
+
+```powershell
+python -m ailias generation unreal-session start --editor $ue --project $project
+python -m ailias generation unreal-session status --project $project
+python -m ailias generation unreal-session probe --project $project
+python -m ailias generation unreal-session stop --project $project
+```
+
+`start` is optional; `probe` also starts an absent editor when `--editor` is
+provided. `status` never starts one. `stop` only shuts down the recorded, owned
+process after checking its creation time; it does not attach to or close a GUI
+editor. Add `start --wait` when a service launcher must remain alive until the
+editor exits. No HTTP/TCP listener or remote-execution setting is enabled.
+
+`config\unreal-session.json` selects `mode` (`persistent`, the default, or
+explicit `oneshot`), `startup_timeout_seconds` (`180`) and `poll_seconds` (`0.1`).
+Existing operation timeouts, devices, appearance and reel policies are unchanged.
+Project-local control files live under `Saved\AiliasSession`; a Windows OS file
+lock excludes concurrent migrated-route writers across aliases. Legacy
+commandlets have not been migrated and must not run concurrently on that project.
+A submitted job remains
+busy even if its caller times out; it is never automatically replayed. A failed
+session must be inspected/stopped before reuse. Stop the owned session before
+switching its bootstrap code or reserving its memory for a different workload.
+
+Actual same-process probes and MRQ results, including the still-failed native
+skin, are recorded in the [optimization investigation](../reanimation/pipeline-optimization-investigation.md#implemented-milestone).
+
 ## Limits and cleanup
 
 Estimated `SIMPLE_PINHOLE` cameras and SfM scale are not metric calibration.

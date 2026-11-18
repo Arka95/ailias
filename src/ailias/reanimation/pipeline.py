@@ -81,12 +81,13 @@ def create_reel(store, audio, editor, project, policy, *, blueprint=None, encode
         atomic_json(request_path, request)
         report["artifacts"]["worker"] = store.copy_artifact(
             Path(__file__).with_name("unreal_worker.py"), str(root.relative_to(store.root) / "worker"))
-        report["runtime"] = native.run("unreal", "reanimation", [
-            str(project.resolve()), "-ExecutePythonScript=" + str(store.artifact_path(report["artifacts"]["worker"])),
-            "-unattended", "-nop4", "-nosplash", "-AllowCommandletRendering",
-            "-RenderOffscreen", "-d3d12", "-stdout", "-FullStdOutLogOutput",
-            "-ExecCmds=r.DefaultFeature.AutoExposure 0",
-        ], root, environment={"AILIAS_REANIMATION_REQUEST": str(request_path)})
+        from ailias.generation.unreal_session import execute_unreal
+
+        report["runtime"] = execute_unreal(
+            native, project, store.artifact_path(report["artifacts"]["worker"]), request_path,
+            "reanimation", root, "AILIAS_REANIMATION_REQUEST",
+            "frames_rendered" if blueprint else "audio_solved_awaiting_rigged_metahuman",
+            console_commands="r.DefaultFeature.AutoExposure 0")
         result = json.loads(receipt.read_text())
         report["native"] = result
         expected_status = "frames_rendered" if blueprint else "audio_solved_awaiting_rigged_metahuman"

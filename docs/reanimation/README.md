@@ -35,6 +35,11 @@ audio solve only, with status `audio_solved_awaiting_rigged_metahuman`; no video
 is produced. `--voice` and compatibility spelling `--audio` select the same WAV,
 from any provider. There is no TTS/Yapit runtime or test dependency.
 
+Reanimation and native portrait review reuse the project-owned editor by
+default; completion does not close it. [Session commands/configuration](../generation/README.md#reusable-unreal-editor)
+control its lifetime. This does not reuse an old speech solve or render:
+each requested reel still solves/renders fresh content under its existing checks.
+
 ## Configuration
 
 `run --reel-config FILE` selects `config\reanimation.json`.

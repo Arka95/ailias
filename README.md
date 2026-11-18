@@ -103,6 +103,7 @@ silently install models or replace the shared runtime.
 | Review and select references | [Imageprocessing commands](docs/imageprocessing/README.md#usage) |
 | Fit / texture / import a head | [Facefitting commands](docs/facefitting/README.md#usage) |
 | Animate a compatible existing rig | [Reanimation commands](docs/reanimation/README.md#usage) |
+| Reuse one Unreal editor | `python -m ailias generation unreal-session start --editor $ue --project $project` - [lifecycle, configuration and checks](docs/generation/README.md#reusable-unreal-editor) |
 | Inspect retained resources | `python -m ailias cleanup --alias subject` - dry run; `--apply` deletes eligible remnants |
 | Record capture and external handoffs | [Core workflow](docs/workflow.md) |
 

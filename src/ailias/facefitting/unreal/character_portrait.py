@@ -65,12 +65,12 @@ def render_character_portrait(store, feature_job, editor, project, policy, tools
         }
         atomic_json(request_path, request)
         tools.paths["unreal"] = editor.resolve()
-        report["runtime"] = tools.run("unreal", "native-neutral-review", [
-            str(project.resolve()), f"-ExecutePythonScript={store.artifact_path(report['artifacts']['worker'])}",
-            "-unattended", "-nop4", "-nosplash", "-AllowCommandletRendering",
-            "-RenderOffscreen", "-d3d12", "-stdout", "-FullStdOutLogOutput",
-            "-ExecCmds=r.DefaultFeature.AutoExposure 0",
-        ], root, environment={"AILIAS_REANIMATION_REQUEST": str(request_path)})
+        from ailias.generation.unreal_session import execute_unreal
+
+        report["runtime"] = execute_unreal(
+            tools, project, store.artifact_path(report["artifacts"]["worker"]), request_path,
+            "native-neutral-review", root, "AILIAS_REANIMATION_REQUEST", "frames_rendered",
+            console_commands="r.DefaultFeature.AutoExposure 0")
         result = json.loads(receipt.read_text())
         report["native"] = result
         if (result.get("status") != "frames_rendered" or not result.get("render_success")

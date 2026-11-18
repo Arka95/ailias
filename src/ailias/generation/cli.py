@@ -10,6 +10,11 @@ from ailias.storage import Store
 def add_parser(commands):
     command = commands.add_parser("generation", help="Explicit experimental COLMAP/Blender runs and Unreal handoffs")
     actions = command.add_subparsers(dest="generation_action", required=True)
+    session = actions.add_parser("unreal-session", help="Start, inspect, probe or stop the owned reusable editor")
+    session.add_argument("session_action", choices=("start", "status", "probe", "stop"))
+    session.add_argument("--project", type=Path, required=True, help="Existing .uproject owned by this session")
+    session.add_argument("--editor", type=Path, help="Installed UnrealEditor-Cmd.exe; required to start")
+    session.add_argument("--wait", action="store_true", help="Keep the launcher alive until the owned editor exits")
     for name, description in (
         ("doctor", "Probe shared native tools without inference or downloads"),
         ("reconstruct", "Benchmark one curated candidate group; recover geometry, then run Blender"),
@@ -46,6 +51,22 @@ def add_parser(commands):
 
 
 def execute(args, data_root: Path):
+    if args.generation_action == "unreal-session":
+        from ailias.generation.unreal_session import UnrealSession
+        import time
+
+        if args.wait and args.session_action != "start":
+            raise ValueError("--wait is only supported when starting the owned editor")
+        session = UnrealSession(args.project, args.editor)
+        if args.session_action == "probe":
+            result = session.probe(session.root / "probes")
+        else:
+            result = getattr(session, args.session_action)()
+        if args.wait:
+            while session.status()["status"] != "stopped":
+                time.sleep(1)
+        return result, 0
+
     from ailias.generation.pipeline import clean_mesh, finalize_job, inspect_job, load_job, reconstruct
 
     policy, tools_root = load_settings(args.generation_config)

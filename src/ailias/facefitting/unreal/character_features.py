@@ -76,11 +76,12 @@ def apply_character_features(store, character, profile_path, editor, project, to
                 "cloud_services": cloud_services, "blueprint": report.get("blueprint"),
                 "assemble": assemble,
             })
-            report[f"{operation}_runtime"] = tools.run("unreal", f"native-features-{operation}", [
-                probe["project"], f"-ExecutePythonScript={store.artifact_path(report['artifacts']['worker'])}",
-                "-unattended", "-nop4", "-nosplash", "-AllowCommandletRendering",
-                "-RenderOffscreen", "-d3d12", "-stdout", "-FullStdOutLogOutput",
-            ], root, environment={"AILIAS_FEATURE_REQUEST": str(request)})
+            from ailias.generation.unreal_session import execute_unreal
+
+            report[f"{operation}_runtime"] = execute_unreal(
+                tools, probe["project"], store.artifact_path(report["artifacts"]["worker"]),
+                request, f"native-features-{operation}", root, "AILIAS_FEATURE_REQUEST", status,
+                independent=operation == "verify")
             result = json.loads(receipt.read_text())
             report[operation] = result
             report["cloud_requested"] |= bool(result.get("cloud_requested"))

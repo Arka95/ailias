@@ -301,6 +301,42 @@ class ReelTests(unittest.TestCase):
         self.assertEqual(keepalive, [False])
         self.assertEqual(json.loads(receipt.read_text())["status"], "frames_rendered")
 
+    def test_persistent_render_completion_removes_its_delegate_without_closing_the_editor(self):
+        from ailias.reanimation import unreal_worker
+        keepalive, removed = [], []
+        unreal = SimpleNamespace(EditorPythonScripting=SimpleNamespace(
+            set_keep_python_script_alive=keepalive.append))
+        executor = SimpleNamespace(on_executor_finished_delegate=SimpleNamespace(
+            remove_callable=removed.append))
+        receipt = self.root / "persistent-receipt.json"
+        with patch.dict("sys.modules", {"unreal": unreal}), \
+                patch.object(unreal_worker, "REQUEST", {"receipt": str(receipt)}), \
+                patch.object(unreal_worker, "RESULT", {}), \
+                patch.object(unreal_worker, "KEEP_EDITOR_ALIVE", True):
+            unreal_worker.finished(executor, True)
+        self.assertEqual(keepalive, [])
+        self.assertEqual(removed, [unreal_worker.finished])
+        self.assertEqual(json.loads(receipt.read_text())["status"], "frames_rendered")
+
+    def test_render_delegate_cleanup_failure_cannot_publish_persistent_success(self):
+        from ailias.reanimation import unreal_worker
+        from unittest.mock import Mock
+
+        unreal = SimpleNamespace(EditorPythonScripting=SimpleNamespace(
+            set_keep_python_script_alive=Mock()))
+        executor = SimpleNamespace(on_executor_finished_delegate=SimpleNamespace(
+            remove_callable=Mock(side_effect=RuntimeError)))
+        receipt = self.root / "cleanup-receipt.json"
+        with patch.dict("sys.modules", {"unreal": unreal}), \
+                patch.object(unreal_worker, "REQUEST", {"receipt": str(receipt)}), \
+                patch.object(unreal_worker, "RESULT", {}), \
+                patch.object(unreal_worker, "KEEP_EDITOR_ALIVE", True):
+            unreal_worker.finished(executor, True)
+        result = json.loads(receipt.read_text())
+        self.assertEqual(result["status"], "failed")
+        self.assertFalse(result["render_success"])
+        unreal.EditorPythonScripting.set_keep_python_script_alive.assert_not_called()
+
     def test_chroma_backdrop_compensates_manual_exposure_without_adding_red_or_blue(self):
         from ailias.reanimation.unreal_worker import linear_colour
 

@@ -11,6 +11,63 @@ from ailias.facefitting.geometry.identity_search import IdentitySearchPolicy, se
 
 
 class IdentitySearchTests(unittest.TestCase):
+    def test_failed_reference_is_retried_instead_of_poisoning_later_candidates(self):
+        views = [{"face_id": str(i), "view": {"category": "front"}} for i in range(6)]
+        policy = FitPolicy(identity_candidates=(1,), expression_modes=(1, 1, 1))
+        search = IdentitySearchPolicy((1,), ((1, 1, 1),), (.1, 1, 10), (3,))
+        references, starts = [], []
+
+        def fake_fit(model, selected, configuration, modes, fixed_identity=None, initial=None):
+            if modes == 0:
+                references.append(configuration.identity_regularization)
+                if len(references) == 1:
+                    raise RuntimeError("temporary reference failure")
+            elif fixed_identity is None and len(selected) != len(views):
+                starts.append(initial)
+            return {"identity": np.ones(modes), "per_view": np.zeros((len(selected), 8)),
+                    "report": {"objective": .1, "views": [
+                        {"face_id": v["face_id"], "weighted_rms_outer_eye_span_error": .1}
+                        for v in selected]}}
+
+        report = {"inputs": {}}
+        with patch("ailias.facefitting.geometry.identity_search.fit", side_effect=fake_fit):
+            search_identity_fit(lambda modes: None, views, policy, search, report,
+                                lambda record, candidate: None)
+        self.assertEqual(len(references), 3)
+        self.assertIsNone(starts[0])
+        self.assertIsNotNone(starts[1])
+        self.assertIsNotNone(starts[2])
+        self.assertEqual(len(report["search"]["candidates"]), 3)
+
+    def test_zero_identity_references_are_shared_only_within_matching_expression_inputs(self):
+        views = [{"face_id": str(i), "view": {"category": "front"}} for i in range(6)]
+        policy = FitPolicy(identity_candidates=(1,), expression_modes=(1, 1, 1))
+        search = IdentitySearchPolicy((1,), ((1, 1, 1), (2, 1, 1)), (.1, 1, 10), (3, 6), (.1, 1))
+        references = []
+
+        def fake_fit(model, selected, configuration, modes, fixed_identity=None, initial=None):
+            if modes == 0:
+                references.append((model, tuple(v["face_id"] for v in selected),
+                                   configuration.expression_regularization,
+                                   configuration.expression_coefficient_limit))
+            error = .1 if modes else .2
+            return {"identity": np.ones(modes), "per_view": np.zeros((len(selected), 8)),
+                    "report": {"objective": error, "views": [
+                        {"face_id": v["face_id"], "weighted_rms_outer_eye_span_error": error}
+                        for v in selected]}}
+
+        for _ in range(2):
+            references.clear()
+            report, retained = {"inputs": {}}, []
+            with patch("ailias.facefitting.geometry.identity_search.fit", side_effect=fake_fit):
+                search_identity_fit(tuple, views, policy, search, report,
+                                    lambda record, candidate: retained.append(record))
+            self.assertEqual(len(references), 16)
+            self.assertEqual(len(set(references)), 16)
+            self.assertEqual(len(retained), 24)
+            self.assertTrue(all(record["status"] == "completed" for record in retained))
+            self.assertEqual(report["search"]["selected_index"], 0)
+
     def test_identity_and_expression_priors_are_searched_independently(self):
         views = [{"face_id": str(i), "view": {"category": "front"}} for i in range(6)]
         policy = FitPolicy(identity_candidates=(1,), expression_modes=(1, 1, 1))

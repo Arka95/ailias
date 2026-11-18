@@ -733,10 +733,11 @@ def run(request, unreal, publish):
     return result
 
 
-def main():
+def main(request=None, *, keep_alive=False):
     import unreal
 
-    request = json.loads(Path(os.environ["AILIAS_FEATURE_REQUEST"]).read_text())
+    if request is None:
+        request = json.loads(Path(os.environ["AILIAS_FEATURE_REQUEST"]).read_text())
     receipt = Path(request["receipt"])
 
     def publish(value):

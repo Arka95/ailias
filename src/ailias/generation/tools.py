@@ -23,6 +23,24 @@ class NativeTools:
         self.paths["colmap"] = self.paths["colmap"].parent / "bin" / "colmap.exe"
         self.timeout = timeout
 
+    def run_unreal(self, project, worker, request, operation, directory, request_variable,
+                   terminal_status, *, independent=False, console_commands=""):
+        from ailias.generation.unreal_session import UnrealSession, execute_unreal, load_settings
+
+        settings = load_settings()
+        session = UnrealSession(project, self.paths["unreal"], settings)
+        try:
+            if not independent and settings["mode"] == "persistent":
+                return session.run(worker, request, operation, directory, terminal_status, self.timeout,
+                                   console_commands=console_commands)
+            with session.lock():
+                session.assert_idle()
+                return execute_unreal(
+                    _OneShotTools(self), project, worker, request, operation, directory,
+                    request_variable, terminal_status, console_commands=console_commands)
+        except (OSError, TimeoutError, ValueError) as error:
+            raise ToolError(f"{operation}: {error}") from error
+
     def environment(self, name):
         env = os.environ.copy()
         if name == "colmap":
@@ -84,3 +102,8 @@ class NativeTools:
         return {"operation": operation, "tool": name,
                 "seconds": round(time.monotonic() - start, 3),
                 "log": str(log)}
+
+
+class _OneShotTools:
+    def __init__(self, tools):
+        self.run = tools.run

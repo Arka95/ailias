@@ -8,10 +8,14 @@ EXECUTOR = None
 QUEUE = None
 REQUEST = None
 RESULT = None
+KEEP_EDITOR_ALIVE = False
 
 
 def publish(request, result):
-    Path(request["receipt"]).write_text(json.dumps(result, indent=2), encoding="utf-8")
+    receipt = Path(request["receipt"])
+    temporary = receipt.with_suffix(".tmp")
+    temporary.write_text(json.dumps(result, indent=2), encoding="utf-8")
+    temporary.replace(receipt)
 
 
 def solve(request, unreal):
@@ -233,9 +237,18 @@ def finished(executor, success):
     RESULT.update(status="frames_rendered" if success else "failed",
                   stage="verify_frames_and_encode" if success else "native_render_failed",
                   render_success=bool(success))
-    publish(REQUEST, RESULT)
-    # -ExecutePythonScript owns exit and must destroy its notification before quitting.
-    unreal.EditorPythonScripting.set_keep_python_script_alive(False)
+    try:
+        if executor is not None:
+            executor.on_executor_finished_delegate.remove_callable(finished)
+    except Exception as error:
+        RESULT.update(status="failed", stage="native_render_cleanup_failed", render_success=False,
+                      cleanup_error_type=type(error).__name__)
+    try:
+        publish(REQUEST, RESULT)
+    finally:
+        if not KEEP_EDITOR_ALIVE:
+            # -ExecutePythonScript owns exit and must destroy its notification before quitting.
+            unreal.EditorPythonScripting.set_keep_python_script_alive(False)
 
 
 def render(request, sequence, result, unreal):
@@ -274,10 +287,13 @@ def render(request, sequence, result, unreal):
     EXECUTOR.execute(QUEUE)
 
 
-def main():
+def main(request=None, *, keep_alive=False):
     import unreal
 
-    request = json.loads(Path(os.environ["AILIAS_REANIMATION_REQUEST"]).read_text())
+    global KEEP_EDITOR_ALIVE
+    KEEP_EDITOR_ALIVE = keep_alive
+    if request is None:
+        request = json.loads(Path(os.environ["AILIAS_REANIMATION_REQUEST"]).read_text())
     neutral = request.get("neutral_review") is True
     result = {"status": "running", "stage": "portrait_stage" if neutral else "audio_solve",
               "cloud_requested": False, "neutral_review": neutral,
@@ -305,7 +321,8 @@ def main():
     except Exception as error:
         result.update(status="failed", error_type=type(error).__name__, error=str(error),
                       project_may_contain_partial_outputs=True)
-        unreal.EditorPythonScripting.set_keep_python_script_alive(False)
+        if not keep_alive:
+            unreal.EditorPythonScripting.set_keep_python_script_alive(False)
     publish(request, result)
 
 

@@ -82,10 +82,11 @@ def import_base_color_texture(request, unreal):
     return {"status": "native_photo_texture_imported", "texture": texture.get_path_name()}
 
 
-def main():
+def main(request=None, *, keep_alive=False):
     import unreal
 
-    request = json.loads(Path(os.environ["AILIAS_FRESH_VIDEO_REQUEST"]).read_text())
+    if request is None:
+        request = json.loads(Path(os.environ["AILIAS_FRESH_VIDEO_REQUEST"]).read_text())
     receipt = Path(request["receipt"])
     try:
         operations = {"export_uv": export_skin_uv_mesh, "import_texture": import_base_color_texture}

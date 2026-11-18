@@ -23,10 +23,11 @@ def calculate_portrait_framing(points, width=540, height=960, distance=75):
             "basis": "SceneCapture horizontal FOV; native face-control bounds and output aspect"}
 
 
-def main():
+def main(request=None, *, keep_alive=False):
     import unreal
 
-    request = json.loads(Path(os.environ["AILIAS_FRESH_VIDEO_REQUEST"]).read_text())
+    if request is None:
+        request = json.loads(Path(os.environ["AILIAS_FRESH_VIDEO_REQUEST"]).read_text())
     receipt = Path(request["receipt"])
     result = {"status": "starting", "character": request["character"],
               "assembled": False, "likeness_verified": False, "cloud_requested": False}
@@ -65,7 +66,8 @@ def main():
         try:
             publish()
         finally:
-            unreal.EditorPythonScripting.set_keep_python_script_alive(False)
+            if not keep_alive:
+                unreal.EditorPythonScripting.set_keep_python_script_alive(False)
 
     try:
         if request["operation"] != "preview":

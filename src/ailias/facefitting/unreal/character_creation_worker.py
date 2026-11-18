@@ -121,10 +121,11 @@ def execute_character_request(request, unreal, publish=lambda value: None):
     return conformed
 
 
-def main():
+def main(request=None, *, keep_alive=False):
     import unreal
 
-    request = json.loads(Path(os.environ["AILIAS_FRESH_VIDEO_REQUEST"]).read_text())
+    if request is None:
+        request = json.loads(Path(os.environ["AILIAS_FRESH_VIDEO_REQUEST"]).read_text())
     receipt = Path(request["receipt"])
 
     def publish(value):

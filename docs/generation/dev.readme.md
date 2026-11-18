@@ -12,10 +12,28 @@
 | `mesh.py` | Preserve per-corner texture coordinates during native mesh conversion |
 | `pipeline.py` | Unique jobs, viability gates, stage commits and finalization |
 | `tools.py` | Owned executables, scoped DLL paths, timeouts and bounded logs |
+| `unreal_session.py`, `unreal_session_worker.py` | Project-owned persistent editor, single JSON mailbox, PID/creation-time ownership, OS writer lock and asynchronous completion |
 | `blender_worker.py` | Minimal coordinate-preserving cleanup, exports and GPU diagnostics |
 | `unreal.py`, `unreal_worker.py` | Prerequisite checks, static import and legacy solved-Identity adapter |
 
-Native tools run synchronously through argument/request files and file receipts.
+Blender/COLMAP and explicit cold Unreal checks use synchronous subprocesses.
+Migrated Unreal adapters call `execute_unreal` with an explicit worker, request
+and terminal status, not inferred historical command lines. The persistent
+bootstrap uses Slate ticks to admit one hash-pinned worker module per job;
+asynchronous MRQ/capture work retains that module until its terminal receipt.
+Unique job IDs and receipts prevent a stale completion from finishing a new job.
+Per-job console variables are restored before admission reopens. Renderer
+completion removes its delegate without releasing editor keep-alive; one-shot
+workers retain their prior exit behavior.
+
+Only the owned bootstrap may end the persistent editor. Shutdown, dead/recycled
+PID detection and project exclusion are separate from alias `Store.lock`.
+Native failures and unknown/incomplete receipts fail closed. Pending jobs cannot
+be overwritten during the interval before the next engine tick; host timeout
+does not imply native cancellation. Per-operation logs contain bounded session
+metadata; the owned engine's diagnostic output remains in `Saved\AiliasSession\editor.log`
+for its lifetime, replaced on the next owned startup.
+
 Input identity includes source/portrait hashes, curation, masks/policy and selected
 views. Reusing an identical hardlinked view is not cached reconstruction.
 The module does not mutate the core manual session state.
@@ -57,6 +75,7 @@ Detailed research/ablations remain in [selection research](selection-research.md
 
 ```powershell
 python -m unittest ailias.generation.tests.test_generation ailias.generation.tests.test_unreal -v
+python -m unittest ailias.generation.tests.test_unreal_session ailias.generation.tests.test_unreal_session_worker -v
 ```
 
 Fake native/editor objects and synthetic images cover option forwarding, input
@@ -68,7 +87,14 @@ Explicit native tests generate synthetic objects, not personal heads:
 ```powershell
 python src\integration_tests\generation\blender_smoke.py --report C:\diagnostics\blender.json
 python src\integration_tests\generation\native_smoke.py --report C:\diagnostics\native-generation.json
+python src\integration_tests\generation\unreal_session_smoke.py --project $project --editor $ue --report C:\diagnostics\session-check\report.json --blueprint /Game/Existing/BP_Character.BP_Character
 ```
+
+The session check is explicitly opt-in: two native probes, optionally two
+180x320 one-frame MRQ renders of a supplied existing Blueprint. It never fits,
+rigs or assembles a head. It leaves the working editor available, reports the
+actual PID/timings and does not certify skin/likeness. Omitting `--blueprint`
+checks only the dispatcher, not asynchronous rendering.
 
 ## Validation
 

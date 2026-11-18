@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | Owner | ailias repository owner |
-| Status | Research and implementation proposal; persistent execution is not implemented |
+| Status | Main-path persistent execution and redundant-reference removal implemented; native same-PID MRQ check passed; further optimization remains planned |
 | Last updated | 2026-11-18 |
 | Services in scope | Photo preparation, fitting, native Character editing/assembly, portrait rendering, encoding |
 | Reviewers | Repository owner; additional reviewers: *(fill alias)* |
@@ -15,7 +15,9 @@ not a new process per stage. Keep an independent saved-asset verification at
 the publication boundary, not after every parameter adjustment. Running without
 a visible editor window is already implemented; running these MetaHuman editor
 operations without an initialized editor engine is a different problem.
-Do not refactor or restart the current generation to test this proposal.
+The owner subsequently prioritized implementation after the failed visual
+iteration completed. This milestone does not claim corrected skin or a final
+speaking video.
 
 ## 1. Problem Statement
 
@@ -60,7 +62,8 @@ on-call rotation or additional owner has been established; none is invented.
 
 | Option | Evidence and limitation | Decision |
 |---|---|---|
-| Persistent editor plus Epic Python remote execution | Installed `remote_execution.py` exposes discovery, connection and repeated `run_command` calls. Official Python settings expose remote execution and host-local discovery. Needs a session lifecycle adapter and testing with asynchronous MRQ. | **Preferred after current generation.** Reuse the installed transport rather than build an HTTP server or custom MCP. |
+| Persistent editor plus local request/receipt mailbox | The existing workers already use JSON requests/receipts and Slate ticks for asynchronous capture. The new dispatcher admits one explicit hash-pinned job on the editor thread; an OS writer lock protects the project across aliases. | **Implemented choice.** Reuses the existing transport format without discovery, sockets, authentication plumbing, new dependencies or remote settings. There is no distributed queue. |
+| Persistent editor plus Epic Python remote execution | Installed `remote_execution.py` exposes discovery, connection and repeated `run_command` calls. Official Python settings expose remote execution and host-local discovery. | Verified alternative, not enabled. The local mailbox is sufficient for this single-host, single-writer workload and avoids connection/discovery setup. |
 | Offscreen editor / commandlet | Python documentation supports full-editor and commandlet script execution. Current D3D12/offscreen launches already avoid a visible window; each still initializes Unreal. MetaHuman conform, rig/texture requests and assembly require its editor subsystem. | Keep offscreen rendering. Do not equate no window with no engine startup, or assume commandlet/NullRHI supports every stage. |
 | Runtime packaged renderer | Epic documents Movie Render Queue in runtime builds. That can render prepared content, but editor Python is editor-only; it does not replace the current editing/assembly path. | Later render-only option, not the first optimization. Cooking/build maintenance must justify its cost. |
 | UELibrary embedding | The installed 5.8 header exposes initialize, tick, window messages and shutdown. Epic's accessible build tutorial is **4.27**, not a verified 5.8 MetaHuman recipe. Embedding still initializes an engine and would need custom builds/API exposure. | Not a drop-in standalone Python skin/rig/render library. Defer; no local embedding benchmark or MetaHuman compatibility claim. |
@@ -70,16 +73,82 @@ Primary references: [Python scripting][python], [Python settings][settings],
 [MetaHuman scripting][metahuman], [runtime MRQ][runtime], [UELibrary][uelibrary].
 Installed API paths and exact inspected entry points are in section 5.
 
-### Proposed lifecycle and responsibilities
+### Implemented milestone
+
+`src\ailias\generation\unreal_session.py` owns start/status/probe/stop and a
+Windows OS project-writer lock. `unreal_session_worker.py` dispatches explicit
+request dictionaries on the engine thread and keeps one module alive per
+asynchronous job. Bootstrap hash, actual project, PID plus creation time, job ID
+and nonexisting receipt checks prevent wrong/stale admission. A pending
+unacknowledged job cannot be overwritten; timeout does not cancel/replay native
+work. Failure blocks reuse until inspection/shutdown. No user GUI editor is
+borrowed or closed, and no remote execution listener/configuration was enabled.
+
+The shared `execute_unreal` adapter now serves fresh-head operations, native
+features, editable previews, assembled neutral MRQ review and reanimation.
+Render callbacks remove their own delegate and do not release persistent
+keep-alive. Each job loads a separate hash-pinned module, isolating the legacy
+render globals. Console variables are restored before the next job.
+Existing geometry/feature verification **still uses a fresh process immediately
+per verified revision**; consolidation into a single final boundary is deferred,
+not silently claimed. Legacy/calibration commandlets retain their old lifecycle.
+
+`config\unreal-session.json` now defaults to `persistent`; `oneshot` explicitly
+restores one-shot behavior for migrated routes. State lives under the actual
+project's `Saved\AiliasSession`, not the original proposed alias-independent
+data-root fingerprint directory. This naturally gives all aliases one project
+lock without changing `Store.lock`. Start is lazy at the first native operation;
+the editor intentionally remains available across CLI invocations.
+[Public commands and settings](../generation/README.md#reusable-unreal-editor).
+
+**Measured native acceptance**, report
+`data\arka\diagnostics\persistent-unreal-20261118\report.json`:
+
+| Check | Observed result |
+|---|---|
+| Process creation to initial ready-state file | 21.183s |
+| Two no-op native property/identity probes | 0.172s each |
+| Two real neutral MRQ jobs, 180x320, one frame each | 6.859s then 1.953s; PNG format/dimensions verified, second frame also visually inspected |
+| Process identity | Both probes and both renders used PID **42328**, session `a50b13bc4ab245ddbfa8312452b85fb8` |
+| Source integrity after renders | Saved candidate Character, assembled Blueprint and protected input Character hashes unchanged |
+| Post-check resource snapshot | Editor working set 5039.2MiB; GPU-wide usage 3406 / 12282MiB, not editor-attributed VRAM or a measured peak |
+| Functional units | 159 affected generation/native/workflow/search/reanimation units passed in 16.135s |
+
+Final callback-cleanup recheck, using the same still-running PID, also passed:
+`data\arka\diagnostics\persistent-unreal-20261118-final\report.json`.
+Its probes took 0.157s/0.172s and its additional one-frame renders took
+2.078s/1.750s. The final callback now reports cleanup failure as failure rather
+than publishing successful completion before delegate removal.
+
+These are warm-job measurements, **not** an equivalent old-versus-new full-video
+benchmark. The first render includes additional asset/render warmup.
+No full search, rig, texture generation, assembly, narration solve or speaking
+video was rerun. The independent-verifier routing was covered by units; a second
+real cold verifier was not run for this milestone. Actual render inspection
+still shows the native gray/checkerboard skin: performance validation does not
+close the appearance defect.
+
+Successful zero-identity reference pairs are now shared within a requested
+identity search across identity-prior values, with separate caches per expression
+model and keys for expression prior/bound. Failures are not cached. Seven search
+units preserve all candidate records, held-out selection, initialization and
+final view ordering, and cover retry after a transient reference failure.
+For the configured search, 108 reference calls become 36 without removing any
+of the 162 candidates. This is a deterministic call-count reduction, **not**
+a measured full-search speedup. Exhaustive search remains explicitly opt-in via
+`video-create --fit-search-config`; appearance/lighting/video iterations reuse
+the current fitted head.
+
+### Original lifecycle proposal and remaining responsibilities
 
 **Host coordinator:** retain the current Python job APIs and JSON requests,
 receipts, hashes and unique output namespaces. Add a dedicated Unreal-session
 adapter rather than change the generic Blender/COLMAP subprocess behavior.
 Start or explicitly attach to the intended project/editor; establish ownership
 and engine/project/worker identity, not merely the first discovered editor.
-Communicate with the editor through Epic's host-local UDP discovery and TCP
-command channel. No remote execution settings or listeners were enabled during
-this investigation. Source for transport capabilities: installed
+The original UDP/TCP proposal was replaced by the implemented local JSON
+mailbox above; no remote execution settings or listeners were enabled.
+Source for the alternative transport capabilities: installed
 `remote_execution.py:13-32,101-136`; [Python settings][settings].
 
 **Persistent editor:** execute one mutating native operation at a time, keeping
@@ -89,8 +158,8 @@ control to the engine tick loop while MRQ runs. Job completion must not invoke
 editor shutdown. Keep Characters registered only while an edit session needs
 them, then release preview actors, delegates and unused job state. Reusing an
 editor alone does not remove a new Character's registration/synthesis cost.
-Proposed changes concern `character_features_worker.py`, `unreal_worker.py` and
-their launch adapters; they are not implemented by this research.
+The main worker/launcher lifetime changes are implemented above. Keeping
+Characters registered across different asset revisions is not implemented.
 
 **Publication verifier:** preserve one fresh-process verification of the saved
 Character/runtime after a completed asset revision, before final publication.
@@ -182,11 +251,14 @@ ownership-aware start/status/stop semantics, not an automatic global daemon.
 
 ### Decided code changes
 
-This is the **draft edit plan**, not a list of changes already implemented.
+This is the **original draft edit plan**, retained for the remaining work.
+The implemented-milestone section above takes precedence for completed APIs,
+transport, state location and validation; attach, cancellation, verification
+consolidation, saved-Performance reuse and remaining commandlet migration are
+not implemented.
 Optimize measured wall time subject to unchanged output quality, source
 integrity and resource limits; "absolutely optimized" is not a result that can
-be asserted without benchmarks. Finish/diagnose the active visual iteration
-before migrating execution.
+be asserted without benchmarks. Do not treat performance work as completion of the still-failed visual iteration.
 
 **Latest measured skin iteration:** revision `f07f4c69` took
 `279.688 + 83.562 + 33.312 = 396.562s` (6m37s) for apply/build, independent

@@ -2,6 +2,7 @@
 
 import json
 from ailias.generation.tools import ToolError
+from ailias.generation.unreal_session import execute_unreal
 from ailias.storage import atomic_json
 
 
@@ -19,12 +20,10 @@ def execute_unreal_worker(tools, project, worker, root, operation, parameters, r
     process_error = None
     try:
         # Native geometry export synchronizes Content Browser and requires Slate.
-        report[operation + "_runtime"] = tools.run("unreal", "fresh-video-" + operation, [
-            project, f"-ExecutePythonScript={worker}",
-            "-unattended", "-nop4", "-nosplash", "-RenderOffscreen", "-d3d12",
-            "-stdout", "-FullStdOutLogOutput",
-            "-ExecCmds=mh.Character.FromCustomMeshImportShowIterations 0",
-        ], root, environment={"AILIAS_FRESH_VIDEO_REQUEST": str(request)})
+        report[operation + "_runtime"] = execute_unreal(
+            tools, project, worker, request, "fresh-video-" + operation, root,
+            "AILIAS_FRESH_VIDEO_REQUEST", EXPECTED_STATUSES[operation], independent=operation == "verify",
+            console_commands="mh.Character.FromCustomMeshImportShowIterations 0")
     except (ToolError, OSError, TimeoutError) as error:
         process_error = error
     try:

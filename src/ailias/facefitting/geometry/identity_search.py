@@ -68,6 +68,7 @@ def search_identity_fit(model_factory, views, policy, search, report, retain_can
     best = None
     for expression in search.expression_candidates:
         model = model_factory(expression)
+        references = {}
         for identity_factor, expression_factor, limit in itertools.product(
             search.identity_regularization_factors, search.expression_regularization_factors,
             search.expression_limits,
@@ -78,14 +79,21 @@ def search_identity_fit(model_factory, views, policy, search, report, retain_can
                 expression_regularization=policy.expression_regularization*expression_factor,
                 expression_coefficient_limit=limit,
             )
-            reference = reference_validation = None
-            generic_score, generic_error = None, None
-            try:
-                reference = fit(model, train, candidate_policy, 0, fixed_identity=np.zeros(0))
-                reference_validation = fit(model, validation, candidate_policy, 0, fixed_identity=np.zeros(0))
-                generic_score = residual_score(reference_validation, validation)
-            except (ValueError, RuntimeError) as error:
-                generic_error = {"type": type(error).__name__, "message": str(error)}
+            reference_key = (expression_factor, limit)
+            if reference_key not in references:
+                reference = reference_validation = None
+                generic_score, generic_error = None, None
+                try:
+                    reference = fit(model, train, candidate_policy, 0, fixed_identity=np.zeros(0))
+                    reference_validation = fit(model, validation, candidate_policy, 0, fixed_identity=np.zeros(0))
+                    generic_score = residual_score(reference_validation, validation)
+                except (ValueError, RuntimeError) as error:
+                    generic_error = {"type": type(error).__name__, "message": str(error)}
+                # Identity regularization has no residual when the identity vector is empty.
+                if generic_error is None:
+                    references[reference_key] = reference, reference_validation, generic_score, generic_error
+            else:
+                reference, reference_validation, generic_score, generic_error = references[reference_key]
             smaller_candidate = None
             for modes in sorted(search.identity_candidates):
                 index = len(results["candidates"])
