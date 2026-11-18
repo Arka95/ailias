@@ -98,6 +98,7 @@ silently install models or replace the shared runtime.
 | Analyze photos | `python -m ailias imageprocessing scan subject C:\photos --device cuda` |
 | Review and select references | [Imageprocessing commands](docs/imageprocessing/README.md#usage) |
 | Fit / texture / import a head | [Facefitting commands](docs/facefitting/README.md#usage) |
+| Create fresh Blender and native heads from sampled photos | `python -m ailias facefitting video-create subject --evidence C:\data\sampled\manifest.json --editor $ue --project $project` - fresh textured Blender scene/export, native appearance and portrait; no previous personal head/fit, no likeness approval |
 | Animate a compatible existing rig | [Reanimation commands](docs/reanimation/README.md#usage) |
 | Inspect retained resources | `python -m ailias cleanup --alias subject` - dry run; `--apply` deletes eligible remnants |
 | Record capture and external handoffs | [Core workflow](docs/workflow.md) |
@@ -120,10 +121,13 @@ resemblance remain visible. Pose, expression and lighting differ; this is a
 visual diagnostic, not a likeness score.
 [Full comparison](docs/facefitting/images/current-likeness-comparison.png).
 
-## Current Blender baseline
+## Retired Blender baseline
 
-The preserved scene and pinned mesh/texture/camera inputs are the reference for
-further native refinement; animation success is not a geometry or appearance certificate.
+On November 18, the owner requested deletion of the selected Blender baseline.
+Its `hairfree-matched-camera.blend` scene and active `working-baseline.json`
+selector have been removed. Original sampled photos and native Unreal Characters
+remain intact. New full runs must create fresh downstream outputs rather than
+restore or initialize from the deleted scene.
 See [baseline resources](docs/facefitting/README.md#current-working-baseline).
 
 ## Documentation

@@ -12,6 +12,7 @@ import numpy as np
 from PIL import Image
 
 from ailias.facefitting.appearance.profile_mapping import build_appearance_profile
+from ailias.facefitting.blender.appearance_scene import create_blender_head
 from ailias.facefitting.appearance.skin_texture_projection import (
     bake_photo_skin_texture,
     estimate_photo_alignment,
@@ -29,13 +30,14 @@ from ailias.facefitting.geometry.photo_camera import perspective_camera
 from ailias.facefitting.unreal.character_features import apply_character_features, character_package
 from ailias.facefitting.unreal.worker_process import execute_unreal_worker
 from ailias.generation.unreal import readiness
+from ailias.generation.settings import load_settings
 from ailias.storage import atomic_json
 from ailias.reanimation.settings import load_policy as load_review_policy
 
 
 def run_photo_to_character_pipeline(
     store, evidence_path, editor, project, tools, policy, *,
-    video_policy=None, appearance_policy=None,
+    video_policy=None, appearance_policy=None, generation_policy=None,
 ):
     """Run from sampled-photo evidence with fresh identity/cameras/Character; no refinement cache."""
     root = store.resolve(str(Path("facefitting") / "fresh-video" / uuid.uuid4().hex))
@@ -113,10 +115,20 @@ def run_photo_to_character_pipeline(
         export_obj(root / "neutral-head.obj", vertices, model.triangles)
         # UE's OBJ importer flips handedness on Y, matching the existing Blender export.
         with np.load(store.artifact_path(assets["gnm"]["artifact"]), allow_pickle=False) as gnm:
-            triangle_uvs = gnm["triangle_uvs"]
-        export_obj(root / "head-for-unreal.obj", vertices[:, [2, 0, 1]]*100,
-                   model.triangles, description="fresh fitted head; right-handed OBJ (GNM Z,X,Y), centimetres",
-                   triangle_uvs=triangle_uvs)
+            triangle_uvs = gnm["triangle_uvs"].copy()
+        appearance = appearance_policy if appearance_policy is not None else load_appearance_policy()
+        generation = generation_policy if generation_policy is not None else load_settings()[0]
+        report["appearance_policy"] = appearance
+        report["blender_manifest"] = str(root / "blender" / "manifest.json")
+        blender = run_stage("create_blender_appearance", lambda: create_blender_head(
+            store, root / "blender", model, fitted, views, evidence, triangle_uvs, tools,
+            generation, appearance,
+        ))
+        report["blender"] = blender
+        report["blender_used"] = True
+        report["artifacts"].update({"blender_" + key: value
+                                     for key, value in blender["artifacts"].items()})
+        unreal_mesh = store.artifact_path(blender["artifacts"]["head_only_mesh"])
         expected_native = vertices[:, [2, 0, 1]]*[100, -100, 100]
         report["geometry"] = {
             "identity_modes": len(fitted["identity"]), "vertices": len(vertices),
@@ -156,7 +168,7 @@ def run_photo_to_character_pipeline(
             )
 
         created = run_stage("fresh_native_conform", lambda: execute_character_operation("create", {
-            "obj": str(root / "head-for-unreal.obj"),
+            "obj": str(unreal_mesh),
             "destination": f"/Game/Ailias/FreshVideo/V{root.name}",
             "camera": str(root / "tracking-camera.json"), "rgba": str(root / "tracking-rgba8.bin"),
             "conform_worker": str(store.artifact_path(conform)),
@@ -185,8 +197,6 @@ def run_photo_to_character_pipeline(
             raise ValueError("Fresh Character reload failed")
         report["artifacts"]["character"] = store.reference_artifact(
             character_package(project, created["character"]))
-        appearance = appearance_policy if appearance_policy is not None else load_appearance_policy()
-        report["appearance_policy"] = appearance
         preview_worker = store.copy_artifact(
             Path(__file__).parents[1] / "unreal" / "character_portrait_worker.py",
             str(root.relative_to(store.root) / "worker"),
@@ -254,6 +264,9 @@ def run_photo_to_character_pipeline(
             "notes": getattr(error, "__notes__", []),
         }, project_may_contain_partial_outputs="fresh_native_conform" in report["stages"])
     finally:
+        blender_manifest = root / "blender" / "manifest.json"
+        if blender_manifest.is_file():
+            report["artifacts"]["blender_manifest"] = store.reference_artifact(blender_manifest)
         for path in root.iterdir():
             try:
                 if path.is_file() and path != manifest and path.stat().st_size:

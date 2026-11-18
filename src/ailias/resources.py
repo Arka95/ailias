@@ -14,6 +14,7 @@ JOB_COLLECTIONS = (
     ("facefitting", "runs"), ("facefitting", "appearance"),
     ("facefitting", "unreal"), ("facefitting", "conforms"), ("facefitting", "features"),
     ("facefitting", "native-reviews"),
+    ("facefitting", "video"), ("facefitting", "fresh-video"),
     ("reanimation", "runs"),
 )
 

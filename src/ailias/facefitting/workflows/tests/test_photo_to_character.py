@@ -12,6 +12,7 @@ import numpy as np
 from PIL import Image
 
 from ailias.facefitting.workflows.photo_to_character import run_photo_to_character_pipeline
+from ailias.facefitting.geometry.artifact_io import export_obj
 from ailias.facefitting.unreal.character_features import character_package
 from ailias.storage import Store, atomic_json
 
@@ -71,7 +72,7 @@ class PhotoToCharacterTests(unittest.TestCase):
         self.assertTrue(self.store.verify(self.reference))
         fit.assert_not_called()
 
-    def complete(self, *, appearance_fails=False):
+    def complete(self, *, appearance_fails=False, blender_fails=False):
         project = self.store.resolve("Project\\Preview.uproject")
         project.parent.mkdir()
         project.write_text("{}")
@@ -103,6 +104,16 @@ class PhotoToCharacterTests(unittest.TestCase):
 
         operations = []
 
+        def blender(store, root, *args):
+            operations.append("blender")
+            if blender_fails:
+                raise RuntimeError("Blender export failed")
+            root.mkdir()
+            mesh = root / "head-for-unreal.obj"
+            export_obj(mesh, vertices[:, [2, 0, 1]]*100, model.triangles)
+            return {"status": "blender_head_created", "artifacts": {
+                "head_only_mesh": store.reference_artifact(mesh)}}
+
         def process(store, samples, root, *args):
             output = root / "photo-evidence"
             output.mkdir()
@@ -112,6 +123,8 @@ class PhotoToCharacterTests(unittest.TestCase):
         def native(tools, project, worker, root, operation, parameters, report):
             operations.append(operation)
             if operation == "create":
+                self.assertEqual(Path(parameters["obj"]).parent.name, "blender")
+                self.assertTrue(Path(parameters["obj"]).is_file())
                 asset(source)
                 return {"status": "head_conformed_awaiting_review", "character": source,
                         "face_landmarks_saved": vertices.tolist(),
@@ -144,19 +157,22 @@ class PhotoToCharacterTests(unittest.TestCase):
                 "extract_photo_evidence": process, "HeadModel": lambda *args: model,
                 "prepare_views": lambda *args: ([{"face_id": "frame", "view": {"category": "front"}}], []),
                 "fit_multiview_identity": lambda *args: fitted, "save_fit": lambda *args: None,
+                "create_blender_head": blender,
                 "execute_unreal_worker": native, "bake_photo_skin_texture": bake, "apply_character_features": apply,
             }.items():
                 stack.enter_context(patch("ailias.facefitting.workflows.photo_to_character." + name, side_effect=value))
             result = run_photo_to_character_pipeline(
                 self.store, self.manifest, Path("Editor.exe"), project, SimpleNamespace(paths={}),
-                SimpleNamespace(record=lambda: {}, expression_modes=[]), appearance_policy={
+                SimpleNamespace(record=lambda: {}, expression_modes=[]),
+                generation_policy=SimpleNamespace(), appearance_policy={
                     "device": "cuda:0", "texture_size": 256, "max_views": 1, "photo_size": 256})
         return result, operations
 
     def test_one_invocation_reaches_fresh_texture_grooms_and_a_new_preview_without_old_baseline(self):
         result, operations = self.complete()
         self.assertEqual(self.persisted(result)["status"], "fresh_video_completed")
-        self.assertEqual(operations, ["create", "verify", "import_texture", "preview"])
+        self.assertEqual(operations, ["blender", "create", "verify", "import_texture", "preview"])
+        self.assertTrue(result["blender_used"])
         self.assertFalse(result["assembled"])
         self.assertFalse(result["likeness_verified"])
         self.assertTrue(self.store.verify(self.reference))
@@ -167,3 +183,10 @@ class PhotoToCharacterTests(unittest.TestCase):
         self.assertEqual(result["current_stage"], "apply_and_reload_native_appearance")
         self.assertIn("groom missing", result["error"]["message"])
         self.assertNotIn("preview", operations)
+
+    def test_blender_failure_cannot_be_skipped_or_launch_unreal_creation(self):
+        result, operations = self.complete(blender_fails=True)
+        self.assertEqual(self.persisted(result)["status"], "failed")
+        self.assertEqual(result["current_stage"], "create_blender_appearance")
+        self.assertEqual(operations, ["blender"])
+        self.assertIn("Blender export failed", result["error"]["message"])

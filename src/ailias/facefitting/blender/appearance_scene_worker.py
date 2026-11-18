@@ -1,6 +1,6 @@
 """Add UV photo material and evidence-guided approximate hair in a new Blender scene.
 
-The approved clay scene and its head geometry are read-only inputs.
+The supplied fitted scene and its head geometry are read-only inputs.
 """
 
 import json
@@ -104,12 +104,12 @@ def main(request_path):
     scene = bpy.context.scene
     head = bpy.data.objects.get("fitted")
     if head is None or head.type != "MESH":
-        raise ValueError("Approved fitted head object is missing")
+        raise ValueError("Supplied fitted head object is missing")
     with np.load(config["geometry"], allow_pickle=False) as data:
         vertices = np.asarray([vertex.co[:] for vertex in head.data.vertices])
         deviation = float(np.max(np.abs(vertices-data["vertices"])))
         if deviation > 1e-6:
-            raise ValueError("Blender head differs from approved fitted geometry")
+            raise ValueError("Blender head differs from supplied fitted geometry")
         layer = head.data.uv_layers.new(name="GNM_UV")
         layer.data.foreach_set("uv", data["triangle_uvs"].astype(np.float32).ravel())
         material = bpy.data.materials.new("Observed photo colour - not intrinsic albedo")

@@ -104,7 +104,8 @@ def execute(args, data_root):
                 store, args.evidence, args.editor, args.project,
                 NativeTools(tools_root, generation.timeout_seconds), load_policy(args.fit_config),
                 video_policy=VideoPolicy(**json.loads(args.video_config.read_text(encoding="utf-8"))),
-                appearance_policy=load_appearance_policy(args.appearance_config))
+                appearance_policy=load_appearance_policy(args.appearance_config),
+                generation_policy=generation)
         return result, 0 if result["status"] == "fresh_video_completed" else 2
     if args.facefitting_action == "native-control-map":
         from ailias.facefitting.geometry.sculpt_control_mapping import map_native_controls

@@ -1,14 +1,12 @@
 """Project fresh sampled-photo colour into genuine native UVs without changing head geometry."""
 
 import json
-import sys
 
 import numpy as np
-from PIL import Image
-from scipy.ndimage import distance_transform_edt
 from scipy.spatial import cKDTree
 
-from ailias.facefitting.appearance.uv_rasterization import choose_texture_views, uv_surface_map
+from ailias.facefitting.appearance.photo_texture_baking import project_photo_evidence, write_texture_atlas
+from ailias.facefitting.appearance.uv_rasterization import uv_surface_map
 from ailias.facefitting.geometry.head_model import vertex_normals
 from ailias.storage import atomic_json
 
@@ -88,92 +86,29 @@ class SkinProjectionMesh:
 def bake_photo_skin_texture(store, root, surface_path, model, fitted, views, evidence, device,
                        *, texture_size=2048, maximum_views=16, photo_size=1536):
     """Retain coverage and source IDs; unseen texels use labelled median-skin fill, not invented detail."""
-    from ailias.facefitting.appearance.cuda_texture_projection import bake
-
     surface = SkinProjectionMesh(json.loads(surface_path.read_text(encoding="utf-8")), model, fitted["identity"])
-    frames = {frame["face_id"]: frame for frame in evidence["frames"]}
-    metrics = {view["face_id"]: view for view in fitted["report"]["views"]}
-    cameras = [
-        {**metrics[view["face_id"]], "face_id": view["face_id"], "view": view["view"],
-         "source_size": frames[view["face_id"]]["source_size"],
-         "camera": fitted["per_view"][index, :7].tolist(),
-         "expression": fitted["per_view"][index, 7:].tolist()}
-        for index, view in enumerate(views)
-    ]
-    entries = {
-        face_id: {"portrait_bounds": [0, 0, *frame["source_size"]]}
-        for face_id, frame in frames.items() if "source_size" in frame
+    mapping = rasterize_unreal_uvs(surface.uvs, texture_size)
+    baked, selected = project_photo_evidence(
+        store, root, surface, np.zeros(0), mapping, fitted, views, evidence, device,
+        maximum_views=maximum_views, photo_size=photo_size,
+    )
+    texture, _ = write_texture_atlas(
+        root, mapping, baked, texture_size,
+        texture_name="native-photo-basecolor.png", coverage_name="native-photo-coverage.png",
+    )
+    result = {
+        "status": "native_uv_photo_colour_baked", "texture": str(texture),
+        "native_uvs_preserved": True, "geometry_modified": False,
+        "texture_uv_origin": "top_left; Unreal V increases down image rows",
+        "winding_reversed_for_projection": bool(surface.winding_reversed_for_projection),
+        "intrinsic_albedo": False, "selected_views": [view["face_id"] for view in selected],
+        "projection": baked["report"],
+        "expression_transfer": "inverse-distance nearest fitted-GNM vertices; approximate offsets only",
+        "expression_transfer_distance_model_units_p50_p95": np.quantile(
+            surface.transfer_distance, [.5, .95]).tolist(),
+        "unseen_texels": "median observed skin colour, not reconstructed detail",
+        "hair_color_srgb": baked["hair_color"].tolist(),
+        "hair_length_model_units": baked["hair_length"],
     }
-    selected = choose_texture_views(cameras, entries, frames, maximum_views)
-    photos, temporary = [], []
-    try:
-        for index, view in enumerate(selected):
-            face_id = view["face_id"]
-            frame, record = frames[face_id], evidence["faces"][face_id]
-            with Image.open(store.artifact_path(frame["image"])) as opened:
-                image = opened.convert("RGB")
-            with Image.open(store.artifact_path(record["regions"])) as opened:
-                regions = opened.convert("L")
-            source_size = image.size
-            image.thumbnail((photo_size, photo_size), Image.Resampling.LANCZOS)
-            regions = regions.resize(image.size, Image.Resampling.NEAREST)
-            labels, rgb = np.asarray(regions), np.asarray(image)
-            skin = record["features"]["regions"]["skin"]
-            if skin["status"] != "observed":
-                raise ValueError("A selected native texture view lacks skin evidence: " + face_id)
-            color = np.asarray(skin["median_linear_rgb"])
-            color = np.where(color <= .0031308, color*12.92, 1.055*color**(1/2.4)-.055)
-            hair = labels == 17
-            data = root / f"native-photo-{index:02}.npz"
-            temporary.append(data)
-            np.savez_compressed(data, rgb=rgb, labels=labels, alpha=np.uint8(labels != 0)*255)
-            photos.append({
-                "face_id": face_id, "data": str(data),
-                "portrait_scale": (np.asarray(image.size)/source_size).tolist(),
-                "skin_color": color.tolist(),
-                "hair_color": (np.median(rgb[hair], axis=0)/255).tolist() if hair.sum() >= 32 else None,
-                "hair_top_pixel": float(np.quantile(np.nonzero(hair)[0], .02)) if hair.any() else None,
-            })
-            image.close()
-            regions.close()
-        mapping = rasterize_unreal_uvs(surface.uvs, texture_size)
-        baked = bake(surface, np.zeros(0), mapping, selected, entries, photos, device)
-        rows, columns, _, _ = mapping
-        atlas = np.broadcast_to(baked["skin_color"], (texture_size, texture_size, 3)).copy()
-        coverage = np.zeros((texture_size, texture_size), dtype=bool)
-        atlas[rows, columns] = np.where(
-            baked["coverage"][:, None], baked["color"], baked["skin_color"])
-        coverage[rows, columns] = baked["coverage"]
-        if not coverage.any():
-            raise RuntimeError("No photographed colour survived native-UV visibility checks")
-        distance, nearest = distance_transform_edt(~coverage, return_indices=True)
-        padding = (~coverage) & (distance <= 8)
-        atlas[padding] = atlas[nearest[0][padding], nearest[1][padding]]
-        texture = root / "native-photo-basecolor.png"
-        Image.fromarray(np.uint8(np.clip(atlas, 0, 1)*255)).save(texture)
-        Image.fromarray(np.uint8(coverage)*255).save(root / "native-photo-coverage.png")
-        result = {
-            "status": "native_uv_photo_colour_baked", "texture": str(texture),
-            "native_uvs_preserved": True, "geometry_modified": False,
-            "texture_uv_origin": "top_left; Unreal V increases down image rows",
-            "winding_reversed_for_projection": bool(surface.winding_reversed_for_projection),
-            "intrinsic_albedo": False, "selected_views": [view["face_id"] for view in selected],
-            "projection": baked["report"],
-            "expression_transfer": "inverse-distance nearest fitted-GNM vertices; approximate offsets only",
-            "expression_transfer_distance_model_units_p50_p95": np.quantile(
-                surface.transfer_distance, [.5, .95]).tolist(),
-            "unseen_texels": "median observed skin colour, not reconstructed detail",
-            "hair_color_srgb": baked["hair_color"].tolist(),
-            "hair_length_model_units": baked["hair_length"],
-        }
-        atomic_json(root / "native-photo-colour.json", result)
-        return result
-    finally:
-        primary = sys.exception()
-        for path in temporary:
-            try:
-                path.unlink(missing_ok=True)
-            except OSError as error:
-                if primary is None:
-                    raise
-                primary.add_note("Temporary photo cleanup failed: " + type(error).__name__)
+    atomic_json(root / "native-photo-colour.json", result)
+    return result

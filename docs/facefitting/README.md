@@ -15,7 +15,7 @@ separate check.
 
 | Operation | Required input | Retained output / next consumer |
 |---|---|---|
-| `video-create` | Retained sampled-frame manifest, installed models, UE project | Fresh dense/semantic evidence, identity fit, native persistence test, native-UV photo colour, inferred stock grooms/iris and editor-native preview; full native integration remains under validation |
+| `video-create` | Retained sampled-frame manifest, installed models, Blender and UE project | Fresh observations/fit, textured Blender scene and hair-free mesh handoff, native-UV colour, native grooms/iris, independent reload and new editor portrait; likeness remains unapproved |
 | `fit` | Curated imageprocessing run/group, current cleansing, pinned GNM/landmarker assets | Neutral OBJ, parameters, observations, cameras, overlays and review scene |
 | `appearance` | Exact fitted mesh plus matching geometry-review record | Photo-colour atlas/coverage, UV geometry, approximate hair, scene and hair-free OBJ/MTL |
 | `unreal-import` | Verified appearance revision, UE editor/project | Textured static mesh/material/texture packages; not a MetaHuman |
@@ -60,8 +60,14 @@ weights and fits a new shared identity/cameras/expressions using the existing
 `config\facefitting.json` policy, imports a new mesh, creates a new native
 Character with the factory, conforms it and independently reloads it. It does
 not read a previous personal head, fit, native response, ray correspondence or
-appearance profile. Blender is not invoked. No intermediate prompt or manual
-tuning is part of execution.
+appearance profile. Before Unreal import, the command now creates a fresh
+Blender clay scene, bakes photo colour onto the fitted GNM UVs, adds
+photo-supported approximate hair, saves `blender\textured-head.blend` and
+exports the hair-free mesh that Unreal actually consumes. The Blender export
+must preserve fitted vertices under the declared axis/centimetre conversion.
+Missing scenes, requested hair, render outputs or failed Blender processes stop
+the run; the command does not fall back to the direct Python OBJ.
+No intermediate approval prompt or manual tuning is part of execution.
 
 The command now connects native skin UV export, fresh photo-colour baking and
 Texture2D import to native skin, iris, eyebrow, scalp-hair, facial-hair and
@@ -72,12 +78,14 @@ the parser has no distinct beard/moustache class. Eyelashes use an explicitly
 unmeasured preset. Observed colour retains photo lighting; unseen atlas texels
 are labelled median-skin fill, not recovered detail.
 
-The full unattended public command now completes through native save/reload
-and a new close-up image. Delivery run
+The earlier direct-native command completed through native save/reload
+and a new close-up image, but omitted Blender. Its delivery run
 `b58c0c440faa4df5900e613ad8faa7a1` completed in **540.265 s** from 82
 retained photos, with correctly oriented photo detail, actual native grooms,
 corrected portrait framing and zero surface displacement on independent reload.
-All 131 checked input/output artifact references still matched. Its new image
+All 131 checked input/output artifact references still matched. This historical
+result predates the package reorganization and required Blender stage; it is
+not validation of the revised full pipeline. Its new image
 was actually opened for review; older reversed/wide previews are not substituted.
 The photo tint still includes source lighting, body appearance is an unchanged
 generic default and no visual likeness acceptance is implied. Actual actors expose scalp
@@ -90,8 +98,17 @@ Wall time starts from the retained sampled photos, not from video decoding.
 This path needs the existing facefitting, imageprocessing and explicitly
 selected CUDA runtime prerequisites; it does not install or replace GPU stacks.
 See [measured failures, fixes and limitations](video-identity-investigation.md).
-The focused affected suite passes **168 tests**; this is not a full-project
-suite or proof of likeness.
+The revised working-tree unit cohort passes **265 tests**, including Blender
+failure/geometry handoff and photo-projection cleanup cases. Units use mocked
+native tools; they are not proof of a real full run or of likeness.
+
+The revised full public command subsequently passed as
+`17b9ff17ee584c24b6d8f5d42e981ec5` in **466.375 seconds**, including Blender.
+It saved a new `blender\textured-head.blend`, exported the actual Unreal input,
+created 14,000 approximate Blender strands and produced a new native Character
+and portrait. All 157 unique checked references match and native surface
+max/RMS reload drift is zero. Both actual new Blender/native images were opened.
+See [timings, outputs and visible limitations](dev.readme.md#verified-blender-to-unreal-run).
 
 `appearance` requires `reviews\FIT_JOB-clay-approval.json` with decision
 `approved`, scope `neutral_clay_geometry`, and the matching mesh reference.
@@ -103,7 +120,7 @@ This is a technical dependency gate, not evidence that texture or final likeness
 |---|---|---|
 | `fit --fit-config FILE` | `config\facefitting.json` | Optimizer, shape modes and regularization |
 | `appearance --appearance-config FILE` | `config\appearance.json` | Texture/hair preparation budgets |
-| `--generation-config FILE` | `config\generation.json` | Shared native tools, Blender device/render size and timeout; supported by fit, appearance, import and conform |
+| `--generation-config FILE` | `config\generation.json` | Shared native tools, Blender device/render size and timeout; supported by video-create, fit, appearance, import and conform |
 | `unreal-conform --baseline FILE` | Alias `facefitting\working-baseline.json`, when present | Pinned existing scene/geometry/camera dependencies |
 | `unreal-conform --reference-face-id ID` | Off; existing Blender tracking preview | Track original pixels from one already-fitted photograph using its retained perspective camera; no new GNM fit or Blender render |
 | `unreal-conform --source-character PATH` | Off; create a fresh draft | Duplicate and refine the existing native Character in a unique namespace; its source package is hash-pinned and never saved |
@@ -275,13 +292,13 @@ selection persisted. Such runs remain failed, not appearance-approved.
 
 ## Current working baseline
 
-`data\arka\facefitting\working-baseline.json` pins the existing diagnostic scene,
-source geometry/texture, observations and cameras. Preserve these files;
-native refinement must not overwrite the baseline or silently regenerate a Blender fit.
-
-The geometry reference is revision `20261116T153125Z-44390de9`; the appearance
-reference is `20261116T163340Z-14973ca7`. Their roles differ: a fixed geometric
-reference does not validate the appearance. See the [current comparison](../../README.md#current-state---below-expectations).
+There is no active personal Blender baseline. On November 18, 2026, the owner
+requested deletion of `hairfree-matched-camera.blend` from diagnostic revision
+`20261117T0525Z-hairfree-camera`, together with the active
+`data\arka\facefitting\working-baseline.json` selector. Both have been removed.
+Original photos, other historical revision inputs and saved native Characters
+were not deleted. New full runs must start from retained sampled photos and
+create new downstream assets, not restore the retired scene.
 
 ## Photo appearance preview
 

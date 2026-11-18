@@ -13,7 +13,7 @@ Unit tests live in responsibility-specific `tests` subpackages.
 | `geometry` | Head models, camera transforms, correspondence, optimization and fit/OBJ serialization |
 | `appearance` | UV rasterization, photo texture projection, observed-feature comparison and native profile mapping |
 | `unreal` | Native asset operations, editor-process request/receipt handling, persistence and portrait capture |
-| `blender` | Optional standalone scene, tracking, rendering and skin-wrapping workers |
+| `blender` | Scene/render/export process adapters and workers; required by the fresh full pipeline |
 | `workflows` | End-to-end stage ordering, source ownership, failure reports and final result assembly |
 | `configuration.py` | Validated fitting, frame-quality/video and appearance policies |
 | `artifacts.py` | Saved fit/appearance manifest inspection and dependency verification |
@@ -33,6 +33,52 @@ Historical generated worker copies and personal assets are not rewritten.
 `unreal\character_portrait_worker.py` captures an editable editor Character.
 Neither filename implies likeness approval.
 
+## Verified Blender-to-Unreal run
+
+On November 18, the public `video-create` command completed unattended as
+revision `17b9ff17ee584c24b6d8f5d42e981ec5`, after the ownership refactor and
+required Blender handoff were implemented. It reused 82 retained images,
+fitted 81 views and did not decode video or reuse previous personal predictions,
+fits, scenes, native responses or appearance profiles.
+
+| Recorded stage | Seconds |
+|---|---:|
+| UE preflight, retained-photo/model loading | 13.126 |
+| Fresh photo observations and parsing | 35.859 |
+| Shared identity fitting | 14.312 |
+| Fresh Blender photo texture, scenes, hair and export | 52.656 |
+| Native Character factory/conform/save | 95.266 |
+| Independent native surface reload and UV export | 78.218 |
+| Native-UV photo texture bake | 9.047 |
+| Native Texture2D import | 25.187 |
+| Evidence-to-native profile mapping | 0.016 |
+| Native appearance apply and independent reload | 88.546 |
+| New editor-native portrait | 52.391 |
+| Workflow wall time, including artifact finalization | **466.375** |
+
+These are shared-host observations, not an isolated throughput benchmark or a
+claimed speedup over earlier runs. The command was not paused between stages.
+The Blender stage created 14,000 approximate strands, including 984
+photo-supported and 582 inferred rear root vertices. Its hair-free geometry
+export was the actual input to Unreal. All **157 unique checked artifact
+references** match; independent native surface max/RMS reload displacement is
+exactly **0 cm**. The resulting native actor exposes scalp hair, brows, beard,
+moustache and eyelash groom assets. The retired Blender scene/selector remain
+absent.
+
+Outputs are under `data\arka\facefitting\fresh-video\17b9ff17ee584c24b6d8f5d42e981ec5`:
+`blender\textured-head.blend`, its `appearance-0.png` and `native-preview.png`.
+The saved Character is
+`/Game/Ailias/Features/F5ed881af1db14fc785dbf2993b77fdf0/Character.Character`.
+Both actual new images were opened. The Blender hair cap has a visibly hard
+edge, the native draft is dark-lit, photo colour retains illumination, and
+native grooms remain stock approximations. This verifies execution and
+persistence, not accepted likeness or an assembled animation rig.
+
+Delivery checks passed 253 unit tests against an isolated snapshot of the
+staged source, plus compilation and public CLI argument checks. The broader
+working-tree cohort passed 265 tests before the real integration run.
+
 ## Fresh sampled-photo path
 
 `workflows\photo_to_character.py:run_photo_to_character_pipeline` and `unreal\character_creation_worker.py` implement
@@ -44,7 +90,15 @@ owned models close on success or failure. Per-photo feature and region evidence
 is retained under `photo-evidence`, including explicit unresolved beard,
 moustache and eyelash classes rather than fabricated segmentation.
 This path fits the generic GNM prior from the freshly computed observations
-using the existing 48/96-mode policy, imports the resulting geometry, and calls
+using the existing 48/96-mode policy. `blender\appearance_scene.py` then projects
+current photo evidence onto the genuine fitted GNM UVs, creates a new clay
+scene through `blender\clay_rendering.py`, and runs the existing appearance
+worker on that same-run scene. The worker saves a textured `.blend`, four
+views, approximate hair and a hair-free export. Unreal imports this Blender
+export, not a bypass OBJ. Geometry/basis preservation and requested hair are
+mandatory stage results. No historical scene or forged approval is used.
+The earlier manually reviewed `appearance` command retains its approval gate.
+The pipeline then calls
 the existing head-only native conform worker with **no source Character**.
 The native factory creates a new asset in a UUID namespace; a second editor
 process compares exported surface topology and vertices with a post-commit,
@@ -73,10 +127,12 @@ rasterizer convention. The preview uses native face-control bounds, not
 skeletal component bounds that include shoulders. Both fixes have focused units
 and pass the delivered full fresh run. SceneCapture's FOV is horizontal:
 the requested physical vertical span is multiplied by output width/height
-before deriving that angle. Delivery run `b58c0c440faa4df5900e613ad8faa7a1`
+before deriving that angle. Earlier direct-native delivery run
+`b58c0c440faa4df5900e613ad8faa7a1`
 completed in 540.265 s, and its actual new close-up was opened. All 131 checked
 input/output references match and native surface max/RMS reload drift is zero.
-This closes execution/integrity validation, not visual likeness acceptance.
+That run did not include Blender and predates the ownership refactor; it does
+not validate the revised full path or establish visual likeness acceptance.
 The run cannot pass by applying the previous
 manual appearance profile.
 Focused fresh-worker units mock UE; real GPU/native execution is opt-in through
@@ -94,7 +150,12 @@ within the verifying editor process: the geometry-export mesh is not a saved
 cross-process asset. Its other operation imports a fresh Texture2D.
 `appearance\skin_texture_projection.py` projects the same run's
 photos/cameras into that atlas; approximate nearest-prior expression offsets
-do not alter the native rest mesh. It retains coverage and explicit unseen fill.
+do not alter the native rest mesh. Both fitted-GNM and native-skin texture
+passes share `appearance\photo_texture_baking.py` for current camera/photo
+selection, bounded temporary arrays, visibility blending and explicit atlas fill.
+They use their respective genuine UVs; the Blender atlas is not silently
+substituted for native skin UVs. Owned temporary photo arrays are removed on
+success and failure. Coverage and unseen-fill limitations remain explicit.
 `appearance\profile_mapping.py` consumes current regional colours and facial-hair
 darkness estimates, validates the resulting native profile and records all
 stock-groom/iris/lash assumptions. `apply_character_features(use_working_baseline=False)`
@@ -103,7 +164,6 @@ baseline. `unreal\character_portrait_worker.py` spawns that saved editor-native 
 assembles its preview grooms and captures a new 540x960 draft after nonblocking
 editor ticks, using lighting/exposure from the existing reanimation policy.
 It does not claim an assembled runtime or request cloud services.
-
 
 ## Fitting architecture
 
