@@ -367,6 +367,9 @@ class NativeFeatureWorkerTests(unittest.TestCase):
             self.assertEqual(character.eyes.eye_left.iris.global_tint.r, .2)
             unreal.EditorAssetLibrary.save_loaded_asset.assert_called_once_with(
                 candidate, only_if_is_dirty=False)
+            unreal.EditorAssetLibrary.save_loaded_asset(candidate, only_if_is_dirty=False)
+            unreal.EditorAssetLibrary.save_loaded_asset.side_effect = RuntimeError(
+                "Runtime assembly rebound the ARKit skeleton; do not save the editing Character afterward")
             result["blueprint"] = "/Game/Test/Actor.Actor"
 
         def inspect(*args):
@@ -385,6 +388,22 @@ class NativeFeatureWorkerTests(unittest.TestCase):
         runtime.assert_called_once()
         subsystem.try_add_object_to_edit.assert_called_once_with(candidate)
         self.assertEqual(unreal.EditorAssetLibrary.save_loaded_asset.call_count, 2)
+
+    def test_rigged_character_is_saved_before_runtime_skeletons_are_assembled(self):
+        unreal, subsystem, _, character, request = self.fixture()
+        character.get_editor_property = lambda name: True
+        subsystem.can_build_meta_human.return_value = True
+        unreal.EditorAssetLibrary.list_assets.return_value = []
+        unreal.MetaHumanCharacterEditorBuildParameters = SimpleNamespace
+        unreal.MetaHumanDefaultPipelineType = SimpleNamespace(OPTIMIZED="OPTIMIZED")
+        unreal.MetaHumanQualityLevel = SimpleNamespace(MEDIUM="MEDIUM")
+        operations = []
+        unreal.EditorAssetLibrary.save_loaded_asset.side_effect = (
+            lambda *args, **kwargs: operations.append("save_character") or True)
+        subsystem.build_meta_human.side_effect = (
+            lambda *args: operations.append("build_runtime"))
+        assemble_runtime(character, subsystem, request, {}, unreal, lambda value: None)
+        self.assertEqual(operations, ["save_character", "build_runtime"])
 
     def test_invalid_feature_state_stops_before_expensive_assembly(self):
         unreal, subsystem, _, candidate, request = self.fixture()

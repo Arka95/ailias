@@ -86,14 +86,40 @@ def search_identity_fit(model_factory, views, policy, search, report, retain_can
                 generic_score = residual_score(reference_validation, validation)
             except (ValueError, RuntimeError) as error:
                 generic_error = {"type": type(error).__name__, "message": str(error)}
-            for modes in search.identity_candidates:
+            smaller_candidate = None
+            for modes in sorted(search.identity_candidates):
                 index = len(results["candidates"])
                 record = {"index": index, "identity_modes": modes, "policy": candidate_policy.record(),
                           "generic_score": generic_score, "generic_error": generic_error, "status": "running"}
                 results["candidates"].append(record)
                 try:
-                    candidate = fit(model, train, candidate_policy, modes, initial=(
-                        np.r_[np.zeros(modes), reference["per_view"].ravel()] if reference is not None else None))
+                    starts = [("generic", np.r_[np.zeros(modes), reference["per_view"].ravel()]
+                               if reference is not None else None)]
+                    if smaller_candidate is not None:
+                        starts.append(("lower_capacity", np.r_[
+                            smaller_candidate["identity"],
+                            np.zeros(modes-len(smaller_candidate["identity"])),
+                            smaller_candidate["per_view"].ravel()]))
+                    fitted_starts = []
+                    record["training_initializations"] = []
+                    for source, initial in starts:
+                        initialization = {"source": source}
+                        record["training_initializations"].append(initialization)
+                        try:
+                            fitted_start = fit(model, train, candidate_policy, modes, initial=initial)
+                            objective = float(fitted_start["report"]["objective"])
+                            if not math.isfinite(objective):
+                                raise ValueError("Nonfinite training objective")
+                            initialization.update(status="completed", objective=objective)
+                            fitted_starts.append((objective, source, fitted_start))
+                        except (ValueError, RuntimeError) as error:
+                            initialization.update(status="failed", error={
+                                "type": type(error).__name__, "message": str(error)})
+                    if not fitted_starts:
+                        raise ValueError("Every training initialization failed")
+                    _, source, candidate = min(fitted_starts, key=lambda item: item[0])
+                    record["selected_training_initialization"] = source
+                    smaller_candidate = candidate
                     tested = fit(model, validation, candidate_policy, modes,
                                  fixed_identity=candidate["identity"],
                                  initial=(reference_validation["per_view"].ravel()
@@ -113,6 +139,17 @@ def search_identity_fit(model_factory, views, policy, search, report, retain_can
     score, model, selected_policy, candidate, tested, selected = best
     results["selected_index"] = selected["index"]
     results["selected_score"] = score
+    results["matched_identity_comparison"] = [
+        {"index": record["index"], "identity_modes": record["identity_modes"],
+         "training_score": residual_score({"report": record["training"]}, train),
+         "heldout_score": record["score"]}
+        for record in results["candidates"]
+        if record["status"] == "completed" and record["policy"] == selected["policy"]
+    ]
+    results["selection_limitations"] = (
+        "Lowest observed landmark error, not proof of optimal capacity or likeness; "
+        "training and held-out comparisons do not establish why a local optimizer chose this solution."
+    )
     results["failed_candidates"] = sum(record["status"] == "failed" for record in results["candidates"])
     results["status"] = "completed_with_failures" if results["failed_candidates"] else "completed"
     per_view = np.empty((len(views), candidate["per_view"].shape[1]))

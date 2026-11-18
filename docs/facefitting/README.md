@@ -90,6 +90,22 @@ Missing scenes, requested hair, render outputs or failed Blender processes stop
 the run; the command does not fall back to the direct Python OBJ.
 No intermediate approval prompt or manual tuning is part of execution.
 
+`--review-config` selects `config\character-review.json` for native-preview
+lighting, independently of the reanimation/Taro preset. The initial corrected
+profile uses -3.5 EV instead of the inherited -5.5 EV; camera framing and light
+placement are unchanged.
+
+An appearance policy may set `native_hair_asset` to an explicit native
+Wardrobe Item. This overrides the approximate length-based style selector,
+but retains current-photo pigment estimates. `config\appearance-arka.json`
+selects the installed short swept-up groom and keeps `hair_strands: 0`.
+Thus Unreal has its configured hairstyle while Blender remains hair-free.
+This is a stock-style approximation, not reconstructed individual strands.
+For a speaking video, use the existing `unreal-features --assemble` and
+`reanimation run` commands with the resulting Blueprint and supplied WAV;
+native cloud rig/texture requests still require `--cloud-services`.
+The same lighting profile can be passed as `reanimation run --reel-config`.
+
 `--photos-run RUN` adds every accepted original-photo portrait across that
 imageprocessing scan's groups; old eligibility and group-size thresholds do
 not remove accepted portraits. Hash-verified originals retain their full image

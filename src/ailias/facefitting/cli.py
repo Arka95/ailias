@@ -24,6 +24,8 @@ def add_parser(commands):
     fresh.add_argument("--fit-search-config", type=Path,
                        help="Explicit exhaustive identity/expression/regularization search; all candidates are retained")
     fresh.add_argument("--appearance-config", type=Path, default=DEFAULT_CONFIG.with_name("appearance.json"))
+    fresh.add_argument("--review-config", type=Path, default=DEFAULT_CONFIG.with_name("character-review.json"),
+                       help="Independent native preview lighting policy; does not change reanimation defaults")
     fresh.add_argument("--generation-config", type=Path, default=DEFAULT_GENERATION_CONFIG)
     video_run = actions.add_parser("video-run", help="Run local video-to-saved-UE pipeline with timed built-in gates")
     video_run.add_argument("alias")
@@ -125,6 +127,7 @@ def execute(args, data_root):
         from ailias.facefitting.configuration import VideoPolicy
         from ailias.facefitting.configuration import load_appearance_policy
         from ailias.facefitting.geometry.identity_search import load_search_policy
+        from ailias.reanimation.settings import load_policy as load_review_policy
         from ailias.generation.settings import load_settings
         from ailias.generation.tools import NativeTools
         store = Store(data_root, args.alias)
@@ -136,7 +139,8 @@ def execute(args, data_root):
                 video_policy=VideoPolicy(**json.loads(args.video_config.read_text(encoding="utf-8"))),
                 appearance_policy=load_appearance_policy(args.appearance_config),
                 generation_policy=generation, photos_run=args.photos_run,
-                search_policy=load_search_policy(args.fit_search_config) if args.fit_search_config else None)
+                search_policy=load_search_policy(args.fit_search_config) if args.fit_search_config else None,
+                review_policy=load_review_policy(args.review_config))
         return result, 0 if result["status"] == "fresh_video_completed" else 2
     if args.facefitting_action in {"video-run", "video-run-status"}:
         import json

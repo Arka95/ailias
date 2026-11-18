@@ -72,7 +72,8 @@ class PhotoToCharacterTests(unittest.TestCase):
         self.assertTrue(self.store.verify(self.reference))
         fit.assert_not_called()
 
-    def complete(self, *, appearance_fails=False, blender_fails=False):
+    def complete(self, *, appearance_fails=False, blender_fails=False,
+                 review_policy=None, native_hair_asset=None):
         project = self.store.resolve("Project\\Preview.uproject")
         project.parent.mkdir()
         project.write_text("{}")
@@ -137,6 +138,7 @@ class PhotoToCharacterTests(unittest.TestCase):
             if operation == "import_texture":
                 asset("/Game/Current/PhotoBaseColor")
                 return {"status": "native_photo_texture_imported", "texture": "/Game/Current/PhotoBaseColor"}
+            self.preview_parameters = parameters
             image = Image.new("RGB", (540, 960), (40, 40, 40))
             image.paste((180, 130, 100), (100, 100, 400, 800))
             image.save(parameters["output"])
@@ -149,6 +151,7 @@ class PhotoToCharacterTests(unittest.TestCase):
 
         def apply(*args, **kwargs):
             self.assertFalse(kwargs["use_working_baseline"])
+            self.native_profile = json.loads(args[2].read_text())
             return {"status": "failed", "error": "groom missing"} if appearance_fails else {
                 "status": "features_reloaded_awaiting_visual_review", "character": candidate,
                 "artifacts": {"character": asset(candidate)}}
@@ -166,8 +169,9 @@ class PhotoToCharacterTests(unittest.TestCase):
             result = run_photo_to_character_pipeline(
                 self.store, self.manifest, Path("Editor.exe"), project, SimpleNamespace(paths={}),
                 SimpleNamespace(record=lambda: {}, expression_modes=[]),
-                generation_policy=SimpleNamespace(), appearance_policy={
-                    "device": "cuda:0", "texture_size": 256, "max_views": 1, "photo_size": 256})
+                generation_policy=SimpleNamespace(), review_policy=review_policy, appearance_policy={
+                    "device": "cuda:0", "texture_size": 256, "max_views": 1, "photo_size": 256,
+                    "hair_strands": 0, "native_hair_asset": native_hair_asset})
         return result, operations
 
     def test_one_invocation_reaches_fresh_texture_grooms_and_a_new_preview_without_old_baseline(self):
@@ -188,6 +192,19 @@ class PhotoToCharacterTests(unittest.TestCase):
         self.assertEqual(result["current_stage"], "apply_and_reload_native_appearance")
         self.assertIn("groom missing", result["error"]["message"])
         self.assertNotIn("preview", operations)
+
+    def test_review_lighting_and_native_hair_are_independent_of_reanimation_and_blender(self):
+        from ailias.reanimation.settings import ReelPolicy, load_policy
+
+        original_reanimation = load_policy().to_dict()
+        lighting = ReelPolicy(exposure_compensation_ev=-3)
+        hair = "/MetaHumanCharacter/Optional/Grooms/Bindings/Hair/WI_Hair_S_SweptUp"
+        result, _ = self.complete(review_policy=lighting, native_hair_asset=hair)
+        self.assertEqual(result["status"], "fresh_video_completed")
+        self.assertEqual(self.preview_parameters["lighting"]["exposure_compensation_ev"], -3)
+        self.assertEqual(self.native_profile["grooms"]["Hair"]["asset"], hair)
+        self.assertEqual(result["appearance_policy"]["hair_strands"], 0)
+        self.assertEqual(load_policy().to_dict(), original_reanimation)
 
     def test_closed_progress_stream_does_not_abort_a_successful_pipeline(self):
         with patch("ailias.facefitting.workflows.photo_to_character.sys.stderr") as stream:

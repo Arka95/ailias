@@ -11,6 +11,7 @@ DEFAULT_CONFIG = PROJECT_ROOT / "config" / "facefitting.json"
 MODEL_SPECS = PROJECT_ROOT / "config" / "facefitting-models.json"
 DEFAULT_VIDEO_CONFIG = PROJECT_ROOT / "config" / "video-evidence.json"
 DEFAULT_APPEARANCE_CONFIG = PROJECT_ROOT / "config" / "appearance.json"
+DEFAULT_REVIEW_CONFIG = PROJECT_ROOT / "config" / "character-review.json"
 
 
 @dataclass(frozen=True)
@@ -114,4 +115,8 @@ def load_appearance_policy(path=DEFAULT_APPEARANCE_CONFIG):
     ):
         if type(policy.get(key)) is not int or not low <= policy[key] <= high:
             raise ValueError(f"{key} must be an integer in {low}..{high}")
+    if policy.get("native_hair_asset") is not None:
+        from ailias.facefitting.unreal.character_features_worker import native_asset
+
+        native_asset(policy["native_hair_asset"])
     return policy

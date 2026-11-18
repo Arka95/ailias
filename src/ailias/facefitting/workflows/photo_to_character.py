@@ -18,7 +18,7 @@ from ailias.facefitting.appearance.skin_texture_projection import (
     bake_photo_skin_texture,
     estimate_photo_alignment,
 )
-from ailias.facefitting.configuration import VideoPolicy, load_appearance_policy
+from ailias.facefitting.configuration import DEFAULT_REVIEW_CONFIG, VideoPolicy, load_appearance_policy
 from ailias.facefitting.evidence.photo_processing import (
     extract_photo_evidence,
     load_retained_frames,
@@ -43,7 +43,7 @@ from ailias.reanimation.settings import load_policy as load_review_policy
 def run_photo_to_character_pipeline(
     store, evidence_path, editor, project, tools, policy, *,
     video_policy=None, appearance_policy=None, generation_policy=None,
-    photos_run=None, search_policy=None,
+    photos_run=None, search_policy=None, review_policy=None,
 ):
     """Run from sampled-photo evidence with fresh identity/cameras/Character; no refinement cache."""
     root = store.resolve(str(Path("facefitting") / "fresh-video" / uuid.uuid4().hex))
@@ -274,7 +274,8 @@ def run_photo_to_character_pipeline(
         def map_appearance_evidence():
             return build_appearance_profile(evidence, baked, imported["texture"], [
                 report["photo_features"], store.reference_artifact(Path(baked["texture"])),
-                store.reference_artifact(character_package(project, imported["texture"]))])
+                store.reference_artifact(character_package(project, imported["texture"]))],
+                native_hair_asset=appearance.get("native_hair_asset"))
 
         profile, mapping = run_stage("derive_native_appearance", map_appearance_evidence)
         report["appearance_mapping"] = mapping
@@ -294,11 +295,14 @@ def run_photo_to_character_pipeline(
         applied = run_stage("apply_and_reload_native_appearance", apply_appearance_profile)
         report["character"] = applied["character"]
         report["artifacts"]["character"] = applied["artifacts"]["character"]
+        report["review_policy"] = (
+            review_policy if review_policy is not None else load_review_policy(DEFAULT_REVIEW_CONFIG)
+        ).to_dict()
         preview = run_stage("render_new_native_preview", lambda: execute_unreal_worker(
             tools, project, store.artifact_path(preview_worker), root, "preview",
             {"character": applied["character"], "destination": f"/Game/Ailias/FreshVideo/V{root.name}/Preview",
              "output": str(root / "native-preview.png"), "warmup_seconds": 20,
-             "lighting": load_review_policy().to_dict()}, report))
+             "lighting": report["review_policy"]}, report))
         with Image.open(root / "native-preview.png") as image:
             if image.size != (540, 960) or np.asarray(image.convert("RGB")).std() < 2:
                 raise RuntimeError("Native preview is empty or has unexpected dimensions")

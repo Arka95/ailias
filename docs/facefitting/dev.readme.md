@@ -283,6 +283,45 @@ An isolated snapshot of the exact staged source passed **390 functional unit
 tests**, compilation and public CLI option checks. Native/GPU integration
 evidence comes from the actual full run, not those mocked unit tests.
 
+The follow-up matched-capacity audit held the winning expression/prior/bound
+settings fixed:
+
+| Identity modes | Training category-balanced RMS | Held-out category-balanced RMS | Training objective |
+|---|---:|---:|---:|
+| 48 | 0.0309007 | 0.0309464 | 0.000413898 |
+| 96 | 0.0303781 | 0.0303005 | 0.000405925 |
+| 170 | 0.0307372 | 0.0309535 | 0.000413022 |
+
+The 96-mode solution won by only about 2.1% against 48. All three reported
+convergence, but 170 also had a worse training objective despite containing
+the smaller basis. This is not sufficient evidence for an overfitting story
+or a uniquely optimal 96-mode head; initialization/local optimization matters.
+Future searches now retain `matched_identity_comparison` and each training
+initialization, trying both the generic start and the zero-padded lower-capacity
+fit, selecting the training objective before evaluating held-out images.
+Starts are shared only inside the same evidence run and matching policy.
+The completed 162-trial run predates this warm-start correction; the requested
+video keeps that delivered head rather than silently changing its geometry.
+
+Native preview lighting now loads an independent `character-review.json`
+policy, with optional `video-create --review-config`, rather than inheriting
+the reanimation preset. A configured `native_hair_asset` reaches the native
+profile independently of Blender's strand budget. The short swept-up style
+was applied to a clone of the current fitted Character, independently reloaded,
+and actually rendered at -3.5 EV; that new image was opened and inspected.
+The native hair is visibly short/swept-up, but still a stock approximation.
+The original fitted Character and the reanimation/Taro preset remain unchanged.
+
+The first speaking-video assembly obtained the native face rig and texture
+sources but failed when saving the editing Character after runtime assembly:
+the generated ARKit animation reported a bound-skeleton mismatch. The worker
+now saves the rigged/textured Character before building runtime assets, never
+after runtime assembly can rebind their skeletons. Runtime compilation,
+package saves, appearance checks and independent-editor verification remain
+mandatory; no skeleton error is suppressed. The save-order regression and
+the appearance/workflow/search tests passed together (45 tests). Native
+assembly and video validation must still succeed before claiming a new video.
+
 ## Fitting architecture
 
 | Component | Responsibility |

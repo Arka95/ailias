@@ -370,6 +370,10 @@ def assemble_runtime(character, subsystem, request, result, unreal, publish):
             raise RuntimeError("Native rig/texture request did not satisfy assembly prerequisites")
     if not subsystem.can_build_meta_human(character, False):
         raise RuntimeError("Native Character is not ready for assembly")
+    result["stage"] = "save_rigged_character_before_assembly"
+    publish(result)
+    if not unreal.EditorAssetLibrary.save_loaded_asset(character, only_if_is_dirty=False):
+        raise RuntimeError("Rigged Character package could not be saved before assembly")
     destination = request["destination"] + "/Runtime"
     if unreal.EditorAssetLibrary.list_assets(destination, recursive=True, include_folder=False):
         raise RuntimeError("Runtime destination is occupied; never overwrite it")
@@ -626,7 +630,6 @@ def run(request, unreal, publish):
             stage("verify_built_feature_state")
             values = snapshot(character, subsystem, groom_keys, unreal)
             verify_profile(profile, values, before_assembly)
-            save_character()
             stage("inspect_runtime_actor")
             result["runtime"] = inspect_runtime(
                 result["blueprint"], profile.get("grooms", {}), unreal)

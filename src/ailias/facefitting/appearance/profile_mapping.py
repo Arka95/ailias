@@ -33,7 +33,7 @@ def build_groom_settings(asset, colour):
             "parameters": {"Melanin": float(np.clip(1-np.sqrt(luminance), 0, 1))}}
 
 
-def build_appearance_profile(evidence, baked, texture, sources):
+def build_appearance_profile(evidence, baked, texture, sources, *, native_hair_asset=None):
     features = [face["features"] for face in evidence["faces"].values() if face["status"] == "observed"]
     if not features:
         raise ValueError("Native appearance requires freshly observed photo features")
@@ -44,10 +44,13 @@ def build_appearance_profile(evidence, baked, texture, sources):
     if not isinstance(length, (int, float)) or not np.isfinite(length) or length < 0:
         raise ValueError("Native groom selection requires a finite estimated hair length")
     asset = next(asset for bound, asset in HAIR_STYLES if length < bound)
+    hair_settings = build_groom_settings(asset, hair)
+    if native_hair_asset is not None:
+        hair_settings["asset"] = native_hair_asset
     profile = {
         "version": 1, "sources": sources, "face_basecolor": texture,
         "eyes": {"global_tint_linear": iris.tolist()},
-        "grooms": {"Hair": build_groom_settings(asset, hair),
+        "grooms": {"Hair": hair_settings,
                    "Eyebrows": build_groom_settings("Eyebrows/WI_Eyebrows_M_Natural", brows)},
         "eyelashes": {"type": "short_fine", "enable_grooms": True,
                       "dye_color_linear": brows.tolist()},
@@ -72,6 +75,8 @@ def build_appearance_profile(evidence, baked, texture, sources):
             profile["grooms"][slot] = build_groom_settings(f"{directory}/WI_{prefix}_{size}_Stubble", color)
     return validate_profile(profile), {
         "source_features": len(features), "facial_hair_estimates": estimates,
+        "native_hair_asset": hair_settings["asset"],
+        "native_hair_selection": "configured" if native_hair_asset is not None else "length_estimate",
         "limitations": [
             "Observed photo colour retains lighting; iris tint is not an absolute calibrated iris colour",
             "Native stock groom style and melanin are approximations, not recovered individual strands",

@@ -1,0 +1,11 @@
+{
+  "device": "cuda:0",
+  "texture_size": 2048,
+  "photo_size": 1536,
+  "max_views": 16,
+  "render_samples": 24,
+  "hair_strands": 0,
+  "hair_segments": 8,
+  "seed": 42,
+  "native_hair_asset": "/MetaHumanCharacter/Optional/Grooms/Bindings/Hair/WI_Hair_S_SweptUp"
+}

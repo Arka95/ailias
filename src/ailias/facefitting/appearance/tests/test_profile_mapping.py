@@ -32,6 +32,15 @@ class NativePhotoProfileTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "colour evidence for iris"):
             build_appearance_profile(evidence, {"hair_length_model_units": .02}, "/Game/Texture", [])
 
+    def test_explicit_native_hairstyle_overrides_the_length_heuristic(self):
+        hair = "/MetaHumanCharacter/Optional/Grooms/Bindings/Hair/WI_Hair_S_SweptUp"
+        profile, mapping = build_appearance_profile(
+            self.fixture(), {"hair_length_model_units": .1}, "/Game/Texture", [],
+            native_hair_asset=hair)
+        self.assertEqual(profile["grooms"]["Hair"]["asset"], hair)
+        self.assertEqual(mapping["native_hair_selection"], "configured")
+        self.assertIn("Melanin", profile["grooms"]["Hair"]["parameters"])
+
     def test_missing_facial_hair_inference_blocks_instead_of_skipping_it(self):
         evidence = self.fixture()
         del evidence["faces"]["frame"]["features"]["facial_hair_appearance"]

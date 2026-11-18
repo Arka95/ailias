@@ -40,6 +40,14 @@ from any provider. There is no TTS/Yapit runtime or test dependency.
 `run --reel-config FILE` selects `config\reanimation.json`.
 Per-run overrides win without changing the policy file, source audio or model.
 
+`--reel-config config\character-review.json` selects the independent brighter
+character-review exposure profile without modifying the reanimation/Taro
+preset. It is also used by `facefitting video-create --review-config`.
+Character construction/hairstyle changes remain in facefitting; assemble its
+saved Character with `unreal-features --assemble` before passing the resulting
+Blueprint here. Only explicitly authorized `--cloud-services` requests may
+obtain missing native rig/textures; an older head's rig is not substituted.
+
 | CLI option | Meaning |
 |---|---|
 | `--alias` | Output namespace, independent of voice/model; legacy positional alias is supported |
