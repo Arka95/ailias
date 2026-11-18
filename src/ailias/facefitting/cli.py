@@ -25,6 +25,32 @@ def add_parser(commands):
                        help="Explicit exhaustive identity/expression/regularization search; all candidates are retained")
     fresh.add_argument("--appearance-config", type=Path, default=DEFAULT_CONFIG.with_name("appearance.json"))
     fresh.add_argument("--generation-config", type=Path, default=DEFAULT_GENERATION_CONFIG)
+    video_run = actions.add_parser("video-run", help="Run local video-to-saved-UE pipeline with timed built-in gates")
+    video_run.add_argument("alias")
+    video_run.add_argument("folder", type=Path)
+    video_run.add_argument("--character", required=True)
+    video_run.add_argument("--appearance", type=Path, required=True)
+    video_run.add_argument("--correspondence", type=Path, required=True)
+    video_run.add_argument("--editor", type=Path, required=True)
+    video_run.add_argument("--project", type=Path, required=True)
+    video_run.add_argument("--response", type=Path, help="Reuse a source-matched calibration; omit for cold end-to-end timing")
+    video_run.add_argument("--video-config", type=Path, default=DEFAULT_CONFIG.with_name("video-evidence.json"))
+    video_run.add_argument("--fit-config", type=Path, default=DEFAULT_CONFIG.with_name("native-video-fit.json"))
+    video_run.add_argument("--generation-config", type=Path, default=DEFAULT_GENERATION_CONFIG)
+    video_status = actions.add_parser("video-run-status", help="Recheck run input/output hashes without executing UE or models")
+    video_status.add_argument("alias")
+    video_status.add_argument("job")
+    video = actions.add_parser("video-evidence", help="Extract local timestamped identity/expression frames and audio")
+    video.add_argument("alias")
+    video.add_argument("folder", type=Path)
+    video.add_argument("--video-config", type=Path, default=DEFAULT_CONFIG.with_name("video-evidence.json"))
+    video_fit = actions.add_parser("video-fit", help="Fit native shared identity with per-frame expressions; no Blender")
+    video_fit.add_argument("alias")
+    video_fit.add_argument("--evidence", type=Path, required=True)
+    video_fit.add_argument("--response", type=Path, required=True, help="Matching native geometry-response manifest")
+    video_fit.add_argument("--correspondence", type=Path, required=True, help="Native ray/barycentric NPZ with triangles")
+    video_fit.add_argument("--appearance", type=Path, required=True, help="Preserved native appearance JSON")
+    video_fit.add_argument("--fit-config", type=Path, default=DEFAULT_CONFIG)
     for name, description in (
         ("models", "Download/verify pinned public head assets and retained license provenance"),
         ("fit", "Run fresh CPU dense observations, shared shape fitting and configured Blender renders"),
@@ -112,6 +138,46 @@ def execute(args, data_root):
                 generation_policy=generation, photos_run=args.photos_run,
                 search_policy=load_search_policy(args.fit_search_config) if args.fit_search_config else None)
         return result, 0 if result["status"] == "fresh_video_completed" else 2
+    if args.facefitting_action in {"video-run", "video-run-status"}:
+        import json
+        from ailias.facefitting.workflows.video_character_refinement import (
+            RUN_SUCCESS,
+            inspect_video_refinement,
+            refine_character_from_video,
+        )
+        store = Store(data_root, args.alias)
+        if args.facefitting_action == "video-run-status":
+            result = inspect_video_refinement(store, args.job)
+            return result, 0 if result["status"] == RUN_SUCCESS and not result["integrity_problems"] else 2
+        from ailias.facefitting.configuration import load_policy
+        from ailias.facefitting.configuration import VideoPolicy
+        from ailias.generation.settings import load_settings
+        from ailias.generation.tools import NativeTools
+        generation, tools_root = load_settings(args.generation_config)
+        policy = VideoPolicy(**json.loads(args.video_config.read_text(encoding="utf-8")))
+        with store.lock():
+            result = refine_character_from_video(
+                store, args.folder, args.character, args.appearance, args.correspondence,
+                args.editor, args.project, NativeTools(tools_root, generation.timeout_seconds),
+                policy, load_policy(args.fit_config), response_path=args.response)
+        return result, 0 if result["status"] == RUN_SUCCESS else 2
+    if args.facefitting_action == "video-fit":
+        from ailias.facefitting.geometry.video_identity_fitting import fit_native_video
+        from ailias.facefitting.configuration import load_policy
+        store = Store(data_root, args.alias)
+        with store.lock():
+            result = fit_native_video(store, args.evidence, args.response, args.correspondence,
+                                      args.appearance, load_policy(args.fit_config))
+        return result, 0 if result["status"] == "native_video_proposal_ready" else 2
+    if args.facefitting_action == "video-evidence":
+        import json
+        from ailias.facefitting.configuration import VideoPolicy
+        from ailias.facefitting.evidence.video_sampling import extract_evidence
+        policy = VideoPolicy(**json.loads(args.video_config.read_text(encoding="utf-8")))
+        store = Store(data_root, args.alias)
+        # Evidence decoding writes only an exclusively created UUID revision, not session state.
+        result = extract_evidence(store, args.folder, policy)
+        return result, 0 if result["status"] == "video_evidence_ready" else 2
     if args.facefitting_action == "native-control-map":
         from ailias.facefitting.geometry.sculpt_control_mapping import map_native_controls
         store = Store(data_root, args.alias)

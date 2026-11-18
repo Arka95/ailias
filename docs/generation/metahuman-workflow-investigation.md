@@ -5,8 +5,8 @@
 | Field | Value |
 |---|---|
 | Owner | Arka |
-| Status | GPU fitting, photographic preview, static UE import and a native Character head fit verified; final review/rig/binding open |
-| Last updated | 2026-11-16 |
+| Status | Native baseline conform, owner-authorized face rig/textures, saved runtime assembly and same-audio draft animation verified; photographic transfer, binding and final likeness open |
+| Last updated | 2026-11-17 |
 | Scope | Photo-conditioned head, UE 5.8 head fitting, appearance and runtime performance |
 | Reviewer | Owner likeness review pending |
 
@@ -29,9 +29,9 @@ head-conforming Python APIs in an owned project. It did not create assets,
 import a head, conform or request cloud work.
 `data\arka\unreal\AiliasReview\capability-probe.json` retains the exposed
 types/signatures; the companion log confirms missing Core Data.
-Epic's required **MetaHuman Creator Core Data** is absent [10]: the installed
-plugin's Optional/TextureSynthesis and Optional/BodyTextures directories are
-missing. This limits Creator/skin functionality; it is not evidence that
+At that initial probe, **MetaHuman Creator Core Data** was absent [10]: the
+plugin's Optional/TextureSynthesis and Optional/BodyTextures directories were
+missing. This limited Creator/skin functionality; it was not evidence that
 plain mesh import is impossible. The doctor now reports this separately.
 A later real import saved eight packages and verified upright head bounds:
 appearance `20261116T163340Z-14973ca7`, handoff
@@ -42,8 +42,14 @@ face/body state and saved a Character that survived a separate editor reload.
 Missing optional content disabled skin editing but did not block this solve.
 The native +Y-facing target and matching perspective camera were essential:
 the first +X attempt returned true but had distorted geometry. Final surface/
-eyelid refinement, likeness review, skin transfer, rig and assembly remain open;
-see [actual native geometry and caveats](../facefitting/README.md#native-character-draft-and-hair-later).
+eyelid refinement, likeness review and photographic skin transfer remain open.
+On November 17, the owner installed Core Data and explicitly authorized cloud
+rigging/source textures on the existing baseline-backed Character
+`79893d83e1cb4c58a6574db06c6a828e`. All 79 sampled landmarks stayed unchanged
+(RMS 0); a compiled, saved optimized assembly then rendered the unchanged
+narration in reel `13a06df92b224d3b8ba938bdf7f8ddc2` with full video/audio decode.
+This is technical draft evidence, not a finished likeness.
+See [current runtime evidence and limitations](../facefitting/README.md#animated-native-draft).
 No other owning team/on-call is involved in this local single-owner workflow.
 Accuracy, explicit cloud controls, source preservation and human approval remain
 load-bearing gates; speed will not substitute for them.
@@ -141,9 +147,9 @@ behaviour from labels or silently enable a cloud operation.
 | ID | Deliverable | Dependency / state |
 |---|---|---|
 | MH-1 | Complete compatible CUDA runtime, full-photo speed/accuracy benchmark and provenance | Done; 162 isolated units and two explicit CUDA tests passed; both jobs verified |
-| MH-2 | Validate custom-mesh head-only API and compare with Identity handoff in an owned UE project | API exposure and upright textured static-head import verified; Core Data missing; Character conform remains open |
+| MH-2 | Validate custom-mesh head-only API and compare with Identity handoff in an owned UE project | Static import, baseline-backed Character conform, full rig and runtime assembly verified; Core Data installed. Identity route not used for this head |
 | MH-3 | Add regional/silhouette checks and post-conform drift evidence | After MH-2; avoid treating hair silhouette as bare skull |
-| MH-4 | Add appearance transfer and rig/LOD validation with a close-up reference baseline | Blender photographic preview/hair approximation generated after clay approval; MetaHuman transfer/rig/LOD and owner appearance approval remain open |
+| MH-4 | Add appearance transfer and rig/LOD validation with a close-up reference baseline | Full face rig, compiled runtime actor and audio render verified; photographic skin/hair transfer, LOD quality and owner appearance approval remain open |
 
 These are delivery themes, not measured duration estimates; split the unproven UE
 and appearance work into 1-2 week items after the first real project benchmark.

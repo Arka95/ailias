@@ -28,7 +28,7 @@ def project_native(vertices, camera):
     return np.c_[relative @ vectors[1], -relative @ vectors[2]]*focal/depth[:, None]+size/2
 
 
-def ray_correspondences(vertices, triangles, landmarks_xy, camera, *, front_face_sign=1):
+def ray_correspondences(vertices, triangles, landmarks_xy, camera, *, front_face_sign=None):
     """Keep canonical triangles/barycentrics; do not wrap or deform another mesh."""
     surface, topology = np.asarray(vertices, dtype=float), np.asarray(triangles)
     points = np.asarray(landmarks_xy, dtype=float)
@@ -39,7 +39,7 @@ def ray_correspondences(vertices, triangles, landmarks_xy, camera, *, front_face
             or not np.issubdtype(topology.dtype, np.integer)
             or np.any(topology < 0) or np.any(topology >= len(surface))
             or points.ndim != 2 or points.shape[1] != 2
-            or not np.isfinite(points).all() or front_face_sign not in (-1, 1)):
+            or not np.isfinite(points).all() or front_face_sign not in (None, -1, 1)):
         raise ValueError("Native ray correspondence requires valid canonical geometry and pixel landmarks")
     faces = surface[topology]
     edge1, edge2 = faces[:, 1]-faces[:, 0], faces[:, 2]-faces[:, 0]
@@ -55,7 +55,9 @@ def ray_correspondences(vertices, triangles, landmarks_xy, camera, *, front_face
         direction /= np.linalg.norm(direction)
         cross = np.cross(direction, edge2)
         determinant = np.einsum("ij,ij->i", edge1, cross)
-        supported = determinant*front_face_sign > 1e-10
+        # UE exports can use the opposite winding; culling can select the rear skull.
+        supported = (np.abs(determinant) > 1e-10 if front_face_sign is None
+                     else determinant*front_face_sign > 1e-10)
         inverse = np.divide(1., determinant, out=np.zeros_like(determinant), where=supported)
         u = np.einsum("ij,ij->i", origin, cross)*inverse
         v = (cross_origin @ direction)*inverse
@@ -70,7 +72,8 @@ def ray_correspondences(vertices, triangles, landmarks_xy, camera, *, front_face
     return {
         "triangle_indices": indices, "barycentric": barycentric,
         "supported": indices >= 0, "distance_cm": distances,
-        "method": "same-native-visible-ray-barycentric-v1",
+        "method": "same-native-visible-ray-barycentric-v2",
+        "winding_policy": "two_sided_nearest" if front_face_sign is None else front_face_sign,
         "semantic_accuracy_verified": False,
     }
 

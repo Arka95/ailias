@@ -6,7 +6,7 @@ Python coordinates local OpenCV, PyTorch/SciPy, COLMAP, Blender and Unreal worke
 
 **Current limitation:** native conforming, rigging and animation work technically,
 but facial resemblance and skin/hair transfer are below expectations. Native
-feature profiles are scriptable; automatic photo-to-native likeness fitting and
+feature profiles now save/reload visible skin, eyes and native grooms; automatic photo-to-native likeness fitting and
 photographic appearance transfer are not complete.
 
 ## Visual pipeline
@@ -20,11 +20,13 @@ successful run. **LLM** means a language model; none is required by these stages
 | ![Reference portrait](docs/images/pipeline/portrait.png) | **imageprocessing** - Detect/group faces, isolate heads and extract regional shape/colour/iris evidence. **LLM:** no. **GPU:** optional; explicit CPU/CUDA. **Needs:** local OpenCV and prepared detection/parsing/matting weights; MediaPipe for dense inspection; no Blender or Unreal. | ![Head-only cutout](docs/images/pipeline/cutout.png) |
 | ![Prepared reference head](docs/images/pipeline/cutout.png) | **facefitting / fit** - Fit shared head identity with per-photo camera/expression. **LLM:** no. **GPU:** configured CUDA; explicit CPU solver available. **Needs:** GNM, MediaPipe and PyTorch/SciPy; Blender for the review scene, not numerical fitting. | ![Neutral fitted geometry](docs/images/pipeline/clay.png) |
 | ![Neutral geometry](docs/images/pipeline/clay.png) | **facefitting / appearance** - Project observed colour onto the fitted mesh and approximate scalp hair. **LLM:** no. **GPU:** configured CUDA projection/rendering. **Needs:** reviewed fit and Blender; no Unreal. Colour still contains photographed lighting. | ![Blender appearance preview](docs/images/pipeline/appearance.png) |
-| ![Photo-derived preview](docs/images/pipeline/appearance.png) | **Native handoff / features** - Import/conform geometry, apply explicit native edits and optionally assemble a rig. **LLM:** no. **GPU:** required for the validated full-rig editor path. **Needs:** UE 5.8, MetaHuman content/plugins and compatible assets; Blender prepares import files. Photo skin/hair transfer remains incomplete. | ![Current native character, shown in an animation frame](docs/images/pipeline/native.png) |
+| ![Photo-derived preview](docs/images/pipeline/appearance.png) | **Native handoff / features** - Import/conform geometry, apply explicit native skin/eye/groom edits and optionally assemble a rig. **LLM:** no. **GPU:** UE preview/rendering. **Needs:** UE 5.8, MetaHuman content/plugins and compatible assets; no Blender for edits to an existing Character. Photo matching remains incomplete. | ![Latest editable UE appearance draft](docs/images/pipeline/native-appearance.png) |
 | ![Existing native character](docs/images/pipeline/native.png) plus narration WAV | **reanimation** - Solve face/head motion from supplied audio, render and encode. **LLM:** no; no speech synthesis. **GPU:** UE rendering; configured NVENC encoding, explicit CPU encoder available. **Needs:** UE 5.8 Animator/MRQ plugins, assembled rig and FFmpeg; no Blender. | ![First and last frames of the resulting reel](docs/images/pipeline/reel.png) |
 
 Image provenance and resize/crop records: [pipeline media](docs/images/pipeline/provenance.json).
-The native thumbnail is an animated frame, not a neutral matched-camera render.
+The reanimation input thumbnail is historical; the editable appearance draft is
+an actual newer UE viewport capture, not a completed rig or matched-camera render.
+Its provenance is recorded with the [appearance comparison](docs/facefitting/images/ue-photo-appearance-provenance.json).
 These are stage-specific requirements, not simultaneous residency requirements;
 tool paths, devices and model preparation are covered by the module guides.
 
@@ -96,9 +98,10 @@ silently install models or replace the shared runtime.
 |---|---|
 | Prepare analysis models | `python -m ailias imageprocessing models subject` |
 | Analyze photos | `python -m ailias imageprocessing scan subject C:\photos --device cuda` |
+| Sample video photos + timed expression/audio evidence | `python -m ailias facefitting video-evidence subject C:\recordings` - default 1 FPS/1080p; [video identity workflow](docs/facefitting/video-identity-investigation.md) |
+| Create fresh Blender and native heads from sampled photos | `python -m ailias facefitting video-create subject --evidence C:\data\sampled\manifest.json --editor $ue --project $project` - fresh textured Blender scene/export, native appearance and portrait; no previous personal head/fit, no likeness approval |
 | Review and select references | [Imageprocessing commands](docs/imageprocessing/README.md#usage) |
 | Fit / texture / import a head | [Facefitting commands](docs/facefitting/README.md#usage) |
-| Create fresh Blender and native heads from sampled photos | `python -m ailias facefitting video-create subject --evidence C:\data\sampled\manifest.json --editor $ue --project $project` - fresh textured Blender scene/export, native appearance and portrait; no previous personal head/fit, no likeness approval |
 | Animate a compatible existing rig | [Reanimation commands](docs/reanimation/README.md#usage) |
 | Inspect retained resources | `python -m ailias cleanup --alias subject` - dry run; `--apply` deletes eligible remnants |
 | Record capture and external handoffs | [Core workflow](docs/workflow.md) |
@@ -110,16 +113,20 @@ data directory. Module flags select their own JSON policies. Per-run overrides,
 where implemented, take precedence without rewriting those files.
 See each module guide below for defaults, units and parameter meanings.
 
-## Current state - below expectations
+## Current UE appearance - likeness not approved
 
-| Frontal reference | Fitted geometry | Blender appearance | Unreal result |
-|---|---|---|---|
-| ![Reference portrait](docs/images/pipeline/portrait.png) | ![Clay geometry](docs/images/pipeline/clay.png) | ![Photo-colour preview](docs/images/pipeline/appearance.png) | ![Actual native animation frame](docs/images/pipeline/native.png) |
+| Selected reference | Latest actual UE appearance |
+|---|---|
+| ![Selected glasses-free reference](docs/images/pipeline/appearance-reference.png) | ![Native skin, eyes, brows, fringe, moustache and stubble](docs/images/pipeline/native-appearance.png) |
 
-Missing hairstyle/facial hair, different eyes/skin and incorrect feature
-resemblance remain visible. Pose, expression and lighting differ; this is a
-visual diagnostic, not a likeness score.
-[Full comparison](docs/facefitting/images/current-likeness-comparison.png).
+Revision `f6b61b60` refines native skin roughness, complexion, undertone and lip
+colour. It saves and independently reloads with the owner-approved beard and
+moustache preserved, alongside unchanged eyes, brows and hair. The skin pass uses
+a lower-mark native texture, not a blurred photograph. This revision's geometry is unchanged;
+hair is still straighter than the reference and skin reflectance is not
+photometrically calibrated. This is not full-likeness approval.
+[Actual photo/UE comparison](docs/facefitting/images/ue-photo-appearance-comparison.png).
+[Skin before/after](docs/facefitting/images/ue-skin-before-after.png).
 
 ## Retired Blender baseline
 

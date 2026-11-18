@@ -33,14 +33,23 @@ class NativeCorrespondenceTests(unittest.TestCase):
         sampled, _ = sample_native(vertices, topology, result)
         self.assertAlmostEqual(sampled[0, 1], 1)
 
-    def test_misses_and_backfaces_abstain_instead_of_using_a_nearest_vertex(self):
+    def test_reversed_winding_does_not_select_the_rear_surface(self):
+        vertices = np.r_[self.vertices, self.vertices+[0, 1, 0]]
+        topology = np.r_[self.triangles, (self.triangles+4)[:, ::-1]]
+        result = ray_correspondences(vertices, topology, [[50, 50]], self.camera)
+        sampled, _ = sample_native(vertices, topology, result)
+        self.assertAlmostEqual(sampled[0, 1], 1)
+        self.assertEqual(result["winding_policy"], "two_sided_nearest")
+
+    def test_misses_and_explicitly_culled_backfaces_abstain(self):
         result = ray_correspondences(self.vertices, self.triangles, [[0, 0], [1000, 50]], self.camera)
         np.testing.assert_array_equal(result["supported"], [False, False])
         sampled, indices = sample_native(self.vertices, self.triangles, result)
         self.assertEqual(len(sampled), 0)
         self.assertEqual(len(indices), 0)
         reversed_faces = self.triangles[:, ::-1]
-        result = ray_correspondences(self.vertices, reversed_faces, [[50, 50]], self.camera)
+        result = ray_correspondences(
+            self.vertices, reversed_faces, [[50, 50]], self.camera, front_face_sign=1)
         self.assertFalse(result["supported"][0])
 
     def test_invalid_camera_and_topology_do_not_produce_correspondences(self):

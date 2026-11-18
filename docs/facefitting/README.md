@@ -15,7 +15,9 @@ separate check.
 
 | Operation | Required input | Retained output / next consumer |
 |---|---|---|
+| `video-evidence` | Local MP4/MOV folder, prepared landmarker | Default 1 FPS images capped at 1920 pixels, PTS, expression/pose evidence and PCM audio; explicit all-frame mode is separate |
 | `video-create` | Retained sampled-frame manifest, installed models, Blender and UE project | Fresh observations/fit, textured Blender scene and hair-free mesh handoff, native-UV colour, native grooms/iris, independent reload and new editor portrait; likeness remains unapproved |
+| `video-fit` | Video evidence, source-matched native responses, native ray correspondences and preserved appearance profile | Experimental shared native identity/per-frame expression fit and bounded **unapplied** sculpt profile; no Blender |
 | `fit` | Curated imageprocessing run/group, current cleansing, pinned GNM/landmarker assets | Neutral OBJ, parameters, observations, cameras, overlays and review scene |
 | `appearance` | Exact fitted mesh plus matching geometry-review record | Photo-colour atlas/coverage, UV geometry, approximate hair, scene and hair-free OBJ/MTL |
 | `unreal-import` | Verified appearance revision, UE editor/project | Textured static mesh/material/texture packages; not a MetaHuman |
@@ -32,6 +34,7 @@ the Blender skin atlas, eye appearance or facial/scalp hair.
 ## Usage
 
 ```powershell
+python -m ailias facefitting video-evidence subject C:\recordings
 python -m ailias facefitting models subject
 python -m ailias facefitting fit subject RUN_ID face-001
 python -m ailias facefitting status subject FIT_JOB
@@ -45,6 +48,24 @@ python -m ailias facefitting unreal-features subject --character /Game/Heads/Per
 python -m ailias facefitting unreal-features subject --character /Game/Heads/Person.Person --profile C:\profiles\features.json --assemble --editor $ue --project $project
 python -m ailias facefitting unreal-review subject FEATURE_JOB --editor $ue --project $project --resolution 540x960
 ```
+
+### Recorded video
+
+Install optional `.[video]` support in the existing environment. Default
+`config\video-evidence.json` selects **one frame per second** for routine geometry
+work (`frame_mode=sampled`, `sample_fps=1`). Set `frame_mode=all` explicitly for
+full-rate expression/lip-sync evidence. Existing full-rate revisions are retained.
+Saved processing images use at most 1920 pixels on the long side (1920x1080 for
+these 16:9 inputs), preserve aspect ratio and never upscale. Detection uses at
+most 1280 pixels on the long side. Landmark coordinates and `source_size` use the
+saved image grid; `original_source_size` records the input dimensions. Original
+recordings and existing exports are unchanged. Images, timestamps/expressions and source-aligned audio live
+under `data\ALIAS\facefitting\video\REVISION`; original recordings are unchanged.
+Native numerical proposals live under `video-fits`, separately from saved UE
+`features` revisions. Strict-neutral and expression-aware selections are distinct.
+The latter requires a per-frame expression model; it does not label smiles as
+neutral. Audio/lip motion is performance evidence, not neutral nose/jaw geometry.
+See [video identity research, tradeoffs and commands](video-identity-investigation.md).
 
 ### Fresh run from sampled photos
 
@@ -219,7 +240,7 @@ these flags do not claim automatic reference selection or verified likeness.
 | `photo_size` | `1536` | Maximum prepared photo side for projection |
 | `max_views` | `16` | Maximum selected texture observations |
 | `render_samples` | `24` | Cycles appearance-preview sample count |
-| `hair_strands` | `14000` | Approximate procedural scalp-strand budget; `0` disables strands |
+| `hair_strands` | `0` | Blender scalp hair is disabled: no cap, strands or Alembic groom; positive values opt into approximate hair. Unreal grooms are independent |
 | `hair_segments` | `8` | Segment count per generated strand |
 | `seed` | `42` | Deterministic procedural layout seed |
 
@@ -254,6 +275,14 @@ not an automatic photo-to-likeness optimizer.
 | `grooms.SLOT.parameters` | Omitted parameters unchanged | Optional `Melanin`, `Redness`, `Roughness`, each `[0,1]`; these are native material controls, not measured hair colours |
 | `eyes.global_tint_linear` | Unchanged | Three linear RGB multipliers in `[0,1]`, applied to both native irises |
 | `eyes.global_saturation` | Unchanged; `[0,4]` when supplied | Both irises' native saturation control |
+| `eyes.primary_color_u`, `primary_color_v`, `secondary_color_u`, `secondary_color_v` | Unchanged; each `[0,1]` | Both irises' native colour-picker coordinates; not RGB values |
+| `eyes.color_blend`, `color_blend_softness` | Unchanged; each `[0,1]` | Native primary/secondary iris colour blending |
+| `skin.u`, `skin.v` | Unchanged; each `[0,1]` | Native skin-tone picker coordinates; not measured melanin or photo RGB |
+| `skin.roughness` | Unchanged; `[0.85,1.15]` | Native skin roughness multiplier |
+| `skin.face_texture_index` | Unchanged; integer `[0,152]` | Installed TS-1.3-F model's 153 native complexion textures; not a geometry or groom edit |
+| `freckles.mask` | Unchanged | `none`, `type1`, `type2`, `type3` |
+| `freckles.density`, `strength`, `saturation`, `tone_shift` | Unchanged; each `[0,1]` | Native freckle density, opacity and colour; disabling the overlay does not remove marks baked into the complexion texture |
+| `accents.REGION.redness`, `saturation`, `lightness` | Unchanged; each `[0,1]` | Symmetric native complexion/lip accents. Regions: `scalp`, `forehead`, `nose`, `under_eye`, `cheeks`, `lips`, `chin`, `ears` |
 | `eyelashes.type` | Unchanged | `none`, `short_sparse`, `short_fine`, `short_thin`, `long_slight_curl`, `long_curl`, `long_thick_curl` |
 | `eyelashes.melanin`, `redness`, `roughness`, `salt_and_pepper`, `lightness` | Unchanged; each `[0,1]` | Explicit native lash material/pigment controls; not measured strand colour |
 | `eyelashes.dye_color_linear`, `enable_grooms` | Unchanged | Linear RGB dye `[0,1]` and boolean groom enablement; contradictory disabled/selected lashes are rejected |
@@ -266,8 +295,17 @@ not an automatic photo-to-likeness optimizer.
 Sculpt inputs need anatomically justified targets. The adapter does not invent a
 mapping between GNM/MediaPipe points and native sculpt controls. Iris multipliers
 are not calibrated colour matching, and a GNM atlas is not a native-UV texture.
-Explicit lash/pipeline policies are unit-tested; they have not yet been applied
-and visually verified on a new personal-head candidate.
+Native skin, iris palette and lash fields are checked after an independent editor
+reload. Picker coordinates are explicit starting choices, not automatic
+photo-colour matching. `skin` does not change texture indices or request a new
+sculpt. A skin/freckle/accent/base-colour profile also selects UE's **Skin** preview mode;
+Topology or Clay can hide correctly saved skin values. Independent reload
+verification checks that Skin mode is enabled. Appearance-only edits must
+preserve the sampled native face controls.
+
+Leave `--assemble` off to validate editable Character save/reload first. This
+avoids coupling an appearance edit to runtime rig/ControlRig assembly; successful
+property persistence is still separate from visual correctness.
 
 ### Photo-native feature comparison
 

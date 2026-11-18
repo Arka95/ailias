@@ -1,0 +1,165 @@
+{
+  "revision": "f6b61b60c2ec4189bb1e87b8a47bf66f",
+  "approved_facial_hair_revision": "8e5fd408aab64af884668817a34ad12e",
+  "status": "skin_pass_saved_reloaded_and_visually_compared",
+  "character": "/Game/Ailias/Features/Ff6b61b60c2ec4189bb1e87b8a47bf66f/Character.Character",
+  "reference": {
+    "path": "C:\\Users\\bhowmikarka\\Downloads\\arka\\PXL_20240908_131603236.PORTRAIT~2.jpg",
+    "sha256": "59d8a173411f37ed3daca86a78a410f74145149751973c944e84fe40e0988fb5",
+    "storage": "external"
+  },
+  "artifacts": {
+    "unreal_screenshot": {
+      "path": "facefitting\\features\\f6b61b60c2ec4189bb1e87b8a47bf66f\\native-skin-complexion.png",
+      "sha256": "376f7dd1745ffbf098a80a3e40727dc8d9f4953dc7ed5465baad14c377d67470"
+    },
+    "appearance-reference": {
+      "path": "facefitting\\features\\f6b61b60c2ec4189bb1e87b8a47bf66f\\visual-review\\appearance-reference.png",
+      "sha256": "acff4d203009493162d0ba2e8fa8833cdd88b1c3ca27a42bf26eb3090ce6587a"
+    },
+    "native-appearance": {
+      "path": "facefitting\\features\\f6b61b60c2ec4189bb1e87b8a47bf66f\\visual-review\\native-appearance.png",
+      "sha256": "34291f63b4e9ca3ab93bd88b7fdbd7b35fffea75bfab625d18d192caa4f6718c"
+    },
+    "native-skin-tone-palette-source": {
+      "path": "facefitting\\features\\f6b61b60c2ec4189bb1e87b8a47bf66f\\visual-review\\native-skin-tone-palette-source.png",
+      "sha256": "5bcda0479ded4bfe465cf1900b3b6519256935cf4e727ce2cbe4ae3cc64d12bf"
+    },
+    "ue-photo-appearance-comparison": {
+      "path": "facefitting\\features\\f6b61b60c2ec4189bb1e87b8a47bf66f\\visual-review\\ue-photo-appearance-comparison.png",
+      "sha256": "1eb89c063c81fa5586ae9db3e5b2748ea7fe06cbc66c1f02ccbbecca9bcc711d"
+    },
+    "ue-skin-before-after": {
+      "path": "facefitting\\features\\f6b61b60c2ec4189bb1e87b8a47bf66f\\visual-review\\ue-skin-before-after.png",
+      "sha256": "f930d93191e369edb08cdf20b926f229cebc9d1eb1695344f628db91a12df3ba"
+    }
+  },
+  "skin_before": {
+    "u": 0.4000000059604645,
+    "v": 0.6499999761581421,
+    "roughness": 1.059999942779541
+  },
+  "skin_after": {
+    "u": 0.3499999940395355,
+    "v": 0.8999999761581421,
+    "roughness": 1.1200000047683716,
+    "face_texture_index": 7
+  },
+  "freckles_after": {
+    "saturation": 0.6000000238418579,
+    "tone_shift": 0.6499999761581421,
+    "density": 0.5,
+    "strength": 0.0,
+    "mask": "none"
+  },
+  "accents_after": {
+    "under_eye": {
+      "lightness": 0.5,
+      "redness": 0.5,
+      "saturation": 0.5
+    },
+    "cheeks": {
+      "lightness": 0.5199999809265137,
+      "redness": 0.4000000059604645,
+      "saturation": 0.41999998688697815
+    },
+    "forehead": {
+      "lightness": 0.5400000214576721,
+      "redness": 0.41999998688697815,
+      "saturation": 0.44999998807907104
+    },
+    "nose": {
+      "lightness": 0.5099999904632568,
+      "redness": 0.4300000071525574,
+      "saturation": 0.44999998807907104
+    },
+    "ears": {
+      "lightness": 0.5,
+      "redness": 0.5,
+      "saturation": 0.5
+    },
+    "scalp": {
+      "lightness": 0.5,
+      "redness": 0.5,
+      "saturation": 0.5
+    },
+    "lips": {
+      "lightness": 0.46000000834465027,
+      "redness": 0.4000000059604645,
+      "saturation": 0.3799999952316284
+    },
+    "chin": {
+      "lightness": 0.5,
+      "redness": 0.4399999976158142,
+      "saturation": 0.4399999976158142
+    }
+  },
+  "preserved": {
+    "approved_groom_assets_and_parameters": true,
+    "saved_groom_parameters": true,
+    "eyes": true,
+    "eyelashes": true,
+    "approved_character_package": true,
+    "latest_character_package": true,
+    "protected_dependencies": true
+  },
+  "maximum_sampled_face_control_displacement_cm": 0.0,
+  "fresh_editor_reload_verified": true,
+  "skin_preview_enabled": true,
+  "crop_boxes_xyxy": {
+    "reference": [
+      745,
+      158,
+      1537,
+      1299
+    ],
+    "native_screenshots": [
+      530,
+      175,
+      1000,
+      775
+    ]
+  },
+  "image_processing": "Crop, aspect-preserving resize and padding only; no recolouring or synthesis",
+  "complexion_selection": {
+    "installed_model": "TS-1.3-F_UE_res-1024_nchr-153",
+    "source_index_0": {
+      "wrinkles": "Low",
+      "stubble": "None",
+      "marks": "Medium"
+    },
+    "selected_index_7": {
+      "wrinkles": "Low",
+      "stubble": "None",
+      "marks": "Low"
+    },
+    "evidence": "Installed texture_attributes.json; no new model downloaded"
+  },
+  "undertone_selection": {
+    "picker_source_revision": "922cffc50b024f3e8674e8ad0c50105f",
+    "before_uv": [
+      0.4,
+      0.65
+    ],
+    "after_uv": [
+      0.35,
+      0.9
+    ],
+    "photometric_calibration": false
+  },
+  "visual_observations": [
+    "Fewer prominent baked-in facial marks; native pore detail retained",
+    "Softer shine and less saturated regional/lip colour",
+    "Undertone refined using the displayed native picker and observed photo chromaticity",
+    "Owner-approved beard and moustache retained, including their original material parameters"
+  ],
+  "limitations": [
+    "Roughness, complexion and undertone are visually tuned, not measured intrinsic skin reflectance",
+    "Photo lighting/pose and the native Studio lighting differ",
+    "Face geometry and hairstyle were intentionally not revised in this skin pass",
+    "Full personal likeness is not certified"
+  ],
+  "likeness_verified": false,
+  "blender_used": false,
+  "runtime_assembly_requested": false
+}

@@ -142,7 +142,8 @@ input/output references match and native surface max/RMS reload drift is zero.
 That run did not include Blender and predates the ownership refactor; it does
 not validate the revised full path or establish visual likeness acceptance.
 The run cannot pass by applying the previous
-manual appearance profile.
+manual appearance profile. The older `workflows\video_character_refinement.py`
+is a source-Character refinement orchestrator, not this from-scratch path.
 Focused fresh-worker units mock UE; real GPU/native execution is opt-in through
 the command. Existing fit/conform units cover the reused components.
 
@@ -172,6 +173,33 @@ baseline. `unreal\character_portrait_worker.py` spawns that saved editor-native 
 assembles its preview grooms and captures a new 540x960 draft after nonblocking
 editor ticks, using lighting/exposure from the existing reanimation policy.
 It does not claim an assembled runtime or request cloud services.
+
+## Video identity path
+
+`evidence\video_sampling.py` owns PyAV decode, processing-grid JPEG/PTS evidence, frame-wise
+MediaPipe expression predictions and clock-aligned PCM audio. It writes only a
+fresh exclusive UUID revision, so decoding does not hold the global session
+writer lock or modify shared session state. Failures retain a failed manifest;
+frame-count/PTS/budget/audio-gap failures cannot claim a complete timeline.
+The numerical fitter still holds the session lock. As of November 18, routine
+geometry extraction defaults to one frame per second; explicit `frame_mode=all`
+retains the original expression timeline. Processing JPEGs are capped at 1920
+pixels on the long side without upscaling or aspect changes; evidence coordinates
+use that same grid and retain `original_source_size` separately. The detector
+input limit remains 1280 pixels on the long side. Neither originals nor existing
+full-rate/full-resolution exports are changed.
+
+`geometry\video_identity_fitting.py` fits native response identity modes jointly with per-frame
+camera and similarity-aligned GNM expression modes. It does not call Blender or
+edit UE. Category labels are fixed from initial views during held-out scoring;
+candidate camera changes cannot dodge category nonregression checks. Predicted
+mesh displacement, flips/collapse and stretch are checked before producing a
+source-specific profile. Its linear mesh prediction is not an actual saved
+Character export. See [research and acceptance](video-identity-investigation.md).
+
+On November 17 at 23:38 +05:30 the owner reopened geometry work using the new
+recordings. This supersedes the earlier geometry freeze for this new native
+workflow only; Blender remains stopped and approved appearance is preserved.
 
 ## Fitting restrictions and search
 
@@ -295,6 +323,86 @@ different numerical optimization; neither backend is a likeness certificate.
 | `geometry\sculpt_control_mapping.py` | Match exported API controls to installed canonical native vertex IDs; only exact named anatomy memberships, no nearest-region guesses |
 | `unreal\sculpt_response.py`, `unreal\sculpt_response_worker.py` | Source-pinned finite-difference sculpt-to-mesh calibration on an isolated unrigged copy; restore the entire native state and verify its exported mesh |
 | `geometry\surface_correspondence.py` | Associate rendered landmarks with visible triangles of that same native mesh; exact vertex-ID rebinding abstains on changed triangulation |
+
+Native appearance profiles also expose the installed UE skin picker `u`/`v`,
+skin roughness, iris primary/secondary picker coordinates and colour blending.
+The adapter commits `skin_settings.skin` through `commit_skin_settings`, and
+verifies those values independently after reopening the saved Character.
+Ranges follow installed `MetaHumanCharacterSkin.h` and
+`MetaHumanCharacterEyes.h`; skin roughness is a multiplier in `[0.85,1.15]`,
+not the normalized `[0,1]` used for groom roughness.
+
+The November 17 20:31 +05:30 owner direction freezes geometry and stops all
+Blender work. Current work prioritizes an appearance-only Character checkpoint
+without runtime assembly, followed by native editor review. Native picker
+coordinates are provisional appearance choices, not calibrated photo albedo.
+
+Appearance revision `f866335bf8cc4436836dd53036411918` applied native skin
+`u=0.4`, `v=0.65`, roughness `1.06`, iris palette/tint/saturation, thick dark
+native brows and short dark lashes to a duplicate of geometry candidate
+`7f4db166ad1e4516b7212d674cca5550`. Editable Character saving and a **fresh
+editor reload passed**, without assembly/cloud requests or the earlier ARKit
+save exception. All sampled native face controls had **zero displacement**;
+the source package and protected dependencies remained unchanged. The 22
+focused native-feature units passed.
+
+The apply worker recorded 2217.625s wall time, including 2133.367s in save;
+the independent reload took 39.578s. Native skin commit itself took 0.654s.
+The save log contains a long timestamp gap, audio-device timeouts and a later
+texture wait; this does not isolate the cause or establish active CPU cost.
+No save-speedup is claimed. Native visual review and runtime assembly remain
+separate gates; this is not calibrated photo-colour or likeness acceptance.
+
+The subsequent live viewport inspection found that revision `f866...` retained
+`MetaHumanCharacterSkinPreviewMaterial.DEFAULT`, whose installed display name is
+**Topology**, not Skin. Both texture and material overrides were disabled; the
+display mode, rather than a texture override, hid the colour. Property-only
+checks had missed this. Skin/base-colour edits now select `EDITABLE` (**Skin**)
+before registration, and reload verification rejects topology/clay mode.
+The regression selection passes 23 focused native-feature units.
+
+Corrected Skin-mode revision `4a2af06bd4e44a7ba1b24eac58078046` passed an
+independent reload and was actually inspected with textured skin in the UE
+Character editor. The following reference-pinned appearance passes also saved
+and independently reloaded without runtime assembly or cloud requests:
+
+| Revision | Native grooming / actual viewport observation |
+|---|---|
+| `c9476d2ce5e545fab648ec181c4c0323` | Short Messy hair, Thick brows, Short Stubble beard/moustache. Visible, but hair too short/upright and moustache too faint for reference `59d8a173...`. |
+| `bce3643f69eb4c82b0bddc4476201234` | Medium Side Swept Fringe, Flat Thick brows, Short Uneven beard and Short Full moustache. Actual hair reached the neck and was rejected as too long; beard also too heavy. |
+| `8e5fd408aab64af884668817a34ad12e` | Short Side Swept Fringe, Flat Thick brows, Medium Stubble and Short Full moustache. Saves/reloads in 43.234s/34.797s. Owner subsequently approved beard/moustache at 22:10 +05:30; preserve them rather than making further unsolicited facial-hair changes. |
+| `922cffc50b024f3e8674e8ad0c50105f` | Skin-only material pass: roughness `1.06 -> 1.12`, complexion index `0 -> 7`, no freckle overlay, and regional forehead/cheek/nose/chin/lip accents. Actual UE viewport inspected; fewer prominent marks and softer shine. |
+| `f6b61b60c2ec4189bb1e87b8a47bf66f` | Refined tone `u=0.35,v=0.9` using the displayed native picker and observed photo chromaticity; lip lightness `0.46` softens the initially too-dark `0.42` adjustment. Saved/reloaded in 128.594s/44.188s and inspected in the actual UE viewport. |
+
+These are real UE viewport observations, not just selected asset names. The
+latest draft preserves the source and protected hashes and reports zero sampled
+face-control displacement. See the [actual photo/UE comparison](images/ue-photo-appearance-comparison.png)
+and [provenance](images/ue-photo-appearance-provenance.json). No likeness approval,
+de-lit photo skin, new runtime rig or full-mesh geometry validation is implied.
+Preview overlays were hidden only for presentation; that did not resave the
+Character package.
+
+The installed synthesis model's `ts_params.json` declares 153 characters.
+Its `texture_attributes.json` labels texture 0 as low wrinkles/no stubble/medium
+marks and texture 7 as low wrinkles/no stubble/low marks. This supports choosing
+a cleaner native complexion without blurring away all detail or repainting the
+approved groom. The adapter exposes the native integer texture index, freckle
+mask/parameters and symmetric regional accents; omitted fields stay unchanged.
+Native texture-index changes are rig-restricted in the editor: this trial uses
+the existing **unrigged** Character, not an implicit unrig/rebuild workflow.
+
+The worker now records the pre-edit appearance as well as requested/reloaded
+values. All 25 focused native-feature units pass, including source isolation,
+complexion/lip persistence, invalid ranges, and Skin-mode gating for accent-only
+or freckle-only profiles. No configured linter exists in `pyproject.toml`.
+Latest-to-approved checks confirm identical groom assets/material parameters,
+eyes and lashes, zero sampled face-control movement, unchanged approved package,
+and valid protected dependency hashes. The roughness multiplier is the native
+stored value; at `1.12`, the normalized editor tool displayed `0.9`.
+See [skin before/after](images/ue-skin-before-after.png). These are visually tuned
+native materials, not measured/de-lit albedo or a new identity certificate.
+
+Official control semantics: [Epic Skin Material Tools](https://dev.epicgames.com/documentation/metahuman/skin-material-tools?lang=en-US).
 
 Photo projection uses source cameras, portrait offsets and actual resize ratios.
 Face parser boxes already use portrait coordinates; subtracting the source offset
