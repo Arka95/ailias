@@ -180,6 +180,168 @@ and fitting modules after a profile identifies a real cost. New public session
 commands/configuration, if introduced, require documentation and explicit
 ownership-aware start/status/stop semantics, not an automatic global daemon.
 
+### Decided code changes
+
+This is the **draft edit plan**, not a list of changes already implemented.
+Optimize measured wall time subject to unchanged output quality, source
+integrity and resource limits; "absolutely optimized" is not a result that can
+be asserted without benchmarks. Finish/diagnose the active visual iteration
+before migrating execution.
+
+**Latest measured skin iteration:** revision `f07f4c69` took
+`279.688 + 83.562 + 33.312 = 396.562s` (6m37s) for apply/build, independent
+verification and preview. Within apply, committing native skin settings took
+**0.01454s**, Character registration **46.081s**, runtime assembly **166.579s**,
+and package/Character saves about **35.9s**. Verification registered the
+Character again for **48.333s**. No cloud request or rerig occurred.
+Its actual review `62dc53f6` still failed with checkerboard skin; empty-override
+cleanup did not solve it. These are end-to-end/contained spans, not independent
+durations to add again. Sources:
+`data\arka\reanimation\native-skin-corrections\68b63f25e69f41a0842d2aee152120b8\manifest.json`
+and its referenced feature receipts.
+
+#### A. Execution lifecycle: reuse one working editor
+
+| Existing file / proposed new file | Planned edit | Required test |
+|---|---|---|
+| **NEW** `src\ailias\generation\unreal_session.py` | Implement an owned/attached `UnrealSession` using installed Epic `remote_execution.py`. Expose `start`, `attach`, `submit`, `status`, `wait`, `close`. Keep engine/project identity, PID plus creation time, request ID, deadline, and bounded receipts. Import no engine or remote transport on unrelated commands. | Fake transport/process tests: two submissions reuse one PID; wrong project/engine rejected; dead/reused PID not treated as an editor; attach does not grant shutdown ownership. |
+| **NEW** `src\ailias\generation\unreal_session_worker.py` | Bootstrap the long-lived embedded-Python dispatcher. Execute a hash-pinned known worker with an explicit request dictionary, not per-job environment mutations. One active native mutation; acknowledge asynchronous submission and finish via job-specific callbacks. | Accept/busy/complete/fail/cancel transitions; stale callback cannot finish a later job; different worker hashes cannot reuse stale module state. |
+| **NEW** `config\unreal-session.json` | One validated source for execution mode and session startup/connection limits. Existing fitting/reel policies retain operation timeouts, devices, lighting and quality. During rollout keep legacy one-shot mode; switch the personal workflow to persistent only after the real acceptance run. | Invalid settings fail before process launch; explicit attach failure never silently launches another editor. No engine paths hardcoded into source. |
+| `src\ailias\generation\cli.py` | Add proposed `generation unreal-session start/status/stop` actions. Handle them before generic reconstruction policy/loading. Start is explicit and keeps the owned editor available across CLI invocations; status never starts it; stop targets only its verified owned PID. | CLI actions do not probe COLMAP/Blender, import models, or close an attached/user-owned editor. Commands are proposals until implemented/documented. |
+| `src\ailias\facefitting\cli.py`; `src\ailias\reanimation\cli.py` | Accept an explicit session ID/config and pass one session object through the requested workflow. Command-line session choice wins over session config; existing appearance/reel configuration precedence is unchanged. | Existing invocations/defaults remain compatible; a supplied session cannot silently select a different project or policy. |
+| `src\ailias\generation\tools.py` | **Do not turn every native tool into a daemon.** Keep current subprocess runner for Blender/COLMAP and explicit cold/verifier runs. Reuse its bounded log/error behavior for the session adapter where applicable. | Existing native-tool failure/timeout tests continue to pass; unrelated tools retain their current lifecycle. |
+
+Use the existing artifact store, not a database or new broker. Proposed session
+ownership records live under the configured data root's
+`.runtime\unreal\PROJECT_FINGERPRINT`; distinguish a host-local control record
+from an alias's artifact history. `Store.lock` is alias-scoped
+(`storage.py:47`), so the session adapter must additionally serialize all writers
+to the **same Unreal project**, including different aliases. Do not silently
+change the existing store lock's semantics.
+
+Keep the editor ready after the Unreal handoff; do not boot it early merely to
+occupy VRAM throughout a large CUDA fit. Measure GPU/RAM residency before
+overlapping heavy stages. No speculative multi-editor parallelism or automatic
+termination of other users' applications.
+
+#### B. Worker migration and final verification boundary
+
+| Existing file | Planned edit | Boundary that must remain true |
+|---|---|---|
+| `facefitting\unreal\worker_process.py` | Add an optional session execution route to `execute_unreal_worker`; retain current request/receipt schema, explicit status map and error propagation. | A transport acknowledgement is not operation completion; missing/wrong/failed native receipts still fail. |
+| `facefitting\unreal\character_features.py` | Extract independent verification so a session can make explicitly labelled warm **drafts**, then finalize one saved asset revision with a fresh process. Preserve today's immediate verification as the compatibility default. | Draft reports must not set `fresh_editor_reload_verified=True` or claim the existing publication-success status. |
+| `facefitting\unreal\character_features_worker.py` | Reuse `run(request, unreal, publish)`; pass session/job context without relying on process exit. Coalesce only provably unchanged edits. Before another assembly, diagnose actual native synthesized textures versus baked runtime textures/materials. | Keep native property, source geometry, actual LOD skin/groom and package-save checks. Native complexion-index changes can invalidate texture sources. No photo override to hide a native bake failure. |
+| `facefitting\unreal\character_portrait.py` | Support an explicitly labelled unverified **draft** review from the working session; keep verified-source behavior as default. Reuse the same MRQ render/color pipeline and explicitly selected reel policy when assessing a future reel. | A draft review cannot bypass the final independent gate or silently inherit the brighter preview exposure. |
+| `reanimation\unreal_worker.py` | Separate execute/stage/render from CLI bootstrap and editor shutdown. Replace `REQUEST/RESULT/EXECUTOR/QUEUE` ownership with request-scoped render state; retain required callbacks/objects until completion, then remove only that job's delegates/actors. | `finished` must complete a job, not terminate a persistent editor; no cross-job callback/global-state leakage. Existing one-shot script exit remains supported. |
+| `reanimation\pipeline.py` | Inject the session, preserve media gates, and record the actual verified source revision/dependencies as well as Blueprint path. Gate full render on the same-source/same-policy visual review. | Unchanged voice, camera/lighting, exact frame range, all-stream decode, hashes, native failures and source isolation. |
+| `facefitting\workflows\photo_to_character.py` | Pass the same session through native conform/appearance/review. For the new native-skin route, consolidate independent geometry/appearance/runtime checks at the final asset boundary only after the existing equivalence tests prove nothing was omitted. | Required fresh geometry and zero-drift proof still happen before publication. Keep the legacy photo-projection route on its current boundaries until separately validated. |
+| `facefitting\workflows\video_character_refinement.py`; `facefitting\unreal\sculpt_response.py` and `_worker.py` | Migrate the alternate native-refinement path after the main path passes. Replace worker-owned unconditional `quit_editor` with explicit lifetime ownership. | No direct process exit inside a shared edit/calibration job; preserve actual mesh/topology checks and owner-requested frozen geometry. |
+
+Paths in the table are relative to `src\ailias` unless the full `src` prefix is
+shown. These call sites and lifecycle behavior were directly inspected; new
+session files and APIs are proposed. Do not parse arbitrary historical command
+lines to infer an operation: launch adapters submit explicit structured jobs.
+
+The **working editor remains open** across ordinary operations. One clean
+verifier remains at final saved-asset publication, not after every small edit,
+not for every camera adjustment, and not represented as a warm reload. If a
+second resident editor exceeds measured memory budgets, use one deliberate
+checkpoint/restart and reuse the restarted editor; this is an explicit
+resource-bound fallback, not the current per-stage restart loop.
+
+#### C. Dependency rules: do not run unrelated stages
+
+| Change requested | Recompute / validate | Must not automatically repeat |
+|---|---|---|
+| Inspect properties or compare settings | Read current receipt and native state; detect no-op edits | Full fit, Blender, rig, texture download, assembly or full video |
+| Camera, exposure, light, framing, resolution or backdrop | Re-stage/re-render using explicit reel policy | Identity fitting, texture generation, rigging, grooms or audio solve |
+| Narration / solver emotion settings | Speech performance and final sequence/render against the verified target | Geometry fitting, native skin synthesis or character assembly |
+| Groom choice | Native wardrobe/binding steps required by that selection; actual deformation/LOD checks | Photo analysis or identity refit |
+| Native complexion / texture index | Inspect whether native source textures/material synthesis actually need invalidation; synthesize/bake only the affected required assets | Geometry refit, Blender or rerig unless native prerequisites explicitly prove one is needed |
+| Photo/evidence/model/fit policy | Required observation/fitting/native geometry descendants under a new fresh run | Silent reuse of old fits, observations or generated outputs |
+| Explicit reuse of a saved Performance | Verify narration, solver policy, target rig/DNA/control compatibility and asset hashes; render a new requested output | Re-solve the same explicitly selected performance or reuse unrelated voice/target data |
+
+Implement these rules first as explicit workflow boundaries, **not** a new
+general DAG/workflow framework. Extend existing manifests with dependency and
+verification evidence. Propose `--performance-job JOB` in
+`reanimation\cli.py`/`pipeline.py` only when implementing that opt-in path;
+ordinary retry still means fresh generation, not silent output caching.
+`reanimation\media.py` keeps its full frame/audio/video verification.
+
+#### D. Deterministic fitting work reduction, then profiling
+
+There is a concrete redundant-solve candidate in
+`facefitting\geometry\identity_search.py:79-101`: zero-identity training and
+validation reference fits are recomputed inside the identity-prior loop.
+When identity has zero modes, changing **only identity regularization** adds
+no identity residual. The expression model, expression prior/bound, observations,
+camera policy and solver configuration must all still match.
+
+- **Planned first edit:** share those reference pairs within the same search
+  run across identity-prior values, keyed on all effective nonidentity inputs.
+  At the current configured dimensions, `3 expression capacities * 3 identity
+  priors * 3 expression priors * 2 bounds * 2 reference fits = 108` reference
+  calls could become `3 * 3 * 2 * 2 = 36`: **72 redundant reference solves
+  avoided**, not 72 identity candidates removed. This is a code-derived
+  opportunity, **not a measured speedup**. Verify that solver/model/view state
+  is not mutated before introducing reuse.
+- **Unchanged:** all 162 candidate records, capacities, training starts,
+  observations, held-out scoring and final all-view fit. An initialization
+  optimization is not permission to choose candidates using held-out data.
+- **Next edit only if profiled:** prepare immutable model/view tensors once
+  per compatible run/model/device in `geometry\cuda_optimization.py` and route
+  that optional prepared context through `geometry\optimization.py`.
+  Current `fit_cuda` constructs/transfers those tensors per call. Measure
+  preparation versus Jacobian/linear-solve cost before adding a cache/context.
+- **Further conditional work:** profile the necessary scalar synchronizations,
+  Jacobian batch size and allocation peaks in `cuda_optimization.py`; do not
+  remove convergence checks, reduce views/capacities or silently enable mixed
+  precision/TF32/compilation. Preserve the existing working CUDA installation.
+- **Preparation:** instrument `facefitting\evidence\photo_processing.py`
+  before changing detector/landmark/parser scheduling. If evidence supports
+  explicit observation reuse later, key it by original bytes, model revision
+  and preprocessing; preserve the current fresh-prediction contract by default.
+- **I/O:** measure repeated artifact hashing before optimizing it. If material,
+  add boundary-local deduplication to `storage.py`; never use a global
+  modification-time-only hash cache or omit final source verification.
+
+Tests belong in existing `geometry\tests\test_identity_search.py`,
+`test_batched_optimization.py`, `test_optimization.py`, workflow tests and
+imageprocessing evidence tests as applicable. Compare selected candidates,
+training/held-out metrics, failed-start handling and invalidation under changed
+expression limits/models. Do not test speed using a wall-clock assertion in
+mock-based units.
+
+#### E. Tests, rollout and concrete acceptance
+
+**New tests:** `src\ailias\generation\tests\test_unreal_session.py` and
+`test_unreal_session_worker.py` (proposed), plus native opt-in coverage under
+`src\integration_tests\test_unreal_session.py` (proposed). Unit tests use fake
+transport/processes and introduce no engine/model imports. Real engine/GPU
+tests remain explicitly selected, not part of rapid-development discovery.
+
+| Gate | Exact evidence required |
+|---|---|
+| Compatibility | Existing tool, feature, workflow, portrait and reel units pass unchanged before enabling persistent mode; no new dependencies or package upgrades required for the proposed Epic transport. |
+| Reuse | A cold start followed by at least three warm operations retains the same working PID/project and does not repeat engine startup. Record full wall time and nested spans; do not subtract unrelated samples. |
+| Correctness | Same geometry, explicit native complexion/grooms, camera, tone pipeline, exposure, voice and frame-count/decode gates as the approved baseline; actual new frames inspected. Current checkerboard skin remains a failure. |
+| Isolation | Different aliases targeting one project cannot mutate concurrently; wrong session/project rejected; borrowed editor left running; timeout/cancel/disconnect cannot publish a stale result. |
+| Async lifecycle | Two sequential MRQ jobs complete without stopping the editor, leaking old delegates or assigning a late completion to the next job. A blocking cloud job reports cancellation pending if it cannot be interrupted safely. |
+| Recovery | Crash leaves explicit failed/unknown job state and prior saved artifacts intact. No automatic replay of an uncertain cloud/generation request or stale successful receipt. |
+| Resources | Record peak RAM/VRAM and object/delegate counts across warm operations; recycle only on a demonstrated leak/error or explicit resource budget, not after every job. |
+| Search reduction | Prove effective-input equivalence and unchanged candidate/score results for the zero-mode reference reuse; then separately benchmark on the real configured GPU without changing the search. |
+| Publication | One independent verifier per finalized asset revision; previews stay drafts until that check and visual review pass. No verifier launch for an unchanged already-verified asset solely because lighting changed. |
+
+**Implementation order:** native texture/material diagnosis without further
+blind full builds; OPT-1 instrumentation; minimal OPT-2 transport/lifetime proof;
+main native/reel migration and finalization gate; dependency-aware iterations;
+deterministic reference-solve reduction; then profile-selected preparation/GPU/
+I/O improvements. Each functional slice gets targeted tests before expansion.
+Keep one-shot fallback explicit until the full real acceptance run passes.
+Update `docs\reanimation\README.md`, `dev.readme.md`,
+`docs\facefitting\README.md`, `docs\analysis.md` and the root command index
+when the corresponding behavior is actually implemented, not before.
+
 ## 3. Success Criteria
 
 | Criterion | Baseline | Target / guardrail |
