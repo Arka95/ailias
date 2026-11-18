@@ -322,6 +322,21 @@ mandatory; no skeleton error is suppressed. The save-order regression and
 the appearance/workflow/search tests passed together (45 tests). Native
 assembly and video validation must still succeed before claiming a new video.
 
+The corrected real assembly passed the earlier save step, then correctly
+stopped at runtime inspection: its optimized/medium output contained bound
+hair and eyebrows, but no bound beard or moustache grooms. A fresh-editor
+inspection receipt measured 0 cm landmark difference from the current head
+and found the saved full rig/textures; that diagnostic process crashed on
+teardown and is not counted as a clean integration pass.
+The personal appearance policy now explicitly selects cinematic assembly,
+forwarded through profile mapping and validated with the same assembly
+contract as manual native profiles. Generic optimized/medium defaults and
+the strict required-groom gate remain unchanged. The affected 46 unit tests
+and the real personal-policy load passed; the cinematic retry must pass
+its own independent-editor checks before rendering is accepted.
+Epic documents cinematic assembly as retaining strand-based hair at LOD 0:
+[Assembly](https://dev.epicgames.com/documentation/metahuman/assembly?application_version=5.8).
+
 ## Fitting architecture
 
 | Component | Responsibility |

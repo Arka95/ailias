@@ -33,7 +33,7 @@ def build_groom_settings(asset, colour):
             "parameters": {"Melanin": float(np.clip(1-np.sqrt(luminance), 0, 1))}}
 
 
-def build_appearance_profile(evidence, baked, texture, sources, *, native_hair_asset=None):
+def build_appearance_profile(evidence, baked, texture, sources, *, native_hair_asset=None, assembly=None):
     features = [face["features"] for face in evidence["faces"].values() if face["status"] == "observed"]
     if not features:
         raise ValueError("Native appearance requires freshly observed photo features")
@@ -55,6 +55,8 @@ def build_appearance_profile(evidence, baked, texture, sources, *, native_hair_a
         "eyelashes": {"type": "short_fine", "enable_grooms": True,
                       "dye_color_linear": brows.tolist()},
     }
+    if assembly is not None:
+        profile["assembly"] = dict(assembly)
     estimates = {}
     for name, slot, directory, prefix in (
             ("beard", "Beard", "Beards", "Beard"),

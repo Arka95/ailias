@@ -73,7 +73,7 @@ class PhotoToCharacterTests(unittest.TestCase):
         fit.assert_not_called()
 
     def complete(self, *, appearance_fails=False, blender_fails=False,
-                 review_policy=None, native_hair_asset=None):
+                 review_policy=None, native_hair_asset=None, assembly=None):
         project = self.store.resolve("Project\\Preview.uproject")
         project.parent.mkdir()
         project.write_text("{}")
@@ -171,7 +171,7 @@ class PhotoToCharacterTests(unittest.TestCase):
                 SimpleNamespace(record=lambda: {}, expression_modes=[]),
                 generation_policy=SimpleNamespace(), review_policy=review_policy, appearance_policy={
                     "device": "cuda:0", "texture_size": 256, "max_views": 1, "photo_size": 256,
-                    "hair_strands": 0, "native_hair_asset": native_hair_asset})
+                    "hair_strands": 0, "native_hair_asset": native_hair_asset, "assembly": assembly})
         return result, operations
 
     def test_one_invocation_reaches_fresh_texture_grooms_and_a_new_preview_without_old_baseline(self):
@@ -199,10 +199,12 @@ class PhotoToCharacterTests(unittest.TestCase):
         original_reanimation = load_policy().to_dict()
         lighting = ReelPolicy(exposure_compensation_ev=-3)
         hair = "/MetaHumanCharacter/Optional/Grooms/Bindings/Hair/WI_Hair_S_SweptUp"
-        result, _ = self.complete(review_policy=lighting, native_hair_asset=hair)
+        result, _ = self.complete(review_policy=lighting, native_hair_asset=hair,
+                                  assembly={"pipeline": "cinematic"})
         self.assertEqual(result["status"], "fresh_video_completed")
         self.assertEqual(self.preview_parameters["lighting"]["exposure_compensation_ev"], -3)
         self.assertEqual(self.native_profile["grooms"]["Hair"]["asset"], hair)
+        self.assertEqual(self.native_profile["assembly"], {"pipeline": "cinematic"})
         self.assertEqual(result["appearance_policy"]["hair_strands"], 0)
         self.assertEqual(load_policy().to_dict(), original_reanimation)
 

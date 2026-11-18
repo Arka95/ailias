@@ -1,8 +1,12 @@
 """Current-run evidence reaches native texture, iris and groom consumers without old profiles."""
 
+import json
+from pathlib import Path
+import tempfile
 import unittest
 
 from ailias.facefitting.appearance.profile_mapping import build_appearance_profile
+from ailias.facefitting.configuration import DEFAULT_APPEARANCE_CONFIG, load_appearance_policy
 
 
 class NativePhotoProfileTests(unittest.TestCase):
@@ -36,16 +40,29 @@ class NativePhotoProfileTests(unittest.TestCase):
         hair = "/MetaHumanCharacter/Optional/Grooms/Bindings/Hair/WI_Hair_S_SweptUp"
         profile, mapping = build_appearance_profile(
             self.fixture(), {"hair_length_model_units": .1}, "/Game/Texture", [],
-            native_hair_asset=hair)
+            native_hair_asset=hair, assembly={"pipeline": "cinematic"})
         self.assertEqual(profile["grooms"]["Hair"]["asset"], hair)
         self.assertEqual(mapping["native_hair_selection"], "configured")
         self.assertIn("Melanin", profile["grooms"]["Hair"]["parameters"])
+        self.assertEqual(profile["assembly"], {"pipeline": "cinematic"})
 
     def test_missing_facial_hair_inference_blocks_instead_of_skipping_it(self):
         evidence = self.fixture()
         del evidence["faces"]["frame"]["features"]["facial_hair_appearance"]
         with self.assertRaisesRegex(ValueError, "Facial-hair region evidence is unresolved"):
             build_appearance_profile(evidence, {"hair_length_model_units": .02}, "/Game/Texture", [])
+
+    def test_assembly_policy_is_validated_without_requiring_native_appearance_edits(self):
+        policy = json.loads(DEFAULT_APPEARANCE_CONFIG.read_text())
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "appearance.json"
+            policy["assembly"] = {"pipeline": "cinematic"}
+            path.write_text(json.dumps(policy))
+            self.assertEqual(load_appearance_policy(path)["assembly"], policy["assembly"])
+            policy["assembly"]["pipeline"] = "unknown"
+            path.write_text(json.dumps(policy))
+            with self.assertRaisesRegex(ValueError, "Assembly pipeline"):
+                load_appearance_policy(path)
 
     def test_absence_evidence_does_not_force_beard_or_moustache(self):
         evidence = self.fixture()

@@ -275,7 +275,8 @@ def run_photo_to_character_pipeline(
             return build_appearance_profile(evidence, baked, imported["texture"], [
                 report["photo_features"], store.reference_artifact(Path(baked["texture"])),
                 store.reference_artifact(character_package(project, imported["texture"]))],
-                native_hair_asset=appearance.get("native_hair_asset"))
+                native_hair_asset=appearance.get("native_hair_asset"),
+                assembly=appearance.get("assembly"))
 
         profile, mapping = run_stage("derive_native_appearance", map_appearance_evidence)
         report["appearance_mapping"] = mapping

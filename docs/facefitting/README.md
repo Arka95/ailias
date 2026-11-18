@@ -101,6 +101,11 @@ but retains current-photo pigment estimates. `config\appearance-arka.json`
 selects the installed short swept-up groom and keeps `hair_strands: 0`.
 Thus Unreal has its configured hairstyle while Blender remains hair-free.
 This is a stock-style approximation, not reconstructed individual strands.
+The same appearance policy can include `assembly`, using the native feature
+profile's `pipeline` and `quality` settings. The personal policy explicitly
+selects `{"pipeline": "cinematic"}` for close-up groom fidelity; other policies
+retain the existing optimized/medium defaults. This does not change Blender
+hair or the requested video resolution.
 For a speaking video, use the existing `unreal-features --assemble` and
 `reanimation run` commands with the resulting Blueprint and supplied WAV;
 native cloud rig/texture requests still require `--cloud-services`.

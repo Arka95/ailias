@@ -119,4 +119,8 @@ def load_appearance_policy(path=DEFAULT_APPEARANCE_CONFIG):
         from ailias.facefitting.unreal.character_features_worker import native_asset
 
         native_asset(policy["native_hair_asset"])
+    if "assembly" in policy:
+        from ailias.facefitting.unreal.character_features_worker import validate_assembly_settings
+
+        validate_assembly_settings(policy["assembly"])
     return policy

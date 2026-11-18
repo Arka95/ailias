@@ -55,6 +55,17 @@ def vector(value, lower, upper):
     return [number(item, lower, upper) for item in value]
 
 
+def validate_assembly_settings(assembly):
+    if (not isinstance(assembly, dict) or not assembly
+            or assembly.keys() - {"pipeline", "quality"}):
+        raise ValueError("Unsupported native assembly settings")
+    pipeline, quality = assembly.get("pipeline", "optimized"), assembly.get("quality", "medium")
+    if not isinstance(pipeline, str) or pipeline not in {"optimized", "cinematic"}:
+        raise ValueError("Assembly pipeline must be optimized or cinematic")
+    if not isinstance(quality, str) or quality not in {"high", "medium", "low"}:
+        raise ValueError("Assembly quality must be high, medium or low")
+
+
 def validate_profile(profile):
     if not isinstance(profile, dict) or type(profile.get("version")) is not int or profile["version"] != 1:
         raise ValueError("Native feature profile version must be 1")
@@ -131,15 +142,7 @@ def validate_profile(profile):
                 lashes.get("type") == "none" or lashes.get("enable_grooms") is False):
             raise ValueError("An eyelash groom cannot be selected while explicitly disabled")
     if "assembly" in profile:
-        assembly = profile["assembly"]
-        if (not isinstance(assembly, dict) or not assembly
-                or assembly.keys() - {"pipeline", "quality"}):
-            raise ValueError("Unsupported native assembly settings")
-        pipeline, quality = assembly.get("pipeline", "optimized"), assembly.get("quality", "medium")
-        if not isinstance(pipeline, str) or pipeline not in {"optimized", "cinematic"}:
-            raise ValueError("Assembly pipeline must be optimized or cinematic")
-        if not isinstance(quality, str) or quality not in {"high", "medium", "low"}:
-            raise ValueError("Assembly quality must be high, medium or low")
+        validate_assembly_settings(profile["assembly"])
     if "sculpt" in profile:
         sculpt = profile["sculpt"]
         if not isinstance(sculpt, dict) or set(sculpt) != {
