@@ -2,6 +2,78 @@
 
 # Facefitting internals
 
+## Fresh sampled-photo path
+
+`fresh_video.py:create_fresh_video_head` and `fresh_video_worker.py` implement
+`video-create`. `sampled_photos.py` reads only image references and capture
+metadata from retained samples; old landmark, expression and semantic results
+are discarded. Two CPU workers prefetch at most four decoded images per batch.
+Fresh dense inference and face parsing are serialized per model instance;
+owned models close on success or failure. Per-photo feature and region evidence
+is retained under `photo-evidence`, including explicit unresolved beard,
+moustache and eyelash classes rather than fabricated segmentation.
+This path fits the generic GNM prior from the freshly computed observations
+using the existing 48/96-mode policy, imports the resulting geometry, and calls
+the existing head-only native conform worker with **no source Character**.
+The native factory creates a new asset in a UUID namespace; a second editor
+process compares exported surface topology and vertices with a post-commit,
+post-save reference; sculpt-control drift is retained separately.
+The conform worker also compares the live solve to each commit and the save,
+so changing the reference cannot conceal geometry lost during commit.
+Max/RMS Euclidean differences are recorded in centimetres; the existing
+0.0001 cm tolerance is not loosened. Previously saved personal assets
+are never used as shape/appearance initialization. Native geometry export
+requires Slate: use `-ExecutePythonScript -RenderOffscreen -d3d12`, not a
+`-run=pythonscript -NullRHI` commandlet.
+
+The run records stage/wall times and every failed boundary. Native target-pose
+finalization through `commit_posed_state_as_a_pose` now passes a real independent
+surface reload with exactly zero displacement; finalization must precede the
+face/body commits. It also moves the head into canonical body coordinates.
+The photo baker explicitly inverts a least-squares rigid pre/post-finalization
+alignment and records its nonrigid residual, rather than treating body-height
+vertices as the original fitted camera coordinate frame.
+Real native UV export, fresh colour baking/import, native appearance save/reload
+and actual groom-component instantiation now pass, and a complete run produced
+a new image. Actual image review caught a vertical UV reversal and too-wide
+framing, despite successful property checks. The native atlas raster adapter
+now converts top-left-origin Unreal V to the shared bottom-left-origin OBJ
+rasterizer convention. The preview uses native face-control bounds, not
+skeletal component bounds that include shoulders. Both fixes have focused units
+and pass the delivered full fresh run. SceneCapture's FOV is horizontal:
+the requested physical vertical span is multiplied by output width/height
+before deriving that angle. Delivery run `b58c0c440faa4df5900e613ad8faa7a1`
+completed in 540.265 s, and its actual new close-up was opened. All 131 checked
+input/output references match and native surface max/RMS reload drift is zero.
+This closes execution/integrity validation, not visual likeness acceptance.
+The run cannot pass by applying the previous
+manual appearance profile.
+Focused fresh-worker units mock UE; real GPU/native execution is opt-in through
+the command. Existing fit/conform units cover the reused components.
+
+`native_jobs.py` owns native request/receipt handling. A nonzero process exit
+still retains a readable worker failure receipt in the parent report. Missing
+or malformed receipts, timeouts, worker-declared failures and source-integrity
+failures cannot become successful stages. Photo failures include the face ID
+and preserve their original exception chain; cleanup errors are recorded
+without replacing the primary failure.
+
+`native_surface_worker.py` exports per-corner native skin UVs, retaining seams,
+within the verifying editor process: the geometry-export mesh is not a saved
+cross-process asset. Its other operation imports a fresh Texture2D.
+`native_appearance.py` projects the same run's
+photos/cameras into that atlas; approximate nearest-prior expression offsets
+do not alter the native rest mesh. It retains coverage and explicit unseen fill.
+`native_photo_profile.py` consumes current regional colours and facial-hair
+darkness estimates, validates the resulting native profile and records all
+stock-groom/iris/lash assumptions. `apply_features(use_working_baseline=False)`
+duplicates only this run's new Character, without loading an earlier personal
+baseline. `native_preview_worker.py` spawns that saved editor-native Character,
+assembles its preview grooms and captures a new 540x960 draft after nonblocking
+editor ticks, using lighting/exposure from the existing reanimation policy.
+It does not claim an assembled runtime or request cloud services.
+
+
 ## Fitting architecture
 
 | Component | Responsibility |

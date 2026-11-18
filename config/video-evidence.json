@@ -1,0 +1,16 @@
+{
+  "frame_mode": "sampled",
+  "sample_fps": 1,
+  "max_samples_per_video": 5000,
+  "max_duration_seconds": 120,
+  "image_long_side": 1920,
+  "detection_long_side": 1280,
+  "max_identity_frames": 24,
+  "minimum_spacing_seconds": 1,
+  "validation_guard_seconds": 2,
+  "neutral_expression_max": 0.18,
+  "jaw_open_max": 0.1,
+  "blink_max": 0.2,
+  "minimum_eye_span_pixels": 100,
+  "minimum_laplacian_variance": 20
+}

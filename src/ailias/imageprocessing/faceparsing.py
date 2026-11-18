@@ -71,6 +71,7 @@ class HeadParser:
             self.network.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
         self.provenance = {
             "provider": record["provider"], "revision": REVISION, "model": store.reference_artifact(path),
+            "license_artifact": record["license_artifact"],
             "device": f"cuda:{gpu_index}" if device == "cuda" else "cpu", "dtype": "float32",
             "head_classes": list(HEAD_CLASSES), "execution": {"status": "not_executed"},
             "preprocessing": "detected-face context; RGB bilinear 512; ImageNet mean/std",

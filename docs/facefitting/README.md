@@ -15,6 +15,7 @@ separate check.
 
 | Operation | Required input | Retained output / next consumer |
 |---|---|---|
+| `video-create` | Retained sampled-frame manifest, installed models, UE project | Fresh dense/semantic evidence, identity fit, native persistence test, native-UV photo colour, inferred stock grooms/iris and editor-native preview; full native integration remains under validation |
 | `fit` | Curated imageprocessing run/group, current cleansing, pinned GNM/landmarker assets | Neutral OBJ, parameters, observations, cameras, overlays and review scene |
 | `appearance` | Exact fitted mesh plus matching geometry-review record | Photo-colour atlas/coverage, UV geometry, approximate hair, scene and hair-free OBJ/MTL |
 | `unreal-import` | Verified appearance revision, UE editor/project | Textured static mesh/material/texture packages; not a MetaHuman |
@@ -44,6 +45,53 @@ python -m ailias facefitting unreal-features subject --character /Game/Heads/Per
 python -m ailias facefitting unreal-features subject --character /Game/Heads/Person.Person --profile C:\profiles\features.json --assemble --editor $ue --project $project
 python -m ailias facefitting unreal-review subject FEATURE_JOB --editor $ue --project $project --resolution 540x960
 ```
+
+### Fresh run from sampled photos
+
+```powershell
+python -m ailias facefitting video-create subject --evidence C:\data\sampled-photos\manifest.json --editor $ue --project $project
+```
+
+`--evidence` reuses only the supplied sampled images and capture timestamps.
+This command never decodes the original videos, resamples images or reuses
+their previous landmark/expression/semantic predictions. It runs fresh
+MediaPipe landmarks and regional face parsing on the retained images, then uses installed GNM
+weights and fits a new shared identity/cameras/expressions using the existing
+`config\facefitting.json` policy, imports a new mesh, creates a new native
+Character with the factory, conforms it and independently reloads it. It does
+not read a previous personal head, fit, native response, ray correspondence or
+appearance profile. Blender is not invoked. No intermediate prompt or manual
+tuning is part of execution.
+
+The command now connects native skin UV export, fresh photo-colour baking and
+Texture2D import to native skin, iris, eyebrow, scalp-hair, facial-hair and
+eyelash edits. `--appearance-config` uses `config\appearance.json` for the
+CUDA device, atlas resolution, photo cap and view count. Stock groom selection,
+pigment mapping and landmark-region facial-hair darkness are **approximations**;
+the parser has no distinct beard/moustache class. Eyelashes use an explicitly
+unmeasured preset. Observed colour retains photo lighting; unseen atlas texels
+are labelled median-skin fill, not recovered detail.
+
+The full unattended public command now completes through native save/reload
+and a new close-up image. Delivery run
+`b58c0c440faa4df5900e613ad8faa7a1` completed in **540.265 s** from 82
+retained photos, with correctly oriented photo detail, actual native grooms,
+corrected portrait framing and zero surface displacement on independent reload.
+All 131 checked input/output artifact references still matched. Its new image
+was actually opened for review; older reversed/wide previews are not substituted.
+The photo tint still includes source lighting, body appearance is an unchanged
+generic default and no visual likeness acceptance is implied. Actual actors expose scalp
+hair, brows, beard, moustache and lash groom assets.
+`fresh_video_completed` means unattended editable-Character
+creation plus a **new editor-native preview**, not an assembled animation rig
+or accepted likeness. Any failed stage exits **2**. Results and per-stage/wall timings are under
+`data\ALIAS\facefitting\fresh-video\REVISION\manifest.json`.
+Wall time starts from the retained sampled photos, not from video decoding.
+This path needs the existing facefitting, imageprocessing and explicitly
+selected CUDA runtime prerequisites; it does not install or replace GPU stacks.
+See [measured failures, fixes and limitations](video-identity-investigation.md).
+The focused affected suite passes **168 tests**; this is not a full-project
+suite or proof of likeness.
 
 `appearance` requires `reviews\FIT_JOB-clay-approval.json` with decision
 `approved`, scope `neutral_clay_geometry`, and the matching mesh reference.

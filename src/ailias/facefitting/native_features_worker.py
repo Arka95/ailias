@@ -4,6 +4,7 @@ import json
 import math
 import os
 import re
+import sys
 import time
 from pathlib import Path
 
@@ -14,6 +15,20 @@ EYELASH_TYPES = {
     "long_slight_curl", "long_curl", "long_thick_curl",
 }
 EYELASH_FLOATS = {"melanin", "redness", "roughness", "salt_and_pepper", "lightness"}
+FACE_TEXTURE_COUNT = 153  # Installed TS-1.3-F model metadata.
+SKIN_RANGES = {"u": (0, 1), "v": (0, 1), "roughness": (.85, 1.15),
+               "face_texture_index": (0, FACE_TEXTURE_COUNT-1)}
+FRECKLES_FLOATS = {"density", "strength", "saturation", "tone_shift"}
+FRECKLES_MASKS = {"none", "type1", "type2", "type3"}
+ACCENT_REGIONS = {"scalp", "forehead", "nose", "under_eye", "cheeks", "lips", "chin", "ears"}
+ACCENT_FLOATS = {"redness", "saturation", "lightness"}
+SKIN_EDIT_FIELDS = {"skin", "freckles", "accents", "face_basecolor"}
+IRIS_RANGES = {
+    "global_saturation": (0, 4),
+    "primary_color_u": (0, 1), "primary_color_v": (0, 1),
+    "secondary_color_u": (0, 1), "secondary_color_v": (0, 1),
+    "color_blend": (0, 1), "color_blend_softness": (0, 1),
+}
 
 
 def native_asset(value):
@@ -43,7 +58,8 @@ def vector(value, lower, upper):
 def validate_profile(profile):
     if not isinstance(profile, dict) or type(profile.get("version")) is not int or profile["version"] != 1:
         raise ValueError("Native feature profile version must be 1")
-    allowed = {"version", "grooms", "eyes", "eyelashes", "face_basecolor", "sculpt",
+    allowed = {"version", "grooms", "eyes", "skin", "freckles", "accents",
+               "eyelashes", "face_basecolor", "sculpt",
                "sources", "assembly"}
     if profile.keys() - allowed:
         raise ValueError("Unknown native feature profile fields")
@@ -62,12 +78,40 @@ def validate_profile(profile):
     if "eyes" in profile:
         eyes = profile["eyes"]
         if (not isinstance(eyes, dict) or not eyes
-                or eyes.keys() - {"global_tint_linear", "global_saturation"}):
+                or eyes.keys() - ({"global_tint_linear"} | IRIS_RANGES.keys())):
             raise ValueError("Unsupported iris properties")
         if "global_tint_linear" in eyes:
             vector(eyes["global_tint_linear"], 0, 1)
-        if "global_saturation" in eyes:
-            number(eyes["global_saturation"], 0, 4)
+        for key in IRIS_RANGES.keys() & eyes.keys():
+            number(eyes[key], *IRIS_RANGES[key])
+    if "skin" in profile:
+        skin = profile["skin"]
+        if not isinstance(skin, dict) or not skin or skin.keys() - SKIN_RANGES.keys():
+            raise ValueError("Unsupported native skin properties")
+        for key, value in skin.items():
+            number(value, *SKIN_RANGES[key])
+            if key == "face_texture_index" and type(value) is not int:
+                raise ValueError("Native face texture index must be an integer")
+    if "freckles" in profile:
+        freckles = profile["freckles"]
+        if (not isinstance(freckles, dict) or not freckles
+                or freckles.keys() - (FRECKLES_FLOATS | {"mask"})):
+            raise ValueError("Unsupported native freckles properties")
+        if "mask" in freckles and (not isinstance(freckles["mask"], str)
+                                  or freckles["mask"] not in FRECKLES_MASKS):
+            raise ValueError("Unsupported native freckles mask")
+        for key in FRECKLES_FLOATS & freckles.keys():
+            number(freckles[key], 0, 1)
+    if "accents" in profile:
+        accents = profile["accents"]
+        if not isinstance(accents, dict) or not accents or accents.keys() - ACCENT_REGIONS:
+            raise ValueError("Unsupported native skin accent region")
+        for settings in accents.values():
+            if (not isinstance(settings, dict) or not settings
+                    or settings.keys() - ACCENT_FLOATS):
+                raise ValueError("Unsupported native skin accent properties")
+            for value in settings.values():
+                number(value, 0, 1)
     if "face_basecolor" in profile:
         native_asset(profile["face_basecolor"])
     if "eyelashes" in profile:
@@ -120,7 +164,8 @@ def validate_profile(profile):
             delta = vector(change["delta_cm"], -limit, limit)
             if math.sqrt(sum(value*value for value in delta)) > limit + 1e-9:
                 raise ValueError("Sculpt displacement exceeds its limit")
-    if not any((grooms, profile.get("eyes"), profile.get("eyelashes"),
+    if not any((grooms, profile.get("eyes"), profile.get("skin"),
+                profile.get("freckles"), profile.get("accents"), profile.get("eyelashes"),
                 profile.get("face_basecolor"), profile.get("sculpt"))):
         raise ValueError("Native feature profile does not request any edits")
     if not isinstance(profile.get("sources", []), list):
@@ -172,9 +217,25 @@ def snapshot(character, subsystem, groom_keys, unreal):
         tint = iris.global_tint
         values["eyes"][name] = {
             "global_tint_linear": [float(tint.r), float(tint.g), float(tint.b)],
-            "global_saturation": float(iris.global_saturation),
+            **{key: float(getattr(iris, key)) for key in IRIS_RANGES},
         }
-    overrides = character.get_editor_property("skin_settings").texture_material_overrides
+    skin_settings = character.get_editor_property("skin_settings")
+    values["skin"] = {
+        key: (int if key == "face_texture_index" else float)(getattr(skin_settings.skin, key))
+        for key in SKIN_RANGES}
+    values["freckles"] = {
+        key: float(getattr(skin_settings.freckles, key)) for key in FRECKLES_FLOATS}
+    values["freckles"]["mask"] = next(
+        name for name in sorted(FRECKLES_MASKS)
+        if skin_settings.freckles.mask == getattr(unreal.MetaHumanCharacterFrecklesMask, name.upper()))
+    values["accents"] = {
+        region: {key: float(getattr(getattr(skin_settings.accents, region), key))
+                 for key in ACCENT_FLOATS}
+        for region in ACCENT_REGIONS}
+    values["skin_preview_enabled"] = (
+        character.get_editor_property("preview_material_type")
+        == unreal.MetaHumanCharacterSkinPreviewMaterial.EDITABLE)
+    overrides = skin_settings.texture_material_overrides
     texture = overrides.texture_overrides.face.get(unreal.FaceTextureType.BASECOLOR)
     values["face_basecolor"] = (
         texture.get_path_name() if overrides.enable_texture_overrides and texture else None)
@@ -209,6 +270,15 @@ def verify_profile(profile, values, expected=None):
     if "eyes" in profile:
         for name in ("eye_left", "eye_right"):
             verify_properties(profile["eyes"], values.get("eyes", {}).get(name, {}), "iris")
+    if "skin" in profile:
+        verify_properties(profile["skin"], values.get("skin", {}), "skin")
+    if "freckles" in profile:
+        verify_properties(profile["freckles"], values.get("freckles", {}), "freckles")
+    for region, settings in profile.get("accents", {}).items():
+        verify_properties(settings, values.get("accents", {}).get(region, {}), "skin accent")
+    if SKIN_EDIT_FIELDS & profile.keys():
+        if values.get("skin_preview_enabled") is not True:
+            raise RuntimeError("Native skin preview is not enabled; topology/clay hides skin colour")
     if "eyelashes" in profile:
         verify_properties(profile["eyelashes"], values.get("eyelashes", {}), "eyelash")
     for slot, groom in profile.get("grooms", {}).items():
@@ -415,6 +485,9 @@ def run(request, unreal, publish):
     if (not collection.get_path_name().startswith(character.get_path_name() + ":")
             or instance.get_meta_human_collection() != collection):
         raise RuntimeError("Candidate collection is not isolated from the original Character")
+    if request["operation"] == "apply" and SKIN_EDIT_FIELDS & profile.keys():
+        character.set_editor_property(
+            "preview_material_type", unreal.MetaHumanCharacterSkinPreviewMaterial.EDITABLE)
     stage("register_character_for_editing")
     if not subsystem.try_add_object_to_edit(character):
         raise RuntimeError("Candidate Character could not enter editing mode")
@@ -424,8 +497,10 @@ def run(request, unreal, publish):
         if collection is None:
             raise RuntimeError("Candidate preview collection is unavailable")
         instance = collection.default_instance
-        before = landmarks(subsystem, character)
+        appearance_before = snapshot(character, subsystem, {}, unreal)
+        before = appearance_before["landmarks"]
         result["landmarks_before"] = before
+        result["appearance_before"] = appearance_before
         groom_keys = {}
         if request["operation"] == "apply":
             sculpt = profile.get("sculpt")
@@ -447,10 +522,31 @@ def run(request, unreal, publish):
                         if key == "global_tint_linear":
                             iris.global_tint = unreal.LinearColor(*value, 1)
                         else:
-                            iris.global_saturation = value
+                            setattr(iris, key, value)
                     eye.iris = iris
                     setattr(settings, name, eye)
                 subsystem.commit_eyes_settings(character, settings)
+            if {"skin", "freckles", "accents"} & profile.keys():
+                stage("apply_native_skin_properties")
+                settings = character.get_editor_property("skin_settings")
+                skin = settings.skin
+                for key, value in profile.get("skin", {}).items():
+                    setattr(skin, key, value)
+                settings.skin = skin
+                freckles = settings.freckles
+                for key, value in profile.get("freckles", {}).items():
+                    if key == "mask":
+                        value = getattr(unreal.MetaHumanCharacterFrecklesMask, value.upper())
+                    setattr(freckles, key, value)
+                settings.freckles = freckles
+                accents = settings.accents
+                for region, properties in profile.get("accents", {}).items():
+                    accent = getattr(accents, region)
+                    for key, value in properties.items():
+                        setattr(accent, key, value)
+                    setattr(accents, region, accent)
+                settings.accents = accents
+                subsystem.commit_skin_settings(character, settings)
             if "eyelashes" in profile:
                 stage("apply_eyelash_properties")
                 settings = character.get_editor_property("head_model_settings")
@@ -543,10 +639,19 @@ def run(request, unreal, publish):
                       stage="awaiting_visual_review", values=values,
                       maximum_landmark_displacement_cm=displacement)
     finally:
-        try:
-            publish(result)
-        finally:
-            subsystem.remove_object_to_edit(character)
+        primary, cleanup_error = sys.exception(), None
+        for action in (lambda: publish(result), lambda: subsystem.remove_object_to_edit(character)):
+            try:
+                action()
+            except Exception as error:
+                if primary is not None:
+                    primary.add_note("Native feature cleanup also failed: " + type(error).__name__)
+                elif cleanup_error is None:
+                    cleanup_error = error
+                else:
+                    cleanup_error.add_note("Additional native cleanup failure: " + type(error).__name__)
+        if cleanup_error is not None:
+            raise cleanup_error
     publish(result)
     return result
 
@@ -565,7 +670,7 @@ def main():
     except Exception as error:
         result = json.loads(receipt.read_text()) if receipt.is_file() else {}
         result.update(status="failed", error_type=type(error).__name__, error=str(error),
-                      project_may_contain_partial_outputs=True)
+                      project_may_contain_partial_outputs=True, notes=getattr(error, "__notes__", []))
         publish(result)
         raise
 

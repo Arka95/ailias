@@ -11,6 +11,17 @@ from ailias.storage import Store
 def add_parser(commands):
     command = commands.add_parser("facefitting", help="Explicit dense photo-conditioned GNM head fitting")
     actions = command.add_subparsers(dest="facefitting_action", required=True)
+    fresh = actions.add_parser("video-create", help="Create fresh native geometry, appearance and editor preview from sampled photos")
+    fresh.add_argument("alias")
+    fresh.add_argument("--evidence", type=Path, required=True,
+                       help="Retained sampled-frame manifest; all downstream predictions are recomputed")
+    fresh.add_argument("--video-config", type=Path, default=DEFAULT_CONFIG.with_name("video-evidence.json"),
+                       help="Face detection/quality policy; video decoding is never invoked")
+    fresh.add_argument("--editor", type=Path, required=True)
+    fresh.add_argument("--project", type=Path, required=True)
+    fresh.add_argument("--fit-config", type=Path, default=DEFAULT_CONFIG)
+    fresh.add_argument("--appearance-config", type=Path, default=DEFAULT_CONFIG.with_name("appearance.json"))
+    fresh.add_argument("--generation-config", type=Path, default=DEFAULT_GENERATION_CONFIG)
     for name, description in (
         ("models", "Download/verify pinned public head assets and retained license provenance"),
         ("fit", "Run fresh CPU dense observations, shared shape fitting and configured Blender renders"),
@@ -78,6 +89,23 @@ def add_parser(commands):
 
 
 def execute(args, data_root):
+    if args.facefitting_action == "video-create":
+        import json
+        from ailias.facefitting.fresh_video import create_fresh_video_head
+        from ailias.facefitting.settings import load_policy
+        from ailias.facefitting.video import VideoPolicy
+        from ailias.facefitting.appearance import load_appearance_policy
+        from ailias.generation.settings import load_settings
+        from ailias.generation.tools import NativeTools
+        store = Store(data_root, args.alias)
+        generation, tools_root = load_settings(args.generation_config)
+        with store.lock():
+            result = create_fresh_video_head(
+                store, args.evidence, args.editor, args.project,
+                NativeTools(tools_root, generation.timeout_seconds), load_policy(args.fit_config),
+                video_policy=VideoPolicy(**json.loads(args.video_config.read_text(encoding="utf-8"))),
+                appearance_policy=load_appearance_policy(args.appearance_config))
+        return result, 0 if result["status"] == "fresh_video_completed" else 2
     if args.facefitting_action == "native-control-map":
         from ailias.facefitting.native_control_map import map_native_controls
         store = Store(data_root, args.alias)

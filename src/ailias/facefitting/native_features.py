@@ -17,7 +17,7 @@ def character_package(project, character):
 
 
 def apply_features(store, character, profile_path, editor, project, tools, *,
-                   baseline=None, assemble=False, cloud_services=False):
+                   baseline=None, assemble=False, cloud_services=False, use_working_baseline=True):
     """Clone an existing Character and apply a hash-pinned profile without changing its source."""
     project = project.resolve()
     source_package = character_package(project, character)
@@ -25,7 +25,7 @@ def apply_features(store, character, profile_path, editor, project, tools, *,
     dependencies = [store.reference_artifact(source_package),
                     store.reference_artifact(profile_path), *profile.get("sources", [])]
     baseline_path = baseline or store.resolve("facefitting\\working-baseline.json")
-    if baseline is not None or baseline_path.is_file():
+    if baseline is not None or (use_working_baseline and baseline_path.is_file()):
         selected = json.loads(baseline_path.read_text(encoding="utf-8-sig"))
         if selected.get("status") != "owner_selected_working_baseline":
             raise ValueError("Native refinement requires a verified working baseline")

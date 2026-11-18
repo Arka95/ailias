@@ -59,12 +59,24 @@ class NativeFeatureWorkerTests(unittest.TestCase):
                     get_item_keys_for_wardrobe_item=lambda item: [self.key],
                 )
                 iris = SimpleNamespace(
-                    global_tint=SimpleNamespace(r=1., g=1., b=1.), global_saturation=1.7)
+                    global_tint=SimpleNamespace(r=1., g=1., b=1.), global_saturation=1.7,
+                    primary_color_u=.5, primary_color_v=.5,
+                    secondary_color_u=.5, secondary_color_v=.5,
+                    color_blend=.5, color_blend_softness=.5)
                 self.eyes = SimpleNamespace(
                     eye_left=SimpleNamespace(iris=copy.deepcopy(iris)),
                     eye_right=SimpleNamespace(iris=copy.deepcopy(iris)))
-                self.skin = SimpleNamespace(texture_material_overrides=SimpleNamespace(
+                self.skin = SimpleNamespace(
+                    skin=SimpleNamespace(u=.5, v=.5, roughness=1.06, face_texture_index=0),
+                    freckles=SimpleNamespace(mask="NONE", density=.5, strength=.2,
+                                             saturation=.6, tone_shift=.65),
+                    accents=SimpleNamespace(**{
+                        region: SimpleNamespace(redness=.5, saturation=.5, lightness=.5)
+                        for region in ("scalp", "forehead", "nose", "under_eye",
+                                       "cheeks", "lips", "chin", "ears")}),
+                    texture_material_overrides=SimpleNamespace(
                     enable_texture_overrides=False, texture_overrides=SimpleNamespace(face={})))
+                self.preview_material = "TOPOLOGY"
                 self.head = SimpleNamespace(eyelashes=SimpleNamespace(
                     type="NONE", dye_color=SimpleNamespace(r=1., g=1., b=1.),
                     melanin=.3, redness=.28, roughness=.25, salt_and_pepper=.2,
@@ -75,7 +87,13 @@ class NativeFeatureWorkerTests(unittest.TestCase):
 
             def get_editor_property(self, name):
                 return {"eyes_settings": self.eyes, "skin_settings": self.skin,
+                        "preview_material_type": self.preview_material,
                         "head_model_settings": self.head}[name]
+
+            def set_editor_property(self, name, value):
+                if name != "preview_material_type":
+                    raise ValueError("Unexpected fixture property")
+                self.preview_material = value
 
         source, candidate = Character(source_path), Character(candidate_path)
         wardrobe = Wardrobe()
@@ -88,6 +106,8 @@ class NativeFeatureWorkerTests(unittest.TestCase):
             character, "eyes", settings)
         subsystem.commit_head_model_settings.side_effect = lambda character, settings: setattr(
             character, "head", settings)
+        subsystem.commit_skin_settings.side_effect = lambda character, settings: setattr(
+            character, "skin", settings)
         library.list_assets.return_value = []
         library.duplicate_asset.return_value = candidate
         library.save_loaded_asset.return_value = True
@@ -101,6 +121,10 @@ class NativeFeatureWorkerTests(unittest.TestCase):
                 candidate if path == candidate_path else wardrobe),
             MetaHumanPaletteItemPath=lambda **kwargs: kwargs,
             FaceTextureType=SimpleNamespace(BASECOLOR="basecolor"),
+            MetaHumanCharacterSkinPreviewMaterial=SimpleNamespace(
+                DEFAULT="TOPOLOGY", EDITABLE="SKIN", CLAY="CLAY"),
+            MetaHumanCharacterFrecklesMask=SimpleNamespace(
+                NONE="NONE", TYPE1="TYPE1", TYPE2="TYPE2", TYPE3="TYPE3"),
             MetaHumanCharacterEyelashesType=SimpleNamespace(**{
                 name.upper(): name.upper() for name in (
                     "none", "short_sparse", "short_fine", "short_thin",
@@ -159,6 +183,83 @@ class NativeFeatureWorkerTests(unittest.TestCase):
         candidate.head.eyelashes.enable_grooms = False
         with self.assertRaisesRegex(RuntimeError, "eyelash properties did not persist"):
             run(request, unreal, lambda value: None)
+
+    def test_native_skin_and_iris_palette_edits_save_and_reload_without_sculpting(self):
+        unreal, subsystem, source, candidate, request = self.fixture()
+        request["profile"]["skin"] = {"u": .4, "v": .7, "roughness": 1.1}
+        request["profile"]["eyes"].update(primary_color_u=.2, primary_color_v=.3)
+        result = run(request, unreal, lambda value: None)
+        self.assertEqual(result["values"]["skin"],
+                         {**request["profile"]["skin"], "face_texture_index": 0})
+        self.assertEqual(source.skin.skin.u, .5)
+        self.assertEqual(source.eyes.eye_left.iris.primary_color_u, .5)
+        self.assertEqual(candidate.eyes.eye_left.iris.primary_color_u, .2)
+        self.assertEqual(candidate.eyes.eye_right.iris.primary_color_v, .3)
+        self.assertEqual(candidate.skin.skin.roughness, 1.1)
+        self.assertEqual(source.preview_material, "TOPOLOGY")
+        self.assertTrue(result["values"]["skin_preview_enabled"])
+        subsystem.translate_face_landmarks.assert_not_called()
+        subsystem.commit_skin_settings.assert_called_once_with(candidate, candidate.skin)
+        request.update(operation="verify", expected=result["values"])
+        self.assertEqual(run(request, unreal, lambda value: None)["status"], "features_reloaded")
+        candidate.skin.skin.v = .1
+        with self.assertRaisesRegex(RuntimeError, "skin properties did not persist"):
+            run(request, unreal, lambda value: None)
+
+    def test_persisted_skin_values_cannot_pass_when_the_viewport_still_hides_colour(self):
+        unreal, subsystem, _, candidate, request = self.fixture()
+        request["profile"] = {"version": 1, "skin": {"u": .4}}
+        result = run(request, unreal, lambda value: None)
+        self.assertTrue(result["values"]["skin_preview_enabled"])
+        subsystem.translate_face_landmarks.assert_not_called()
+        request.update(operation="verify", expected=result["values"])
+        candidate.preview_material = "TOPOLOGY"
+        with self.assertRaisesRegex(RuntimeError, "topology/clay hides skin colour"):
+            run(request, unreal, lambda value: None)
+
+    def test_complexion_and_lip_edits_persist_without_sculpting_or_changing_source(self):
+        unreal, subsystem, source, candidate, request = self.fixture()
+        request["profile"] = {
+            "version": 1, "skin": {"face_texture_index": 7, "roughness": 1.12},
+            "freckles": {"mask": "none", "strength": 0.},
+            "accents": {"lips": {"redness": .4, "saturation": .38, "lightness": .42},
+                        "cheeks": {"redness": .4}},
+        }
+        result = run(request, unreal, lambda value: None)
+        self.assertEqual(candidate.skin.skin.face_texture_index, 7)
+        self.assertEqual(source.skin.skin.face_texture_index, 0)
+        self.assertEqual(candidate.skin.accents.lips.lightness, .42)
+        self.assertEqual(candidate.skin.accents.nose.lightness, .5)
+        self.assertEqual(source.skin.accents.lips.lightness, .5)
+        self.assertEqual(candidate.parameter.value, .5)
+        self.assertTrue(result["values"]["skin_preview_enabled"])
+        subsystem.commit_skin_settings.assert_called_once_with(candidate, candidate.skin)
+        subsystem.commit_head_model_settings.assert_not_called()
+        subsystem.translate_face_landmarks.assert_not_called()
+        subsystem.commit_face_state.assert_not_called()
+        request.update(operation="verify", expected=result["values"])
+        self.assertEqual(run(request, unreal, lambda value: None)["status"], "features_reloaded")
+        candidate.skin.accents.lips.lightness = .5
+        with self.assertRaisesRegex(RuntimeError, "skin accent properties did not persist"):
+            run(request, unreal, lambda value: None)
+
+    def test_freckles_or_accents_alone_enable_skin_and_detect_lost_edits_on_reload(self):
+        for edit in ({"freckles": {"mask": "type2", "strength": .1}},
+                     {"accents": {"forehead": {"redness": .4}}}):
+            with self.subTest(edit=edit):
+                unreal, _, _, candidate, request = self.fixture()
+                request["profile"] = {"version": 1, **edit}
+                result = run(request, unreal, lambda value: None)
+                self.assertTrue(result["values"]["skin_preview_enabled"])
+                request.update(operation="verify", expected=result["values"])
+                candidate.preview_material = "TOPOLOGY"
+                with self.assertRaisesRegex(RuntimeError, "topology/clay hides skin colour"):
+                    run(request, unreal, lambda value: None)
+                candidate.preview_material = "SKIN"
+                candidate.skin.freckles.strength = .2
+                candidate.skin.accents.forehead.redness = .5
+                with self.assertRaisesRegex(RuntimeError, "freckles|skin accent"):
+                    run(request, unreal, lambda value: None)
 
     def test_preview_edits_are_copied_back_into_the_saved_collection(self):
         unreal, subsystem, _, candidate, request = self.fixture()
@@ -357,6 +458,25 @@ class FeatureProfileTests(unittest.TestCase):
             {"version": 1}, {"version": True}, {"version": 1, "unexpected": True},
             {**valid, "eyes": {"global_tint_linear": [1, float("nan"), 0]}},
             {**valid, "eyes": {"global_saturation": True}},
+            {**valid, "eyes": {"primary_color_u": 1.1}},
+            {**valid, "eyes": {"secondary_color_v": float("nan")}},
+            {**valid, "skin": {}},
+            {**valid, "skin": {"u": True}},
+            {**valid, "skin": {"v": -1}},
+            {**valid, "skin": {"roughness": 1.2}},
+            {**valid, "skin": {"invented_pigment": .5}},
+            {**valid, "skin": {"face_texture_index": 1.5}},
+            {**valid, "skin": {"face_texture_index": True}},
+            {**valid, "skin": {"face_texture_index": 153}},
+            {**valid, "freckles": {}},
+            {**valid, "freckles": {"mask": []}},
+            {**valid, "freckles": {"mask": "unknown"}},
+            {**valid, "freckles": {"strength": float("nan")}},
+            {**valid, "accents": {}},
+            {**valid, "accents": {"unknown_region": {"redness": .4}}},
+            {**valid, "accents": {"lips": {}}},
+            {**valid, "accents": {"lips": {"redness": 1.1}}},
+            {**valid, "accents": {"lips": {"roughness": .5}}},
             {**valid, "eyelashes": {"type": "cosmetic"}},
             {**valid, "eyelashes": {"type": []}},
             {**valid, "eyelashes": {"melanin": -1}},
@@ -380,7 +500,7 @@ class FeatureProfileTests(unittest.TestCase):
 
 
 class FeatureRevisionTests(unittest.TestCase):
-    def apply(self, outcome):
+    def apply(self, outcome, *, use_working_baseline=True):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
@@ -394,6 +514,10 @@ class FeatureRevisionTests(unittest.TestCase):
         package.write_bytes(b"original Character")
         profile = root / "profile.json"
         profile.write_text(json.dumps({"version": 1, "eyes": {"global_saturation": 1.5}}))
+        if outcome == "foreign-baseline":
+            baseline = store.resolve("facefitting\\working-baseline.json")
+            baseline.parent.mkdir(parents=True, exist_ok=True)
+            baseline.write_text('{"status": "unrelated_previous_personal_fit"}')
         probe = {"blockers": [], "editor": str(root / "Editor.exe"), "project": str(project)}
 
         calls = []
@@ -438,7 +562,8 @@ class FeatureRevisionTests(unittest.TestCase):
         with patch("ailias.facefitting.native_features.readiness", return_value=probe):
             result = apply_features(store, source, profile, Path(probe["editor"]), project,
                                     SimpleNamespace(paths={}, run=launch),
-                                    assemble=outcome.startswith("assembled"))
+                                    assemble=outcome.startswith("assembled"),
+                                    use_working_baseline=use_working_baseline)
         if outcome.startswith("assembled"):
             self.assertEqual(calls, ["apply", "verify"])
         directory = store.resolve("facefitting\\features\\" + result["revision"])
@@ -454,6 +579,15 @@ class FeatureRevisionTests(unittest.TestCase):
         self.assertFalse(result["source_character_modified"])
         self.assertFalse(result["likeness_verified"])
         self.assertEqual(result["cleanup"]["removed_files"], 1)
+
+    def test_scratch_run_can_explicitly_exclude_an_old_working_baseline(self):
+        result = self.apply("foreign-baseline", use_working_baseline=False)
+        self.assertEqual(result["status"], "features_reloaded_awaiting_visual_review")
+        self.assertFalse(any("working-baseline" in item["path"] for item in result["input_dependencies"]))
+
+    def test_default_refinement_still_requires_a_valid_existing_baseline(self):
+        with self.assertRaisesRegex(ValueError, "verified working baseline"):
+            self.apply("foreign-baseline")
 
     def test_lost_sculpt_and_changed_source_fail_instead_of_claiming_success(self):
         for outcome in ("lost-sculpt", "changed-source"):
