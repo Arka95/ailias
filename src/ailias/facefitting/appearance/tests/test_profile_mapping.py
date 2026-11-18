@@ -52,6 +52,21 @@ class NativePhotoProfileTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Facial-hair region evidence is unresolved"):
             build_appearance_profile(evidence, {"hair_length_model_units": .02}, "/Game/Texture", [])
 
+    def test_native_complexion_uses_controls_instead_of_projected_photo_texture(self):
+        settings = {"skin": {"u": .35, "v": .9, "roughness": 1.12, "face_texture_index": 7},
+                    "accents": {"lips": {"lightness": .46}}}
+        hair = "/MetaHumanCharacter/Grooms/SelectedHair"
+        profile, mapping = build_appearance_profile(
+            self.fixture(), {}, None, [], native_hair_asset=hair, native_appearance=settings)
+        self.assertEqual(profile["skin"], settings["skin"])
+        self.assertEqual(profile["accents"], settings["accents"])
+        self.assertIsNone(profile["face_basecolor"])
+        self.assertEqual(profile["grooms"]["Hair"]["asset"], hair)
+        self.assertEqual(mapping["skin_source"], "native_controls")
+        with self.assertRaisesRegex(ValueError, "Native appearance"):
+            build_appearance_profile(self.fixture(), {}, None, [], native_hair_asset=hair,
+                                     native_appearance={"face_basecolor": "/Game/Bad"})
+
     def test_assembly_policy_is_validated_without_requiring_native_appearance_edits(self):
         policy = json.loads(DEFAULT_APPEARANCE_CONFIG.read_text())
         with tempfile.TemporaryDirectory() as directory:
@@ -63,6 +78,23 @@ class NativePhotoProfileTests(unittest.TestCase):
             path.write_text(json.dumps(policy))
             with self.assertRaisesRegex(ValueError, "Assembly pipeline"):
                 load_appearance_policy(path)
+
+    def test_native_appearance_policy_validates_controls_and_requires_explicit_hairstyle(self):
+        policy = json.loads(DEFAULT_APPEARANCE_CONFIG.read_text())
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "appearance.json"
+            policy["native_appearance"] = {"skin": {"u": .35, "v": .9}}
+            path.write_text(json.dumps(policy))
+            with self.assertRaisesRegex(ValueError, "native_hair_asset"):
+                load_appearance_policy(path)
+            policy["native_hair_asset"] = "/MetaHumanCharacter/Grooms/SelectedHair"
+            path.write_text(json.dumps(policy))
+            self.assertEqual(load_appearance_policy(path)["native_appearance"], policy["native_appearance"])
+            for settings in ({"skin": {"v": 2}}, {"sculpt": {}}, {}, []):
+                policy["native_appearance"] = settings
+                path.write_text(json.dumps(policy))
+                with self.subTest(settings=settings), self.assertRaises(ValueError):
+                    load_appearance_policy(path)
 
     def test_absence_evidence_does_not_force_beard_or_moustache(self):
         evidence = self.fixture()

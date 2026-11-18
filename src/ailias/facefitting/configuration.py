@@ -123,4 +123,10 @@ def load_appearance_policy(path=DEFAULT_APPEARANCE_CONFIG):
         from ailias.facefitting.unreal.character_features_worker import validate_assembly_settings
 
         validate_assembly_settings(policy["assembly"])
+    if "native_appearance" in policy:
+        from ailias.facefitting.unreal.character_features_worker import validate_native_appearance
+
+        validate_native_appearance(policy["native_appearance"])
+        if not policy.get("native_hair_asset"):
+            raise ValueError("Native appearance without photo baking requires native_hair_asset")
     return policy

@@ -90,6 +90,14 @@ def apply_character_features(store, character, profile_path, editor, project, to
             if (operation == "verify" and assemble
                     and result.get("runtime", {}).get("blueprint") != report.get("blueprint")):
                 raise ValueError("Native worker did not independently verify the assembled actor")
+            if assemble and "face_basecolor" in profile:
+                skin = result.get("runtime", {}).get("skin", [])
+                if (not isinstance(skin, list) or not skin
+                        or any(not isinstance(item, dict)
+                               or not item.get("basecolor")
+                               or (profile["face_basecolor"] is not None
+                                   and item["basecolor"] != profile["face_basecolor"]) for item in skin)):
+                    raise ValueError("Native worker did not verify the assembled photo skin or native skin")
             verify_profile(profile, result["values"], expected)
             if not source_package.is_file() or not all(store.verify(item) for item in dependencies):
                 raise ValueError("Native feature inputs changed during editing")

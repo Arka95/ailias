@@ -73,7 +73,7 @@ class PhotoToCharacterTests(unittest.TestCase):
         fit.assert_not_called()
 
     def complete(self, *, appearance_fails=False, blender_fails=False,
-                 review_policy=None, native_hair_asset=None, assembly=None):
+                 review_policy=None, native_hair_asset=None, assembly=None, native_appearance=None):
         project = self.store.resolve("Project\\Preview.uproject")
         project.parent.mkdir()
         project.write_text("{}")
@@ -144,7 +144,10 @@ class PhotoToCharacterTests(unittest.TestCase):
             image.save(parameters["output"])
             return {"status": "native_editor_preview_rendered"}
 
+        self.baked_photo_texture = False
+
         def bake(store, root, *args, **kwargs):
+            self.baked_photo_texture = True
             image = root / "native-photo-basecolor.png"
             Image.new("RGB", (32, 32), (100, 80, 60)).save(image)
             return {"texture": str(image), "hair_length_model_units": .02}
@@ -171,7 +174,8 @@ class PhotoToCharacterTests(unittest.TestCase):
                 SimpleNamespace(record=lambda: {}, expression_modes=[]),
                 generation_policy=SimpleNamespace(), review_policy=review_policy, appearance_policy={
                     "device": "cuda:0", "texture_size": 256, "max_views": 1, "photo_size": 256,
-                    "hair_strands": 0, "native_hair_asset": native_hair_asset, "assembly": assembly})
+                    "hair_strands": 0, "native_hair_asset": native_hair_asset, "assembly": assembly,
+                    "native_appearance": native_appearance})
         return result, operations
 
     def test_one_invocation_reaches_fresh_texture_grooms_and_a_new_preview_without_old_baseline(self):
@@ -192,6 +196,17 @@ class PhotoToCharacterTests(unittest.TestCase):
         self.assertEqual(result["current_stage"], "apply_and_reload_native_appearance")
         self.assertIn("groom missing", result["error"]["message"])
         self.assertNotIn("preview", operations)
+
+    def test_native_complexion_skips_photo_atlas_baking_and_import(self):
+        settings = {"skin": {"u": .35, "v": .9, "face_texture_index": 7}}
+        result, operations = self.complete(
+            native_appearance=settings, native_hair_asset="/MetaHumanCharacter/Grooms/SelectedHair")
+        self.assertEqual(result["status"], "fresh_video_completed")
+        self.assertFalse(self.baked_photo_texture)
+        self.assertNotIn("import_texture", operations)
+        self.assertEqual(self.native_profile["skin"], settings["skin"])
+        self.assertIsNone(self.native_profile["face_basecolor"])
+        self.assertFalse(result["photo_colour"]["photo_projection_used"])
 
     def test_review_lighting_and_native_hair_are_independent_of_reanimation_and_blender(self):
         from ailias.reanimation.settings import ReelPolicy, load_policy

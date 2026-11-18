@@ -154,6 +154,16 @@ the parser has no distinct beard/moustache class. Eyelashes use an explicitly
 unmeasured preset. Observed colour retains photo lighting; unseen atlas texels
 are labelled median-skin fill, not recovered detail.
 
+For Unreal's own complexion instead of a projected photo atlas, set
+`native_appearance` in the appearance policy to native `skin`, `freckles` and/or
+`accents` properties, with an explicit `native_hair_asset`. This route skips
+native photo-atlas baking/import and explicitly removes the face base-colour
+override. `config\appearance-arka.json` restores the previously tuned native
+complexion choices; it does not restore old geometry or certify a colour match.
+Blender appearance remains independent. Speaking renders must load
+`config\reanimation.json`; the brighter `character-review.json` is only a
+preview choice, not a replacement video preset.
+
 The earlier direct-native command completed through native save/reload
 and a new close-up image, but omitted Blender. Its delivery run
 `b58c0c440faa4df5900e613ad8faa7a1` completed in **540.265 s** from 82
@@ -308,7 +318,7 @@ not an automatic photo-to-likeness optimizer.
 | `eyelashes.melanin`, `redness`, `roughness`, `salt_and_pepper`, `lightness` | Unchanged; each `[0,1]` | Explicit native lash material/pigment controls; not measured strand colour |
 | `eyelashes.dye_color_linear`, `enable_grooms` | Unchanged | Linear RGB dye `[0,1]` and boolean groom enablement; contradictory disabled/selected lashes are rejected |
 | `assembly.pipeline`, `assembly.quality` | `optimized`, `medium` | `optimized` or `cinematic`; optimized quality `high`, `medium`, `low`. Cinematic ignores quality and records that distinction |
-| `face_basecolor` | Unchanged | Existing Texture2D in verified native UV space; enables UE 5.8 texture/material overrides |
+| `face_basecolor` | Unchanged when omitted | Existing native-UV Texture2D enables an override; explicit `null` removes only the face base-colour override and restores native complexion |
 | `sculpt.reference_landmarks` | Required with sculpt | Exact native control snapshot for this Character; stale geometry is rejected |
 | `sculpt.deltas` | Required with sculpt | Unique `{index, delta_cm: [x,y,z]}` edits in native coordinates |
 | `sculpt.max_displacement_cm` | Required with sculpt; `(0,2]` | Maximum individual edit and observed whole-face displacement budget |

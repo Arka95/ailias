@@ -23,6 +23,8 @@ FRECKLES_MASKS = {"none", "type1", "type2", "type3"}
 ACCENT_REGIONS = {"scalp", "forehead", "nose", "under_eye", "cheeks", "lips", "chin", "ears"}
 ACCENT_FLOATS = {"redness", "saturation", "lightness"}
 SKIN_EDIT_FIELDS = {"skin", "freckles", "accents", "face_basecolor"}
+RUNTIME_SKIN_PREFIX = "MI_Face_Skin_Baked_"
+RUNTIME_BASECOLOR_PARAMETER = "Basecolor Baked"
 IRIS_RANGES = {
     "global_saturation": (0, 4),
     "primary_color_u": (0, 1), "primary_color_v": (0, 1),
@@ -64,6 +66,14 @@ def validate_assembly_settings(assembly):
         raise ValueError("Assembly pipeline must be optimized or cinematic")
     if not isinstance(quality, str) or quality not in {"high", "medium", "low"}:
         raise ValueError("Assembly quality must be high, medium or low")
+
+
+def validate_native_appearance(settings):
+    if (not isinstance(settings, dict) or not settings
+            or settings.keys() - {"skin", "freckles", "accents"}):
+        raise ValueError("Native appearance requires skin, freckles or accents settings")
+    validate_profile({"version": 1, **settings})
+    return settings
 
 
 def validate_profile(profile):
@@ -123,7 +133,7 @@ def validate_profile(profile):
                 raise ValueError("Unsupported native skin accent properties")
             for value in settings.values():
                 number(value, 0, 1)
-    if "face_basecolor" in profile:
+    if profile.get("face_basecolor") is not None:
         native_asset(profile["face_basecolor"])
     if "eyelashes" in profile:
         lashes = profile["eyelashes"]
@@ -169,7 +179,7 @@ def validate_profile(profile):
                 raise ValueError("Sculpt displacement exceeds its limit")
     if not any((grooms, profile.get("eyes"), profile.get("skin"),
                 profile.get("freckles"), profile.get("accents"), profile.get("eyelashes"),
-                profile.get("face_basecolor"), profile.get("sculpt"))):
+                "face_basecolor" in profile, profile.get("sculpt"))):
         raise ValueError("Native feature profile does not request any edits")
     if not isinstance(profile.get("sources", []), list):
         raise ValueError("Profile sources must be hash references")
@@ -301,7 +311,52 @@ def verify_profile(profile, values, expected=None):
             raise RuntimeError("Native wardrobe selections changed after reopening")
 
 
-def inspect_runtime(blueprint_path, required_grooms, unreal, publish=None):
+def inspect_runtime_skin(face, expected_texture, unreal):
+    materials = []
+    for index in range(face.get_num_materials()):
+        material = face.get_material(index)
+        if material is None or RUNTIME_SKIN_PREFIX not in material.get_name():
+            continue
+        texture = (material.get_texture_parameter_value(RUNTIME_BASECOLOR_PARAMETER)
+                   if isinstance(material, unreal.MaterialInstanceDynamic) else
+                   unreal.MaterialEditingLibrary.get_material_instance_texture_parameter_value(
+                       material, RUNTIME_BASECOLOR_PARAMETER))
+        path = texture.get_path_name() if texture else None
+        materials.append({"slot": index, "material": material.get_path_name(), "basecolor": path})
+        if not path or (expected_texture is not None and path != expected_texture):
+            raise RuntimeError("Runtime face skin does not use the requested photo basecolour")
+    if not materials:
+        raise RuntimeError("Runtime face has no verifiable native skin materials")
+    return materials
+
+
+def bind_runtime_skin(assets, destination, texture_path, unreal):
+    texture = unreal.load_asset(texture_path)
+    if not isinstance(texture, unreal.Texture2D):
+        raise RuntimeError("Runtime photo basecolour is not a Texture2D")
+    materials = []
+    for path in assets:
+        if not path.startswith(destination + "/FeatureDraft/Face/Materials/" + RUNTIME_SKIN_PREFIX):
+            continue
+        material = unreal.load_asset(path)
+        if not isinstance(material, unreal.MaterialInstanceConstant):
+            raise RuntimeError("Runtime skin material is not a persistent material instance")
+        unreal.MaterialEditingLibrary.set_material_instance_texture_parameter_value(
+            material, RUNTIME_BASECOLOR_PARAMETER, texture)
+        unreal.MaterialEditingLibrary.update_material_instance(material)
+        actual = unreal.MaterialEditingLibrary.get_material_instance_texture_parameter_value(
+            material, RUNTIME_BASECOLOR_PARAMETER)
+        if actual is None or actual.get_path_name() != texture.get_path_name():
+            raise RuntimeError("Runtime skin material rejected the photo basecolour: " + path)
+        materials.append(material.get_path_name())
+    if not materials:
+        raise RuntimeError("Assembly produced no native skin materials for the photo basecolour")
+    return {"texture": texture.get_path_name(), "materials": materials,
+            "method": "explicit photo override on every assembled face-skin LOD"}
+
+
+def inspect_runtime(blueprint_path, required_grooms, unreal, publish=None, *, face_basecolor=None,
+                    native_skin=False):
     blueprint = unreal.load_asset(blueprint_path)
     if not isinstance(blueprint, unreal.Blueprint):
         raise RuntimeError("Runtime assembly did not produce a Blueprint")
@@ -335,6 +390,8 @@ def inspect_runtime(blueprint_path, required_grooms, unreal, publish=None):
         evidence = {"blueprint": blueprint_path, "face_mesh": mesh.get_path_name(),
                     "head_bone_index": face.get_bone_index("head"), "grooms": grooms,
                     "blueprint_compile_status": status}
+        if face_basecolor is not None or native_skin:
+            evidence["skin"] = inspect_runtime_skin(face, face_basecolor, unreal)
         if publish is not None:
             publish(evidence)
         for slot in required_grooms:
@@ -409,6 +466,11 @@ def assemble_runtime(character, subsystem, request, result, unreal, publish):
     publish(result)
     assets = list(unreal.EditorAssetLibrary.list_assets(
         destination, recursive=True, include_folder=False))
+    if request["profile"].get("face_basecolor"):
+        result.update(stage="bind_runtime_photo_skin")
+        publish(result)
+        result["runtime_skin_binding"] = bind_runtime_skin(
+            assets, destination, request["profile"]["face_basecolor"], unreal)
     for path in assets:
         asset = unreal.load_asset(path)
         if not isinstance(asset, unreal.Blueprint):
@@ -470,7 +532,7 @@ def run(request, unreal, publish):
         if not isinstance(item, unreal.MetaHumanWardrobeItem):
             raise ValueError("Groom must be a compatible native Wardrobe Item")
         assets[slot] = item
-    if "face_basecolor" in profile:
+    if profile.get("face_basecolor") is not None:
         texture = unreal.load_asset(profile["face_basecolor"])
         if not isinstance(texture, unreal.Texture2D):
             raise ValueError("Face basecolour must be a native Texture2D")
@@ -573,10 +635,15 @@ def run(request, unreal, publish):
                 overrides = settings.texture_material_overrides
                 textures = overrides.texture_overrides
                 face = dict(textures.face)
-                face[unreal.FaceTextureType.BASECOLOR] = texture
+                if profile["face_basecolor"] is None:
+                    face.pop(unreal.FaceTextureType.BASECOLOR, None)
+                    if not face and not textures.body:
+                        overrides.enable_texture_overrides = False
+                else:
+                    face[unreal.FaceTextureType.BASECOLOR] = texture
+                    overrides.enable_texture_overrides = True
                 textures.face = face
                 overrides.texture_overrides = textures
-                overrides.enable_texture_overrides = True
                 settings.texture_material_overrides = overrides
                 subsystem.commit_skin_settings(character, settings)
             slots = set(map(str, collection.get_slot_names()))
@@ -635,11 +702,15 @@ def run(request, unreal, publish):
             verify_profile(profile, values, before_assembly)
             stage("inspect_runtime_actor")
             result["runtime"] = inspect_runtime(
-                result["blueprint"], profile.get("grooms", {}), unreal)
+                result["blueprint"], profile.get("grooms", {}), unreal,
+                face_basecolor=profile.get("face_basecolor"),
+                native_skin="face_basecolor" in profile and profile["face_basecolor"] is None)
         if request["operation"] == "verify" and request.get("blueprint"):
             stage("verify_runtime_actor")
             result["runtime"] = inspect_runtime(
-                request["blueprint"], profile.get("grooms", {}), unreal)
+                request["blueprint"], profile.get("grooms", {}), unreal,
+                face_basecolor=profile.get("face_basecolor"),
+                native_skin="face_basecolor" in profile and profile["face_basecolor"] is None)
         status = {"apply": "features_saved", "build": "runtime_saved", "verify": "features_reloaded"}
         result.update(status=status[request["operation"]],
                       stage="awaiting_visual_review", values=values,

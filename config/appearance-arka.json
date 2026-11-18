@@ -8,5 +8,16 @@
   "hair_segments": 8,
   "seed": 42,
   "native_hair_asset": "/MetaHumanCharacter/Optional/Grooms/Bindings/Hair/WI_Hair_S_SweptUp",
+  "native_appearance": {
+    "skin": {"u": 0.35, "v": 0.9, "roughness": 1.12, "face_texture_index": 7},
+    "freckles": {"mask": "none", "strength": 0.0},
+    "accents": {
+      "forehead": {"redness": 0.42, "saturation": 0.45, "lightness": 0.54},
+      "cheeks": {"redness": 0.4, "saturation": 0.42, "lightness": 0.52},
+      "nose": {"redness": 0.43, "saturation": 0.45, "lightness": 0.51},
+      "lips": {"redness": 0.4, "saturation": 0.38, "lightness": 0.46},
+      "chin": {"redness": 0.44, "saturation": 0.44, "lightness": 0.5}
+    }
+  },
   "assembly": {"pipeline": "cinematic"}
 }

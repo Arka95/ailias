@@ -263,20 +263,30 @@ def run_photo_to_character_pipeline(
             )
 
         report["native_skin_uvs"] = verified["native_skin_uvs"]
-        baked = run_stage("bake_fresh_photo_colour", lambda: bake_photo_skin_texture(
-            store, root, root / "native-skin-uvs.json", model, fitted, views, evidence,
-            appearance["device"], texture_size=appearance["texture_size"],
-            maximum_views=appearance["max_views"], photo_size=appearance["photo_size"]))
-        report["photo_colour"] = baked
-        imported = run_stage("import_native_photo_texture", lambda: execute_texture_operation("import_texture", {
-            "image": baked["texture"], "destination": f"/Game/Ailias/FreshVideo/V{root.name}/PhotoTexture"}))
+        appearance_sources = [report["photo_features"]]
+        native_appearance = appearance.get("native_appearance")
+        if native_appearance is None:
+            baked = run_stage("bake_fresh_photo_colour", lambda: bake_photo_skin_texture(
+                store, root, root / "native-skin-uvs.json", model, fitted, views, evidence,
+                appearance["device"], texture_size=appearance["texture_size"],
+                maximum_views=appearance["max_views"], photo_size=appearance["photo_size"]))
+            report["photo_colour"] = baked
+            imported = run_stage("import_native_photo_texture", lambda: execute_texture_operation("import_texture", {
+                "image": baked["texture"], "destination": f"/Game/Ailias/FreshVideo/V{root.name}/PhotoTexture"}))
+            texture = imported["texture"]
+            appearance_sources.extend([
+                store.reference_artifact(Path(baked["texture"])),
+                store.reference_artifact(character_package(project, texture))])
+        else:
+            if not appearance.get("native_hair_asset"):
+                raise ValueError("Native appearance without photo baking requires native_hair_asset")
+            baked, texture = {}, None
+            report["photo_colour"] = {"mode": "native_skin", "photo_projection_used": False}
 
         def map_appearance_evidence():
-            return build_appearance_profile(evidence, baked, imported["texture"], [
-                report["photo_features"], store.reference_artifact(Path(baked["texture"])),
-                store.reference_artifact(character_package(project, imported["texture"]))],
+            return build_appearance_profile(evidence, baked, texture, appearance_sources,
                 native_hair_asset=appearance.get("native_hair_asset"),
-                assembly=appearance.get("assembly"))
+                assembly=appearance.get("assembly"), native_appearance=native_appearance)
 
         profile, mapping = run_stage("derive_native_appearance", map_appearance_evidence)
         report["appearance_mapping"] = mapping

@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from ailias.facefitting.unreal.character_features_worker import validate_profile
+from ailias.facefitting.unreal.character_features_worker import validate_native_appearance, validate_profile
 
 
 GROOM_ROOT = "/MetaHumanCharacter/Optional/Grooms/Bindings"
@@ -29,24 +29,26 @@ def aggregate_observed_color(features, category, region=None):
 def build_groom_settings(asset, colour):
     # This is an appearance approximation, not an inverse measurement of hair pigment.
     luminance = float(np.asarray(colour) @ [.2126, .7152, .0722])
-    return {"asset": GROOM_ROOT + "/" + asset,
+    return {"asset": asset if asset.startswith("/") else GROOM_ROOT + "/" + asset,
             "parameters": {"Melanin": float(np.clip(1-np.sqrt(luminance), 0, 1))}}
 
 
-def build_appearance_profile(evidence, baked, texture, sources, *, native_hair_asset=None, assembly=None):
+def build_appearance_profile(evidence, baked, texture, sources, *, native_hair_asset=None, assembly=None,
+                             native_appearance=None):
     features = [face["features"] for face in evidence["faces"].values() if face["status"] == "observed"]
     if not features:
         raise ValueError("Native appearance requires freshly observed photo features")
     hair = aggregate_observed_color(features, "regions", "scalp_hair")
     brows = aggregate_observed_color(features, "regions", "eyebrows")
     iris = aggregate_observed_color(features, "iris")
-    length = baked["hair_length_model_units"]
-    if not isinstance(length, (int, float)) or not np.isfinite(length) or length < 0:
-        raise ValueError("Native groom selection requires a finite estimated hair length")
-    asset = next(asset for bound, asset in HAIR_STYLES if length < bound)
+    if native_hair_asset is None:
+        length = baked["hair_length_model_units"]
+        if not isinstance(length, (int, float)) or not np.isfinite(length) or length < 0:
+            raise ValueError("Native groom selection requires a finite estimated hair length")
+        asset = next(asset for bound, asset in HAIR_STYLES if length < bound)
+    else:
+        asset = native_hair_asset
     hair_settings = build_groom_settings(asset, hair)
-    if native_hair_asset is not None:
-        hair_settings["asset"] = native_hair_asset
     profile = {
         "version": 1, "sources": sources, "face_basecolor": texture,
         "eyes": {"global_tint_linear": iris.tolist()},
@@ -57,6 +59,9 @@ def build_appearance_profile(evidence, baked, texture, sources, *, native_hair_a
     }
     if assembly is not None:
         profile["assembly"] = dict(assembly)
+    if native_appearance is not None:
+        profile.update(validate_native_appearance(native_appearance))
+        profile["face_basecolor"] = None
     estimates = {}
     for name, slot, directory, prefix in (
             ("beard", "Beard", "Beards", "Beard"),
@@ -79,11 +84,14 @@ def build_appearance_profile(evidence, baked, texture, sources, *, native_hair_a
         "source_features": len(features), "facial_hair_estimates": estimates,
         "native_hair_asset": hair_settings["asset"],
         "native_hair_selection": "configured" if native_hair_asset is not None else "length_estimate",
+        "skin_source": "native_controls" if native_appearance is not None else "photo_projection",
         "limitations": [
             "Observed photo colour retains lighting; iris tint is not an absolute calibrated iris colour",
             "Native stock groom style and melanin are approximations, not recovered individual strands",
             "Beard/moustache presence uses landmark-region darkness and can be confused by shadows",
             "Short-fine eyelashes are an explicit unmeasured native preset, not a parser measurement",
-            "Photo texture retains skin, lip and visible facial-hair detail; unseen areas remain labelled fill",
+            ("Native complexion settings are explicit prior visual choices, not calibrated photo albedo"
+             if native_appearance is not None else
+             "Photo texture retains skin, lip and visible facial-hair detail; unseen areas remain labelled fill"),
         ],
     }

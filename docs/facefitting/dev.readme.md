@@ -337,6 +337,65 @@ its own independent-editor checks before rendering is accepted.
 Epic documents cinematic assembly as retaining strand-based hair at LOD 0:
 [Assembly](https://dev.epicgames.com/documentation/metahuman/assembly?application_version=5.8).
 
+The first completed speaking draft (`639dc1bc90234c55b2c4ecacd14a27d6`)
+decoded correctly but failed visual skin acceptance. Direct inspection of its
+actual face material exported `T_Head_BC` as a 2048x2048 grayscale checkerboard,
+not the colored photo atlas. Saving/reloading the editable Character's
+`face_basecolor` reference had not established runtime appearance correctness.
+The photo-override path now explicitly binds the requested texture to every
+newly assembled `MI_Face_Skin_Baked_*` material's `Basecolor Baked` parameter.
+It does not edit the source Character, existing runtime assets, teeth, body
+materials, rig or groom bindings. Explicit photo albedo takes precedence over
+the native face-color rebake; other generated material maps remain unchanged.
+Both same-process and independent-editor actor checks inspect actual constant
+or dynamic material bindings at every face-skin LOD. The host rejects missing
+or mismatched runtime skin evidence even if Character properties still match.
+The new regressions cover the original wrong-bake case, a wrong lower LOD,
+missing skin materials, rejected parameter writes, and lost skin on reload.
+The affected 45 units passed. Real correction `84f97673` passed native application
+and independent actor reload, including all six face-skin material bindings.
+Unreal's texture setter returned false even for successful writes; verification
+therefore checks the actual parameter readback, not that Boolean.
+The actual preview and speaking draft `bb05dc1c` show photo colour rather than
+the checkerboard, but fail skin-quality acceptance: forehead/neck coverage
+boundaries, pink coloration and face/body mismatch remain. The draft's 743 video
+frames and audio decode; playable output is not visual acceptance.
+
+The November 18 follow-up found two regressions rather than missing features.
+Native complexion refinement already existed in revision `f6b61b60`; the fresh
+photo-override route did not carry it forward. The current personal policy now
+selects those native skin/freckle/accent settings explicitly, bypassing native
+photo-atlas baking/import. `face_basecolor: null` removes the projected face
+base-colour without changing other texture overrides, geometry, rig or grooms.
+The adapter verifies the removal on fresh reload and requires actual runtime
+skin bindings for an assembled native-skin profile.
+
+The established video policy from commit `6197716` remains -5.5 EV, 900/585-lumen
+200 cm lights at 5600 K. The failed draft's session launcher instead reused
+the -3.5 EV review exposure: a two-stop increase. The renderer and saved reel
+policy had not lost the original fix; the caller selected the wrong policy.
+Keep native-preview and speaking-video policy sources separate. The native
+complexion replacement requires a new actual frame review with the established
+reel policy before a further full speaking render; no new native result is
+claimed from unit tests alone.
+
+The subsequent real native revision `185f5121` saved and independently reloaded
+the requested picker values, roughness and complexion index, with no active
+face base-colour override. Changing native appearance required downloading new
+texture sources through the previously authorized Epic service; the fitted
+head was not refitted or re-rigged. Apply/reload processes took 317.859s and
+129.109s. Its actual neutral MRQ review `64beeee4` uses the established -5.5 EV
+reel policy, but **fails visual review**: baked face and neck/body still display
+a gray checkerboard. Valid native properties and nonempty runtime texture
+bindings do not establish that the generated texture pixels are correct.
+No new full speaking clip was launched from that failed preview. The current
+82 focused feature/mapping/workflow/portrait/reanimation units pass; this is
+not a claim that the native skin bake or final appearance is fixed.
+Native reset also disables the texture-override layer when removal leaves both
+face and body override maps empty, while retaining unrelated overrides.
+That additional cleanup is unit-tested; its new actual native review is pending,
+so it is not asserted as the established cause or solution of the checkerboard.
+
 ## Fitting architecture
 
 | Component | Responsibility |

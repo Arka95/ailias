@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 
 from ailias.facefitting.unreal.character_features import apply_character_features, character_package
 from ailias.facefitting.unreal.character_features_worker import (
-    assemble_runtime, run, validate_profile, verify_profile,
+    assemble_runtime, bind_runtime_skin, inspect_runtime_skin, run, validate_profile, verify_profile,
 )
 from ailias.storage import Store
 
@@ -75,7 +75,7 @@ class NativeFeatureWorkerTests(unittest.TestCase):
                         for region in ("scalp", "forehead", "nose", "under_eye",
                                        "cheeks", "lips", "chin", "ears")}),
                     texture_material_overrides=SimpleNamespace(
-                    enable_texture_overrides=False, texture_overrides=SimpleNamespace(face={})))
+                    enable_texture_overrides=False, texture_overrides=SimpleNamespace(face={}, body={})))
                 self.preview_material = "TOPOLOGY"
                 self.head = SimpleNamespace(eyelashes=SimpleNamespace(
                     type="NONE", dye_color=SimpleNamespace(r=1., g=1., b=1.),
@@ -216,6 +216,46 @@ class NativeFeatureWorkerTests(unittest.TestCase):
         candidate.preview_material = "TOPOLOGY"
         with self.assertRaisesRegex(RuntimeError, "topology/clay hides skin colour"):
             run(request, unreal, lambda value: None)
+
+    def test_explicit_native_skin_removes_photo_override_and_detects_its_return_on_reload(self):
+        unreal, subsystem, source, candidate, request = self.fixture()
+        texture = SimpleNamespace(get_path_name=lambda: "/Game/Photo.Photo")
+        for character in (source, candidate):
+            overrides = character.skin.texture_material_overrides
+            overrides.enable_texture_overrides = True
+            overrides.texture_overrides.face = {"basecolor": texture, "normal": texture}
+        request["profile"] = {
+            "version": 1, "skin": {"u": .35, "v": .9}, "face_basecolor": None}
+        result = run(request, unreal, lambda value: None)
+        self.assertIsNone(result["values"]["face_basecolor"])
+        self.assertEqual(source.skin.texture_material_overrides.texture_overrides.face["basecolor"], texture)
+        self.assertEqual(candidate.skin.texture_material_overrides.texture_overrides.face, {"normal": texture})
+        subsystem.request_auto_rigging.assert_not_called()
+        request.update(operation="verify", expected=result["values"])
+        self.assertEqual(run(request, unreal, lambda value: None)["status"], "features_reloaded")
+        candidate.skin.texture_material_overrides.texture_overrides.face["basecolor"] = texture
+        with self.assertRaisesRegex(RuntimeError, "basecolour override did not persist"):
+            run(request, unreal, lambda value: None)
+
+    def test_removing_a_photo_override_alone_is_a_valid_edit(self):
+        unreal, _, _, _, request = self.fixture()
+        request["profile"] = {"version": 1, "face_basecolor": None}
+        self.assertEqual(run(request, unreal, lambda value: None)["status"], "features_saved")
+
+    def test_native_reset_disables_an_empty_override_layer_but_preserves_body_overrides(self):
+        for body in ({}, {"basecolor": object()}):
+            with self.subTest(body=bool(body)):
+                unreal, _, _, candidate, request = self.fixture()
+                overrides = candidate.skin.texture_material_overrides
+                overrides.enable_texture_overrides = True
+                overrides.texture_overrides.face = {
+                    "basecolor": SimpleNamespace(get_path_name=lambda: "/Game/Photo.Photo")}
+                overrides.texture_overrides.body = body
+                request["profile"] = {"version": 1, "face_basecolor": None}
+                result = run(request, unreal, lambda value: None)
+                self.assertIsNone(result["values"]["face_basecolor"])
+                self.assertEqual(overrides.enable_texture_overrides, bool(body))
+                self.assertEqual(overrides.texture_overrides.body, body)
 
     def test_complexion_and_lip_edits_persist_without_sculpting_or_changing_source(self):
         unreal, subsystem, source, candidate, request = self.fixture()
@@ -372,7 +412,7 @@ class NativeFeatureWorkerTests(unittest.TestCase):
                 "Runtime assembly rebound the ARKit skeleton; do not save the editing Character afterward")
             result["blueprint"] = "/Game/Test/Actor.Actor"
 
-        def inspect(*args):
+        def inspect(*args, **kwargs):
             self.assertEqual(unreal.EditorAssetLibrary.save_loaded_asset.call_count, 2)
             unreal.EditorAssetLibrary.save_loaded_asset.side_effect = RuntimeError(
                 "A runtime actor may rebind the ARKit skeleton; do not save the editing Character afterward")
@@ -464,6 +504,110 @@ class NativeFeatureWorkerTests(unittest.TestCase):
         subsystem.remove_object_to_edit.assert_called_once_with(candidate)
 
 
+class RuntimePhotoSkinTests(unittest.TestCase):
+    def fixture(self):
+        class Texture:
+            def __init__(self, path):
+                self.path = path
+
+            def get_path_name(self):
+                return self.path
+
+        class Material:
+            def __init__(self, path, texture):
+                self.path, self.texture = path, texture
+
+            def get_name(self):
+                return self.path.rsplit("/", 1)[-1]
+
+            def get_path_name(self):
+                return self.path
+
+        class Dynamic(Material):
+            def __init__(self, parent):
+                self.parent = parent
+                super().__init__("/Transient/MID_" + parent.get_name(), None)
+
+            def get_texture_parameter_value(self, name):
+                return self.parent.texture
+
+        destination = "/Game/Test/Runtime"
+        photo = Texture("/Game/Current/PhotoBaseColor.PhotoBaseColor")
+        checkerboard = Texture("/Game/Test/Runtime/Face/Baked/T_Head_BC")
+        materials = {destination + "/FeatureDraft/Face/Materials/" + name:
+                     Material(destination + "/FeatureDraft/Face/Materials/" + name, checkerboard)
+                     for name in ("MI_Face_Skin_Baked_LOD0", "MI_Face_Skin_Baked_LOD2", "MI_Teeth_Baked")}
+        skin = [material for material in materials.values() if "Skin" in material.get_name()]
+        face_materials = [Dynamic(skin[0]), skin[1]]
+        face = SimpleNamespace(get_num_materials=lambda: len(face_materials),
+                               get_material=lambda index: face_materials[index])
+        library = Mock()
+
+        def set_texture(material, name, texture):
+            material.texture = texture
+            return True
+
+        library.set_material_instance_texture_parameter_value.side_effect = set_texture
+        library.get_material_instance_texture_parameter_value.side_effect = lambda material, name: material.texture
+        unreal = SimpleNamespace(
+            Texture2D=Texture, MaterialInstanceConstant=Material, MaterialInstanceDynamic=Dynamic,
+            MaterialEditingLibrary=library,
+            load_asset=lambda path: photo if path == photo.path else materials[path])
+        return unreal, face, destination, materials, photo, checkerboard
+
+    def test_gray_bake_fails_then_explicit_photo_binding_reaches_dynamic_and_lower_lod_skin(self):
+        unreal, face, destination, materials, photo, checkerboard = self.fixture()
+        with self.assertRaisesRegex(RuntimeError, "requested photo"):
+            inspect_runtime_skin(face, photo.path, unreal)
+        binding = bind_runtime_skin(list(materials), destination, photo.path, unreal)
+        self.assertEqual(len(binding["materials"]), 2)
+        evidence = inspect_runtime_skin(face, photo.path, unreal)
+        self.assertEqual([item["basecolor"] for item in evidence], [photo.path, photo.path])
+        teeth = next(material for path, material in materials.items() if "Teeth" in path)
+        self.assertIs(teeth.texture, checkerboard)
+        face.get_material(1).texture = checkerboard
+        with self.assertRaisesRegex(RuntimeError, "requested photo"):
+            inspect_runtime_skin(face, photo.path, unreal)
+
+    def test_missing_skin_or_rejected_parameter_blocks_instead_of_accepting_an_untextured_actor(self):
+        unreal, face, destination, materials, photo, _ = self.fixture()
+        with self.assertRaisesRegex(RuntimeError, "no native skin"):
+            bind_runtime_skin([], destination, photo.path, unreal)
+        face.get_num_materials = lambda: 0
+        with self.assertRaisesRegex(RuntimeError, "no verifiable"):
+            inspect_runtime_skin(face, photo.path, unreal)
+        unreal.MaterialEditingLibrary.set_material_instance_texture_parameter_value.side_effect = None
+        unreal.MaterialEditingLibrary.set_material_instance_texture_parameter_value.return_value = False
+        with self.assertRaisesRegex(RuntimeError, "rejected"):
+            bind_runtime_skin(list(materials), destination, photo.path, unreal)
+
+    def test_successful_native_readback_wins_even_when_the_setter_returns_false(self):
+        for already_bound in (False, True):
+            with self.subTest(already_bound=already_bound):
+                unreal, face, destination, materials, photo, _ = self.fixture()
+                if already_bound:
+                    for material in materials.values():
+                        material.texture = photo
+
+                def set_but_return_false(material, name, texture):
+                    material.texture = texture
+                    return False
+
+                unreal.MaterialEditingLibrary.set_material_instance_texture_parameter_value.side_effect = (
+                    set_but_return_false)
+                binding = bind_runtime_skin(list(materials), destination, photo.path, unreal)
+                self.assertEqual(len(binding["materials"]), 2)
+                self.assertEqual(len(inspect_runtime_skin(face, photo.path, unreal)), 2)
+
+    def test_native_skin_requires_real_basecolour_bindings_at_every_lod(self):
+        unreal, face, _, _, _, native_texture = self.fixture()
+        evidence = inspect_runtime_skin(face, None, unreal)
+        self.assertEqual([item["basecolor"] for item in evidence], [native_texture.path]*2)
+        face.get_material(1).texture = None
+        with self.assertRaises(RuntimeError):
+            inspect_runtime_skin(face, None, unreal)
+
+
 class FeatureProfileTests(unittest.TestCase):
     def test_missing_truncated_or_nonfinite_iris_evidence_never_passes_verification(self):
         profile = {"version": 1, "eyes": {"global_tint_linear": [.2, .1, .05]}}
@@ -532,7 +676,12 @@ class FeatureRevisionTests(unittest.TestCase):
         package.parent.mkdir(parents=True)
         package.write_bytes(b"original Character")
         profile = root / "profile.json"
-        profile.write_text(json.dumps({"version": 1, "eyes": {"global_saturation": 1.5}}))
+        profile_data = {"version": 1, "eyes": {"global_saturation": 1.5}}
+        if outcome.startswith("assembled-skin"):
+            profile_data["face_basecolor"] = "/Game/Current/PhotoBaseColor.PhotoBaseColor"
+        elif outcome.startswith("assembled-native"):
+            profile_data["face_basecolor"] = None
+        profile.write_text(json.dumps(profile_data))
         if outcome == "foreign-baseline":
             baseline = store.resolve("facefitting\\working-baseline.json")
             baseline.parent.mkdir(parents=True, exist_ok=True)
@@ -555,6 +704,9 @@ class FeatureRevisionTests(unittest.TestCase):
                          "eye_right": {"global_saturation": 1.5}},
                 "landmarks": [[0, 0, 0]], "selections": [], "groom_parameters": {},
             }
+            if outcome.startswith(("assembled-skin", "assembled-native")):
+                values["face_basecolor"] = profile_data["face_basecolor"]
+                values["skin_preview_enabled"] = True
             if request["operation"] == "verify" and outcome == "lost-sculpt":
                 values["landmarks"] = [[1, 0, 0]]
             if outcome == "changed-source":
@@ -575,6 +727,14 @@ class FeatureRevisionTests(unittest.TestCase):
                 result["runtime"] = {"blueprint": request["blueprint"]}
                 if outcome == "assembled-lost-runtime":
                     result.pop("runtime")
+            if outcome.startswith("assembled-skin"):
+                result["runtime"]["skin"] = [{"basecolor": profile_data["face_basecolor"]}]
+                if request["operation"] == "verify" and outcome == "assembled-skin-lost":
+                    result["runtime"]["skin"] = [{"basecolor": "/Game/Placeholder/Checkerboard"}]
+            elif outcome.startswith("assembled-native"):
+                result["runtime"]["skin"] = [{"basecolor": "/Game/Native/Face/Baked/T_Head_BC"}]
+                if request["operation"] == "verify" and outcome == "assembled-native-lost":
+                    result["runtime"]["skin"] = []
             Path(request["receipt"]).write_text(json.dumps(result))
             return {"seconds": 0}
 
@@ -627,6 +787,19 @@ class FeatureRevisionTests(unittest.TestCase):
 
     def test_combined_assembly_still_rejects_missing_independent_actor_verification(self):
         result = self.apply("assembled-lost-runtime")
+        self.assertEqual(result["status"], "failed")
+        self.assertNotIn("fresh_editor_reload_verified", result)
+
+    def test_saved_character_texture_cannot_hide_a_lost_runtime_skin_on_fresh_reload(self):
+        self.assertTrue(self.apply("assembled-skin")["fresh_editor_reload_verified"])
+        result = self.apply("assembled-skin-lost")
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("assembled photo skin", result["error"]["message"])
+        self.assertNotIn("fresh_editor_reload_verified", result)
+
+    def test_native_skin_cannot_skip_runtime_binding_evidence_on_fresh_reload(self):
+        self.assertTrue(self.apply("assembled-native")["fresh_editor_reload_verified"])
+        result = self.apply("assembled-native-lost")
         self.assertEqual(result["status"], "failed")
         self.assertNotIn("fresh_editor_reload_verified", result)
 

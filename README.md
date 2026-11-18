@@ -147,4 +147,5 @@ See [baseline resources](docs/facefitting/README.md#current-working-baseline).
 | [Generation](docs/generation/README.md) | [Internals](docs/generation/dev.readme.md) | Alternative COLMAP reconstruction and Blender cleanup |
 | [Geometry](docs/geometry/README.md) | [Internals](docs/geometry/dev.readme.md) | Corresponding-landmark and sampled-surface comparison |
 | [Reanimation](docs/reanimation/README.md) | [Internals](docs/reanimation/dev.readme.md) | Existing rig plus WAV to portrait video |
+| [Pipeline latency investigation](docs/reanimation/pipeline-optimization-investigation.md) | [Reanimation internals](docs/reanimation/dev.readme.md) | Persistent Unreal proposal, standalone-library limits and measured optimization priorities |
 | [Decisions](docs/analysis.md) | [Open work](docs/todo/README.md) | Tradeoffs, limitations and acceptance criteria |
