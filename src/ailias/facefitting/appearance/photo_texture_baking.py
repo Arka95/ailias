@@ -8,6 +8,7 @@ from PIL import Image
 from scipy.ndimage import distance_transform_edt
 
 from ailias.facefitting.appearance.uv_rasterization import choose_texture_views
+from ailias.imageprocessing.pipeline import read_image
 
 
 def project_photo_evidence(
@@ -36,8 +37,7 @@ def project_photo_evidence(
             face_id = view["face_id"]
             frame, record = frames[face_id], evidence["faces"][face_id]
             with ExitStack() as resources:
-                opened = resources.enter_context(Image.open(store.artifact_path(frame["image"])))
-                image = resources.enter_context(opened.convert("RGB"))
+                image = resources.enter_context(read_image(store.artifact_path(frame["image"]))[0])
                 opened_regions = resources.enter_context(
                     Image.open(store.artifact_path(record["regions"])))
                 regions = resources.enter_context(opened_regions.convert("L"))

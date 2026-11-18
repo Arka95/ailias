@@ -17,11 +17,16 @@ DEFAULT_APPEARANCE_CONFIG = PROJECT_ROOT / "config" / "appearance.json"
 class FitPolicy:
     device: str = "cpu"
     max_iterations: int = 800
-    identity_candidates: tuple = (48, 96)
+    identity_candidates: tuple = (48, 96, 170)
     expression_modes: tuple = (12, 12, 24)
     identity_regularization: float = 0.00001
     expression_regularization: float = 0.000005
     max_nfev: int = 55
+    identity_coefficient_limit: float = 3.0
+    expression_coefficient_limit: float = 3.0
+    view_batch_size: int = 16
+    focal_factor_min: float = 0.1
+    focal_factor_max: float = 5.0
 
     def __post_init__(self):
         if self.device != "cpu" and (not isinstance(self.device, str)
@@ -29,16 +34,26 @@ class FitPolicy:
             raise ValueError("device must be explicitly cpu or cuda:N")
         if type(self.max_iterations) is not int or not 1 <= self.max_iterations <= 5000:
             raise ValueError("max_iterations must be an integer in 1..5000")
-        for values, maximum in ((self.identity_candidates, 170), (self.expression_modes, 100)):
-            if (not values or any(type(v) is not int or not 1 <= v <= maximum for v in values)):
-                raise ValueError("Fit modes must be positive bounded integer sequences")
-        if len(self.expression_modes) != 3 or len(set(self.identity_candidates)) != len(self.identity_candidates):
+        if (not self.identity_candidates
+                or any(type(v) is not int or not 1 <= v <= 170 for v in self.identity_candidates)):
+            raise ValueError("Head identity modes must be integers in 1..170")
+        if (len(self.expression_modes) != 3
+                or any(type(v) is not int or not 1 <= v <= maximum
+                       for v, maximum in zip(self.expression_modes, (100, 100, 150)))):
+            raise ValueError("Expression capacities must fit the 100/100/150 regional bases")
+        if len(set(self.identity_candidates)) != len(self.identity_candidates):
             raise ValueError("Require three expression regions and distinct identity candidates")
-        for value in (self.identity_regularization, self.expression_regularization):
+        for value in (self.identity_regularization, self.expression_regularization,
+                      self.identity_coefficient_limit, self.expression_coefficient_limit,
+                      self.focal_factor_min, self.focal_factor_max):
             if isinstance(value, bool) or not math.isfinite(value) or value <= 0:
                 raise ValueError("Fit regularization must be finite and positive")
         if type(self.max_nfev) is not int or not 1 <= self.max_nfev <= 500:
             raise ValueError("max_nfev must be an integer in 1..500")
+        if type(self.view_batch_size) is not int or self.view_batch_size < 1:
+            raise ValueError("view_batch_size must be a positive integer; it does not limit input views")
+        if self.focal_factor_min >= self.focal_factor_max:
+            raise ValueError("Focal factor minimum must be below its maximum")
 
     def record(self):
         return asdict(self)

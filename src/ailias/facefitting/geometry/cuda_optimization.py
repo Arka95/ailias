@@ -8,6 +8,7 @@ import time
 
 import numpy as np
 
+from ailias.facefitting.geometry.parameterization import parameter_bounds
 
 def load_torch(device):
     import torch
@@ -68,12 +69,8 @@ def fit_cuda(model, views, policy, identity_modes, fixed_identity=None, initial=
                            np.c_[cameras, np.zeros((count, expression_count))].ravel()]
     if initial is not None:
         initial_values = initial
-    lower = tensor(np.r_[np.full(variable_identity, -2.5),
-                         np.tile(np.r_[[-7]*3, [-5, -5, .06], math.log(.45),
-                                       [-3]*expression_count], count)])
-    upper = tensor(np.r_[np.full(variable_identity, 2.5),
-                         np.tile(np.r_[[7]*3, [5, 5, 10], math.log(3),
-                                       [3]*expression_count], count)])
+    physical_lower, physical_upper = parameter_bounds(policy, count, expression_count, variable_identity)
+    lower, upper = tensor(physical_lower), tensor(physical_upper)
     fraction = ((tensor(initial_values)-lower)/(upper-lower)).clamp(1e-5, 1-1e-5)
     raw = torch.logit(fraction)
     shared = raw[:variable_identity]
@@ -120,20 +117,32 @@ def fit_cuda(model, views, policy, identity_modes, fixed_identity=None, initial=
     damping, converged, termination = .01, False, "iteration limit"
     jacobians = 0
     for iteration in range(policy.max_iterations):
-        jacobian, residual = jacobian_batch(shared, local, target, span, root_weights, view_weights)
+        local_h = points.new_empty(count, block, block)
+        local_g = points.new_empty(count, block, 1)
+        cross = points.new_empty(count, variable_identity, block)
+        shared_h = points.new_zeros(variable_identity, variable_identity)
+        shared_g = points.new_zeros(variable_identity, 1)
+        batch_cost = points.new_zeros(())
+        for start in range(0, count, policy.view_batch_size):
+            section = slice(start, min(start+policy.view_batch_size, count))
+            jacobian, residual = jacobian_batch(
+                shared, local[section], target[section], span[section],
+                root_weights[section], view_weights[section])
+            if variable_identity:
+                js, jl = jacobian
+            else:
+                jl = jacobian
+                js = jl.new_empty(jl.shape[0], jl.shape[1], 0)
+            local_h[section] = jl.transpose(1, 2) @ jl
+            local_g[section] = jl.transpose(1, 2) @ residual[:, :, None]
+            shared_h += (js.transpose(1, 2) @ js).sum(0)
+            shared_g += (js.transpose(1, 2) @ residual[:, :, None]).sum(0)
+            cross[section] = js.transpose(1, 2) @ jl
+            batch_cost += residual.square().sum()*.5
+        del jacobian, js, jl, residual
         jacobians += 1
         evaluations += 1
-        if variable_identity:
-            js, jl = jacobian
-        else:
-            jl = jacobian
-            js = jl.new_empty(count, jl.shape[1], 0)
-        local_h = jl.transpose(1, 2) @ jl
-        local_g = (jl.transpose(1, 2) @ residual[:, :, None])
-        shared_h = (js.transpose(1, 2) @ js).sum(0)
-        shared_g = (js.transpose(1, 2) @ residual[:, :, None]).sum(0)
-        cross = js.transpose(1, 2) @ jl
-        cost = float(residual.square().sum()*.5)
+        cost = float(batch_cost)
         gradient_max = max(float(local_g.abs().max()),
                            float(shared_g.abs().max()) if variable_identity else 0)
         if gradient_max < 1e-7:
@@ -201,7 +210,8 @@ def fit_cuda(model, views, policy, identity_modes, fixed_identity=None, initial=
             "backend": "torch-cuda-autodiff-schur-lm", "device": str(device),
             "torch": torch.__version__, "cuda_build": torch.version.cuda,
             "gpu_name": torch.cuda.get_device_name(device), "dtype": "float32",
-            "batch_views": count, "autograd_device": str(jl.device),
+            "batch_views": min(count, policy.view_batch_size), "total_views": count,
+            "autograd_device": str(device),
             "nfev": evaluations+1, "iterations": iteration+1, "jacobian_evaluations": jacobians,
             "converged": converged, "termination": termination,
             "objective": objective, "seconds": round(time.monotonic()-started, 3),

@@ -1,0 +1,7 @@
+{
+  "identity_candidates": [48, 96, 170],
+  "expression_candidates": [[12, 12, 24], [32, 32, 64], [100, 100, 150]],
+  "identity_regularization_factors": [0.1, 1.0, 10.0],
+  "expression_regularization_factors": [0.1, 1.0, 10.0],
+  "expression_limits": [3.0, 6.0]
+}

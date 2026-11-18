@@ -1,6 +1,7 @@
 """Fresh sampled-photo identity fitting and native Character creation, without prior heads."""
 
 from contextlib import redirect_stdout
+from collections import Counter
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -22,9 +23,12 @@ from ailias.facefitting.evidence.photo_processing import (
     extract_photo_evidence,
     load_retained_frames,
 )
+from ailias.facefitting.evidence.reviewed_photos import prepare_reviewed_photos
+from ailias.facefitting.evidence.fit_comparison import write_fit_overlays
 from ailias.facefitting.geometry.artifact_io import export_obj, save_fit
 from ailias.facefitting.geometry.head_model import HeadModel, model_assets
 from ailias.facefitting.geometry.identity_fitting import fit_multiview_identity
+from ailias.facefitting.geometry.identity_search import search_identity_fit
 from ailias.facefitting.geometry.optimization import prepare_views
 from ailias.facefitting.geometry.photo_camera import perspective_camera
 from ailias.facefitting.unreal.character_features import apply_character_features, character_package
@@ -32,12 +36,14 @@ from ailias.facefitting.unreal.worker_process import execute_unreal_worker
 from ailias.generation.unreal import readiness
 from ailias.generation.settings import load_settings
 from ailias.storage import atomic_json
+from ailias.imageprocessing.pipeline import read_image
 from ailias.reanimation.settings import load_policy as load_review_policy
 
 
 def run_photo_to_character_pipeline(
     store, evidence_path, editor, project, tools, policy, *,
     video_policy=None, appearance_policy=None, generation_policy=None,
+    photos_run=None, search_policy=None,
 ):
     """Run from sampled-photo evidence with fresh identity/cameras/Character; no refinement cache."""
     root = store.resolve(str(Path("facefitting") / "fresh-video" / uuid.uuid4().hex))
@@ -56,6 +62,12 @@ def run_photo_to_character_pipeline(
         "video_decoding_performed": False,
     }
 
+    def emit_progress(event):
+        try:
+            print(json.dumps(event), file=sys.stderr, flush=True)
+        except OSError:
+            pass
+
     def run_stage(name, operation):
         report["current_stage"] = name
         report["stages"][name] = {"status": "running"}
@@ -73,8 +85,7 @@ def run_photo_to_character_pipeline(
         finally:
             report["stages"][name]["seconds"] = round(time.monotonic()-tick, 3)
             atomic_json(manifest, report)
-            print(json.dumps({"revision": root.name, "stage": name, **report["stages"][name]}),
-                  file=sys.stderr, flush=True)
+            emit_progress({"revision": root.name, "stage": name, **report["stages"][name]})
 
     try:
         def check_unreal_prerequisites():
@@ -86,6 +97,12 @@ def run_photo_to_character_pipeline(
         run_stage("native_preflight", check_unreal_prerequisites)
         samples, dependencies = run_stage("load_sampled_photos", lambda: load_retained_frames(store, evidence_path))
         report["input_dependencies"].extend(dependencies)
+        if photos_run is not None:
+            photos, photo_dependencies = run_stage("load_reviewed_original_photos", lambda: prepare_reviewed_photos(
+                store, photos_run, root))
+            samples.extend(photos)
+            report["input_dependencies"].extend(photo_dependencies)
+            report["artifacts"]["original_photo_inputs"] = store.reference_artifact(root / "photo-inputs" / "manifest.json")
         assets = run_stage("load_models", lambda: model_assets(store))
         report["model_assets"] = assets
         report["input_dependencies"].extend(a["artifact"] for a in assets.values())
@@ -97,17 +114,48 @@ def run_photo_to_character_pipeline(
             evidence["parser"][key] for key in ("model", "license_artifact") if key in evidence["parser"])
         model = HeadModel(store.artifact_path(assets["gnm"]["artifact"]),
                           store.artifact_path(assets["correspondence"]["artifact"]), policy.expression_modes)
+        report["model"] = model.audit()
         observations = [{**frame, "status": "ready"} for frame in evidence["frames"] if "source_xy" in frame]
         entries = {f["face_id"]: {} for f in observations}
         views, excluded = prepare_views(model, observations, entries)
         report["inputs"] = {"images": len(evidence["frames"]), "fit_views": len(views),
-                            "excluded": excluded}
+                            "excluded": excluded,
+                            "strict_neutral_views": sum(frame.get("eligible_identity", False)
+                                                        for frame in evidence["frames"]),
+                            "quality_warnings": dict(Counter(
+                                reason for frame in evidence["frames"] for reason in frame.get("reasons", [])))}
 
         with redirect_stdout(sys.stderr):
-            fitted = run_stage(
-                "fresh_shared_identity_fit",
-                lambda: fit_multiview_identity(model, views, policy, report),
-            )
+            if search_policy is None:
+                fitted = run_stage("fresh_shared_identity_fit",
+                                   lambda: fit_multiview_identity(model, views, policy, report))
+            else:
+                candidates = root / "fit-search"
+                candidates.mkdir()
+
+                def retain_candidate(record, candidate):
+                    name = f"candidate-{record['index']:03d}"
+                    if candidate is not None:
+                        path = candidates / (name + ".npz")
+                        save_fit(path, candidate)
+                        report["artifacts"][name] = store.reference_artifact(path)
+                    atomic_json(candidates / (name + ".json"), record)
+                    atomic_json(manifest, report)
+                    emit_progress({"candidate": record["index"], "status": record["status"],
+                                   "identity_modes": record["identity_modes"],
+                                   "expression_modes": record["policy"]["expression_modes"],
+                                   "score": record.get("score")})
+
+                report["requested_policy"] = policy.record()
+                model, fitted, policy = run_stage("search_shared_identity_fit", lambda: search_identity_fit(
+                    lambda modes: HeadModel(store.artifact_path(assets["gnm"]["artifact"]),
+                                            store.artifact_path(assets["correspondence"]["artifact"]), modes),
+                    views, policy, search_policy, report, retain_candidate))
+                report["policy"], report["model"] = policy.record(), model.audit()
+        report["fit"] = fitted["report"]
+        if search_policy is not None:
+            report["artifacts"].update(run_stage(
+                "write_fit_comparisons", lambda: write_fit_overlays(store, root, views, fitted, evidence)))
         vertices = model.neutral(fitted["identity"])
         if not np.isfinite(vertices).all():
             raise ValueError("Fresh identity has nonfinite geometry")
@@ -130,9 +178,14 @@ def run_photo_to_character_pipeline(
                                      for key, value in blender["artifacts"].items()})
         unreal_mesh = store.artifact_path(blender["artifacts"]["head_only_mesh"])
         expected_native = vertices[:, [2, 0, 1]]*[100, -100, 100]
+        displacement = np.linalg.norm(vertices-model.vertices, axis=1)
         report["geometry"] = {
             "identity_modes": len(fitted["identity"]), "vertices": len(vertices),
-            "maximum_template_displacement_cm": float(np.linalg.norm(vertices-model.vertices, axis=1).max()*100),
+            "maximum_template_displacement_cm": float(displacement.max()*100),
+            "median_template_displacement_cm": float(np.median(displacement)*100),
+            "p95_template_displacement_cm": float(np.quantile(displacement, .95)*100),
+            "vertices_moved_over_1mm_model_units": int((displacement > .001).sum()),
+            "constraints": "shared identity basis fitted to supported 2D landmark correspondences; not dense measured vertices",
             "physical_scale_calibrated": False,
         }
         by_id = {f["face_id"]: f for f in evidence["frames"]}
@@ -141,14 +194,15 @@ def run_photo_to_character_pipeline(
             raise ValueError("Fresh native conform requires a fitted frontal photo")
         index = max(fronts, key=lambda i: by_id[views[i]["face_id"]].get("quality_score", -1e9))
         frame = by_id[views[index]["face_id"]]
-        with Image.open(store.artifact_path(frame["image"])) as image:
-            tracking = image.convert("RGB")
-        tracking.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
-        tracking.save(root / "tracking-view.png")
-        (root / "tracking-rgba8.bin").write_bytes(tracking.convert("RGBA").tobytes())
-        camera = perspective_camera(
-            {"camera": fitted["per_view"][index, :7], "source_size": frame["source_size"]},
-            model.center, tracking.size)
+        tracking, _ = read_image(store.artifact_path(frame["image"]))
+        with tracking:
+            tracking.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+            tracking.save(root / "tracking-view.png")
+            with tracking.convert("RGBA") as rgba:
+                (root / "tracking-rgba8.bin").write_bytes(rgba.tobytes())
+            camera = perspective_camera(
+                {"camera": fitted["per_view"][index, :7], "source_size": frame["source_size"]},
+                model.center, tracking.size)
         atomic_json(root / "tracking-camera.json", camera)
         report["tracking_face_id"] = frame["face_id"]
         worker = store.copy_artifact(

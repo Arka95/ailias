@@ -11,6 +11,8 @@ from scipy.optimize import least_squares
 from scipy.sparse import lil_matrix
 from scipy.spatial.transform import Rotation
 
+from ailias.facefitting.geometry.parameterization import parameter_bounds
+
 
 def project(points, cameras, center):
     matrices = Rotation.from_rotvec(cameras[:, :3]).as_matrix()
@@ -45,10 +47,17 @@ def initialize_camera(points, target, center, supported, eye_span):
         raise ValueError("Insufficient supported dense landmarks")
     objects = np.ascontiguousarray(points[indices] - center)
     image = np.ascontiguousarray(target[indices])
-    for focal in (0.7, 1.2, 1.8):
+    for focal in (0.2, 0.35, 0.7, 1.2, 1.8, 3.0):
         intrinsic = np.diag([focal, focal, 1.0])
-        success, rvec, tvec = cv2.solvePnP(objects, image, intrinsic, None,
-                                         flags=cv2.SOLVEPNP_SQPNP)
+        try:
+            success, rvec, tvec = cv2.solvePnP(objects, image, intrinsic, None,
+                                             flags=cv2.SOLVEPNP_SQPNP)
+        except cv2.error:
+            try:
+                success, rvec, tvec = cv2.solvePnP(objects, image, intrinsic, None,
+                                                 flags=cv2.SOLVEPNP_EPNP)
+            except cv2.error:
+                continue
         if not success:
             continue
         camera = np.r_[rvec.ravel(), tvec.ravel(), math.log(focal)]
@@ -151,10 +160,7 @@ def fit(model, views, policy, identity_modes, fixed_identity=None, initial=None)
     x = np.r_[np.zeros(variable_identity), np.c_[cameras, np.zeros((count, expression_count))].ravel()]
     if initial is not None:
         x = initial.copy()
-    lower = np.r_[np.full(variable_identity, -2.5),
-                  np.tile(np.r_[[-7]*3, [-5, -5, .06], math.log(.45), [-3]*expression_count], count)]
-    upper = np.r_[np.full(variable_identity, 2.5),
-                  np.tile(np.r_[[7]*3, [5, 5, 10], math.log(3), [3]*expression_count], count)]
+    lower, upper = parameter_bounds(policy, count, expression_count, variable_identity)
     x = np.clip(x, lower + 1e-8, upper - 1e-8)
 
     def unpack(parameters):
@@ -227,6 +233,8 @@ def summarize(model, views, identity_modes, expression_count, identity, per_view
             "face_id": view["face_id"], "supported_points": int(active.sum()),
             "median_outer_eye_span_error": float(np.median(errors[i, active])),
             "p90_outer_eye_span_error": float(np.quantile(errors[i, active], .9)),
+            "weighted_rms_outer_eye_span_error": float(np.sqrt(
+                np.average(errors[i, active]**2, weights=view["weights"][active]))),
             "median_source_pixel_error": float(np.median(source_error[active])),
             "focal_factor": float(np.exp(per_view[i, 6])),
             "view": dense_view(per_view[i, :7], model.center, world[i]),

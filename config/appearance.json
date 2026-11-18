@@ -4,7 +4,7 @@
   "photo_size": 1536,
   "max_views": 16,
   "render_samples": 24,
-  "hair_strands": 14000,
+  "hair_strands": 0,
   "hair_segments": 8,
   "seed": 42
 }

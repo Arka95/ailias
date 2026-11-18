@@ -16,7 +16,7 @@ from ailias.storage import Store, atomic_json
 
 
 class BlenderAppearanceTests(unittest.TestCase):
-    def execute(self, *, changed_geometry=False, failure=False, hair_strands=4):
+    def execute(self, *, changed_geometry=False, failure=False, hair_strands=4, requested_hair=4):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         store = Store(Path(temporary.name), "subject")
@@ -49,7 +49,9 @@ class BlenderAppearanceTests(unittest.TestCase):
             (root / "textured-head.blend").write_bytes(b"new synthetic textured scene")
             atomic_json(root / "appearance-runtime.json", {
                 "geometry_maximum_deviation": 0, "cycles_device": "GPU",
-                "hair": {"status": "approximation", "strands": hair_strands},
+                "hair": {"status": "disabled" if requested_hair == hair_strands == 0 else "approximation",
+                         "strands": hair_strands},
+                "hair_objects": ["hair"] if hair_strands else [], "groom": "not_exported",
             })
             for angle in (-45, 0, 45, 90):
                 Image.new("RGB", (8, 8), (40, 50, 60)).save(root / f"appearance-{angle}.png")
@@ -65,7 +67,7 @@ class BlenderAppearanceTests(unittest.TestCase):
                     store, root, model, {"identity": np.zeros(1)}, [], {}, np.zeros((1, 3, 2)),
                     SimpleNamespace(run=render), SimpleNamespace(blender_device="CUDA", render_size=8),
                     {"texture_size": 8, "max_views": 1, "photo_size": 8, "device": "cuda:0",
-                     "hair_strands": 4},
+                     "hair_strands": requested_hair},
                 )
                 return result, json.loads((root / "manifest.json").read_text())
             except RuntimeError as error:
@@ -96,3 +98,13 @@ class BlenderAppearanceTests(unittest.TestCase):
         self.assertIsInstance(error, RuntimeError)
         self.assertEqual(receipt["status"], "failed")
         self.assertIn("photo-supported hair", receipt["error"]["message"])
+
+    def test_disabled_hair_saves_a_hair_free_blender_head(self):
+        result, receipt = self.execute(hair_strands=0, requested_hair=0)
+        self.assertEqual(result["status"], "blender_head_created")
+        self.assertEqual(receipt["hair"], {"status": "disabled", "strands": 0})
+
+    def test_unexpected_hair_fails_when_the_owner_disabled_it(self):
+        error, receipt = self.execute(requested_hair=0)
+        self.assertIsInstance(error, RuntimeError)
+        self.assertIn("disabled hair policy", receipt["error"]["message"])

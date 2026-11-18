@@ -90,11 +90,19 @@ owned models close on success or failure. Per-photo feature and region evidence
 is retained under `photo-evidence`, including explicit unresolved beard,
 moustache and eyelash classes rather than fabricated segmentation.
 This path fits the generic GNM prior from the freshly computed observations
-using the existing 48/96-mode policy. `blender\appearance_scene.py` then projects
+using held-out selection across 48, 96 and all 170 supported head-identity modes.
+The run manifest retains the model's actual correspondence count, full final
+per-view residual/support statistics and template displacement quantiles.
+These distinguish a changed mesh from independently measured surface detail.
+`blender\appearance_scene.py` then projects
 current photo evidence onto the genuine fitted GNM UVs, creates a new clay
 scene through `blender\clay_rendering.py`, and runs the existing appearance
 worker on that same-run scene. The worker saves a textured `.blend`, four
-views, approximate hair and a hair-free export. Unreal imports this Blender
+views and a hair-free export. Blender scalp hair is now disabled by default
+(`hair_strands: 0`): no cap, curves or Alembic groom is created. Positive budgets
+retain the optional approximate-hair path. Photographed beard/brow pigment in
+the texture is not erased, and Unreal's native groom mapping is unchanged.
+Unreal imports this Blender
 export, not a bypass OBJ. Geometry/basis preservation and requested hair are
 mandatory stage results. No historical scene or forged approval is used.
 The earlier manually reviewed `appearance` command retains its approval gate.
@@ -164,6 +172,88 @@ baseline. `unreal\character_portrait_worker.py` spawns that saved editor-native 
 assembles its preview grooms and captures a new 540x960 draft after nonblocking
 editor ticks, using lighting/exposure from the existing reanimation policy.
 It does not claim an assembled runtime or request cloud services.
+
+## Fitting restrictions and search
+
+The November 18 audit compared actual neutral vertices, stored Blender inputs,
+candidate scores and final camera fits, rather than assuming that a high mesh
+vertex count implied dense observations. Run `c4841ba98cdf4a838a6ddb7683cf9ff0`
+completed the public pipeline in 410.735 seconds with zero Blender hair objects,
+zero strands and no Alembic groom. Testing 170 identity modes alone still chose
+48; that did not establish improved likeness.
+
+| Restriction or finding | Implementation / consequence |
+|---|---|
+| 17,821 mesh vertices vs 468 mapped landmarks | `HeadModel.audit` now records correspondence support, directly constrained triangle vertices and available identity capacity; neither mesh density nor displacement is a measurement count |
+| Actual mesh propagation | Prior run moved 17,764 vertices by over 1 mm in uncalibrated model units; Blender's stored fitted geometry matches the fit within floating-point export precision |
+| Binding focal floor | Some final focal factors reached 0.450005; shared CPU/CUDA bounds now allow 0.1..5 and camera initialization includes wider-angle hypotheses |
+| Incomplete expression capacity | The former common 100-mode validator incorrectly prevented the supported 150-mode lower-face region; regional capacities are now 100/100/150 |
+| Original photographs absent | `evidence\reviewed_photos.py` accounts for the complete scan inventory and prepares every accepted portrait across groups from original pixels, without old fit/dense predictions |
+| Original-photo camera coordinates | Review crops localize detection only; crop landmarks are mapped back to full, EXIF/ICC-normalized source coordinates before fitting and texture projection |
+| Camera solver degeneracy | An SQPNP numerical failure now tries EPNP for that focal hypothesis instead of aborting the whole run; complete initialization failure remains an explicit view rejection |
+| Multiple people in an accepted crop | The reviewed face box selects among freshly predicted faces by overlap; ambiguous identity is reported, not substituted with another person |
+| Identity/expression ambiguity | `geometry\identity_search.py` searches their prior strengths independently, along with capacities and expression bounds; raw held-out point RMS and category breakdowns are retained |
+| GPU memory vs evidence | `geometry\cuda_optimization.py` accumulates shared Schur terms over bounded Jacobian batches without subsampling views |
+| Visual accountability | `evidence\fit_comparison.py` saves every selected fit's observed/projected landmark overlay; green is detected, magenta is fitted |
+
+`--fit-search-config` uses the caller's explicit Cartesian grid. Every trial is
+fresh within the same evidence run, while generic camera/expression controls
+are shared only within matching configurations. All candidate receipts and
+parameter arrays are retained in `fit-search`; the selected identity is refitted
+on the full prepared cohort before Blender and native creation. A failed
+generic control does not suppress personalized trials; those start from the
+original initialized cameras instead and retain the control error.
+Failed candidates and validation scope remain explicit. Lowest 2D landmark
+error is not a global-best 3D shape guarantee: landmarks remain predictions,
+unseen anatomy remains prior-driven and silhouette/photometric surface fitting
+is not implemented by this search.
+
+The corrected public run `252acd173452429388a7e40718bce9a6` completed all
+15 stages in **4309.235 seconds**. Its inventory accounts for all 192 original
+source photographs: 188 curation-accepted portrait records were added to 82
+retained video samples. Fresh processing yielded 179 original-photo views and
+81 video views; ten inputs did not yield an unambiguous usable detection.
+There were 211 training and 49 identity-held-out views, then a final refit on
+all 260. Old predictions, personal fits and video decoding were not reused.
+
+All **162 trials completed without failure**. Candidate 112 selected 96 shared
+identity modes, 100/100/150 expression modes, identity/expression penalties
+`1e-6`/`5e-7` and expression bounds of +/-6. Its category-balanced held-out
+weighted RMS was **0.0303005 outer-eye spans**, versus **0.0386592** for the
+matching generic-head control (about 21.6% lower on the same metric).
+This is not a comparison with the earlier video-only metric or independent
+3D ground truth. Final optimization converged in 12 iterations.
+
+The final focal-factor range was **0.147872..3.101750**, away from the new
+0.1/5 limits. No identity coefficient reached +/-3 (maximum absolute 2.3974).
+However, **346 per-view expression coefficients remain within 0.001 of +/-6**,
+and the winner uses the weakest tested priors and largest expression bound.
+The search therefore does not establish an unconstrained optimum; more
+expression freedom could also absorb identity errors. The model still lacks
+dense photometric/silhouette constraints and independently measured unseen
+anatomy. All 260 views carry non-neutral warnings; 141 carry blink warnings.
+They remain expression-aware inputs, not certified neutral captures.
+
+Template-relative median/p95/maximum displacement was **5.415/11.849/14.774 mm
+in uncalibrated model units**; 17,799 vertices moved by over 1 mm.
+Blender preserved the fitted geometry and reported zero scalp-hair objects,
+zero strands and no exported groom. Native surface max/RMS reload drift was
+**0 cm**, and all **768 unique referenced artifacts** matched their hashes.
+These checks establish transfer/persistence, not likeness.
+
+Actual new clay comparison, textured Blender front view, native preview and
+front/profile overlays from both input sources were opened and inspected.
+The shape differs visibly from its generic prior, but forehead/neck texture
+boundaries remain, the native preview is dark/red-lit, and native grooms are
+stock approximations. The Blender scalp is hair-free; photographed texture
+pigment is not equivalent to a generated hair object. Likeness remains
+unapproved. Outputs are under
+`data\arka\facefitting\fresh-video\252acd173452429388a7e40718bce9a6`;
+the new Character is
+`/Game/Ailias/Features/Fba66c8950d994a84b2bb7163a80e8e52/Character.Character`.
+An isolated snapshot of the exact staged source passed **390 functional unit
+tests**, compilation and public CLI option checks. Native/GPU integration
+evidence comes from the actual full run, not those mocked unit tests.
 
 ## Fitting architecture
 

@@ -6,9 +6,8 @@ import json
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageOps
-
 from ailias.imageprocessing.appearance_features import photo_features
+from ailias.imageprocessing.pipeline import read_image
 from ailias.imageprocessing.dense import DenseDetector
 from ailias.imageprocessing.faceparsing import HeadParser
 from ailias.imageprocessing.hair_evidence import facial_hair_evidence
@@ -42,10 +41,45 @@ def load_retained_frames(store, manifest):
 
 def decode_frame_image(store, frame):
     try:
-        with Image.open(store.artifact_path(frame["image"])) as image:
-            return ImageOps.exif_transpose(image).convert("RGB")
+        return read_image(store.artifact_path(frame["image"]))[0]
     except (OSError, ValueError) as error:
         raise ValueError("Cannot decode sampled image: " + frame["face_id"]) from error
+
+
+def select_reviewed_face(detection, target):
+    """Use only reviewed crop localization to disambiguate freshly predicted faces."""
+    if target is None or not detection["faces"]:
+        return detection
+    x, y, width, height = target
+    low, high = np.array([x, y]), np.array([x+width, y+height])
+    overlaps = []
+    for face in detection["faces"]:
+        points = np.asarray(face)[:468, :2]
+        minimum, maximum = points.min(0), points.max(0)
+        intersection = np.prod(np.maximum(0, np.minimum(high, maximum)-np.maximum(low, minimum)))
+        union = width*height+np.prod(maximum-minimum)-intersection
+        overlaps.append(intersection/max(union, 1e-12))
+    selected = int(np.argmax(overlaps))
+    if overlaps[selected] <= 0 or sum(np.isclose(overlaps, overlaps[selected])) != 1:
+        return {key: [] for key in ("faces", "blendshapes", "transforms")}
+    return {key: [detection[key][selected]] if detection[key] else []
+            for key in ("faces", "blendshapes", "transforms")}
+
+
+def detect_frame_faces(image, frame, detector, policy):
+    bounds = frame.get("detection_bounds", [0, 0, *image.size])
+    left, top, right, bottom = bounds
+    if not (0 <= left < right <= image.width and 0 <= top < bottom <= image.height):
+        raise ValueError("Face detection region lies outside the original image")
+    with image.crop(bounds) as region:
+        region.thumbnail((policy.detection_long_side, policy.detection_long_side))
+        detection = detector.detect(np.asarray(region))
+    if frame.get("detection_bounds") is not None:
+        for face in detection["faces"]:
+            points = np.asarray(face, dtype=float)
+            points[:, :2] = (points[:, :2]*[right-left, bottom-top]+[left, top])/image.size
+            face[:] = points.tolist()
+    return select_reviewed_face(detection, frame.get("target_face_box"))
 
 
 def extract_photo_evidence(store, samples, root, landmarker, policy, *, detector=None, parser=None):
@@ -73,10 +107,8 @@ def extract_photo_evidence(store, samples, root, landmarker, policy, *, detector
                 images = executor.map(lambda frame: decode_frame_image(store, frame), batch)
                 for frame, image in zip(batch, images):
                     try:
-                        small = image.copy()
-                        small.thumbnail((policy.detection_long_side, policy.detection_long_side))
-                        observation = analyze_face_frame(
-                            np.asarray(image), detector.detect(np.asarray(small)), policy)
+                        detection = detect_frame_faces(image, frame, detector, policy)
+                        observation = analyze_face_frame(np.asarray(image), detection, policy)
                         fresh = {**frame, **observation}
                         report["frames"].append(fresh)
                         if "source_xy" not in observation:

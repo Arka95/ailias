@@ -12,6 +12,8 @@ from PIL import Image
 from ailias.facefitting.evidence.photo_processing import (
     load_retained_frames,
     extract_photo_evidence,
+    select_reviewed_face,
+    detect_frame_faces,
 )
 from ailias.facefitting.configuration import VideoPolicy
 from ailias.storage import Store, atomic_json
@@ -72,6 +74,34 @@ class SampledPhotosTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "missing or changed"):
             load_retained_frames(self.store, manifest)
         self.detector.detect.assert_not_called()
+
+    def test_reviewed_target_is_selected_without_discarding_a_multi_person_photo(self):
+        detection = {
+            "faces": [[[.1, .1, 0], [.4, .4, 0]], [[.6, .1, 0], [.9, .4, 0]]],
+            "blendshapes": [{"other": 1}, {"target": 1}],
+            "transforms": ["other", "target"],
+        }
+        selected = select_reviewed_face(detection, [.6, .1, .3, .3])
+        self.assertEqual(selected["faces"], [detection["faces"][1]])
+        self.assertEqual(selected["blendshapes"], [{"target": 1}])
+        self.assertEqual(selected["transforms"], ["target"])
+
+    def test_crop_detection_returns_full_image_coordinates_for_camera_fitting(self):
+        image = Image.new("RGB", (200, 100))
+        detector = Mock()
+        detector.detect.return_value = {"faces": [[[0., 0., 0.], [1., 1., 0.]]],
+                                        "blendshapes": [{}], "transforms": [[]]}
+        result = detect_frame_faces(image, {"detection_bounds": [100, 0, 200, 100]},
+                                    detector, VideoPolicy())
+        np.testing.assert_allclose(np.asarray(result["faces"][0])[:, :2], [[.5, 0.], [1., 1.]])
+        self.assertEqual(image.size, (200, 100))
+        image.close()
+
+    def test_ambiguous_reviewed_target_does_not_substitute_another_person(self):
+        detection = {"faces": [[[.1, .1, 0], [.4, .4, 0]]]*2,
+                     "blendshapes": [{}, {}], "transforms": [[], []]}
+        selected = select_reviewed_face(detection, [.1, .1, .3, .3])
+        self.assertEqual(selected["faces"], [])
 
     def test_model_failure_keeps_failed_manifest_and_releases_both_owned_models(self):
         self.parser.parse.side_effect = RuntimeError("model failed")

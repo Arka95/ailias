@@ -20,6 +20,9 @@ def add_parser(commands):
     fresh.add_argument("--editor", type=Path, required=True)
     fresh.add_argument("--project", type=Path, required=True)
     fresh.add_argument("--fit-config", type=Path, default=DEFAULT_CONFIG)
+    fresh.add_argument("--photos-run", help="Include every accepted original-photo portrait across this scan's groups")
+    fresh.add_argument("--fit-search-config", type=Path,
+                       help="Explicit exhaustive identity/expression/regularization search; all candidates are retained")
     fresh.add_argument("--appearance-config", type=Path, default=DEFAULT_CONFIG.with_name("appearance.json"))
     fresh.add_argument("--generation-config", type=Path, default=DEFAULT_GENERATION_CONFIG)
     for name, description in (
@@ -95,6 +98,7 @@ def execute(args, data_root):
         from ailias.facefitting.configuration import load_policy
         from ailias.facefitting.configuration import VideoPolicy
         from ailias.facefitting.configuration import load_appearance_policy
+        from ailias.facefitting.geometry.identity_search import load_search_policy
         from ailias.generation.settings import load_settings
         from ailias.generation.tools import NativeTools
         store = Store(data_root, args.alias)
@@ -105,7 +109,8 @@ def execute(args, data_root):
                 NativeTools(tools_root, generation.timeout_seconds), load_policy(args.fit_config),
                 video_policy=VideoPolicy(**json.loads(args.video_config.read_text(encoding="utf-8"))),
                 appearance_policy=load_appearance_policy(args.appearance_config),
-                generation_policy=generation)
+                generation_policy=generation, photos_run=args.photos_run,
+                search_policy=load_search_policy(args.fit_search_config) if args.fit_search_config else None)
         return result, 0 if result["status"] == "fresh_video_completed" else 2
     if args.facefitting_action == "native-control-map":
         from ailias.facefitting.geometry.sculpt_control_mapping import map_native_controls

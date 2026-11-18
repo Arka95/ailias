@@ -8,6 +8,7 @@ import numpy as np
 from ailias.facefitting.geometry.optimization import (
     evaluation_score,
     fit,
+    initialize_camera,
     project,
     validation_indices,
 )
@@ -34,6 +35,38 @@ class CorrespondenceTests(unittest.TestCase):
 
 
 class FitTests(unittest.TestCase):
+    def test_camera_initialization_recovers_when_sqpnp_rejects_a_focal_trial(self):
+        import cv2
+
+        rng = np.random.default_rng(42)
+        points = rng.uniform([-.07, -.09, -.02], [.07, .09, .03], (120, 3))
+        camera = np.array([3.1, 0, 0, 0, 0, .7, np.log(1.2)])
+        target, _ = project(points[None], camera[None], np.zeros(3))
+        solve = cv2.solvePnP
+        attempted = []
+
+        def rejecting_sqpnp(*args, **kwargs):
+            attempted.append(kwargs["flags"])
+            if kwargs["flags"] == cv2.SOLVEPNP_SQPNP:
+                raise cv2.error("degenerate SQPNP coordinate variance")
+            return solve(*args, **kwargs)
+
+        with patch.object(cv2, "solvePnP", side_effect=rejecting_sqpnp):
+            fitted = initialize_camera(points, target[0], np.zeros(3),
+                                       np.ones(120, dtype=bool), .15)
+        prediction, depth = project(points[None], fitted[None], np.zeros(3))
+        self.assertIn(cv2.SOLVEPNP_EPNP, attempted)
+        self.assertTrue(np.all(depth > 0))
+        np.testing.assert_allclose(prediction, target, atol=1e-5)
+
+    def test_camera_solver_failures_become_an_accountable_view_rejection(self):
+        import cv2
+
+        with patch.object(cv2, "solvePnP", side_effect=cv2.error("degenerate coordinates")):
+            with self.assertRaisesRegex(ValueError, "Could not initialize"):
+                initialize_camera(np.zeros((120, 3)), np.zeros((120, 2)), np.zeros(3),
+                                  np.ones(120, dtype=bool), .15)
+
     def test_requested_cuda_never_silently_falls_back_to_cpu(self):
         from ailias.facefitting.geometry.cuda_optimization import load_torch
 

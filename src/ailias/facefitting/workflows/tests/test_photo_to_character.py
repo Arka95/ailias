@@ -91,8 +91,10 @@ class PhotoToCharacterTests(unittest.TestCase):
                 "facial_hair_appearance": {"regions": {"beard": region, "moustache": region}}}}}}
         vertices = np.array([[0., 0., 0.], [.1, 0., 0.], [0., .1, .1]])
         model = SimpleNamespace(vertices=vertices, neutral=lambda identity: vertices,
-                                triangles=np.array([[0, 1, 2]]), center=np.zeros(3))
-        fitted = {"identity": np.zeros(1), "per_view": np.zeros((1, 8))}
+                                triangles=np.array([[0, 1, 2]]), center=np.zeros(3),
+                                audit=lambda: {"correspondences": 468})
+        fitted = {"identity": np.zeros(1), "per_view": np.zeros((1, 8)),
+                  "report": {"views": [{"face_id": "frame", "supported_points": 120}]}}
         source = "/Game/Fresh/Character.Character"
         candidate = "/Game/CurrentAppearance/Character.Character"
 
@@ -175,6 +177,9 @@ class PhotoToCharacterTests(unittest.TestCase):
         self.assertTrue(result["blender_used"])
         self.assertFalse(result["assembled"])
         self.assertFalse(result["likeness_verified"])
+        self.assertEqual(result["fit"]["views"][0]["supported_points"], 120)
+        self.assertEqual(result["model"]["correspondences"], 468)
+        self.assertEqual(result["geometry"]["vertices_moved_over_1mm_model_units"], 0)
         self.assertTrue(self.store.verify(self.reference))
 
     def test_native_appearance_failure_cannot_skip_to_preview_or_success(self):
@@ -183,6 +188,12 @@ class PhotoToCharacterTests(unittest.TestCase):
         self.assertEqual(result["current_stage"], "apply_and_reload_native_appearance")
         self.assertIn("groom missing", result["error"]["message"])
         self.assertNotIn("preview", operations)
+
+    def test_closed_progress_stream_does_not_abort_a_successful_pipeline(self):
+        with patch("ailias.facefitting.workflows.photo_to_character.sys.stderr") as stream:
+            stream.write.side_effect = OSError(22, "closed progress stream")
+            result, _ = self.complete()
+        self.assertEqual(result["status"], "fresh_video_completed")
 
     def test_blender_failure_cannot_be_skipped_or_launch_unreal_creation(self):
         result, operations = self.complete(blender_fails=True)

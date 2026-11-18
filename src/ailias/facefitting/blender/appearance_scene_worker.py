@@ -25,6 +25,8 @@ def hair_material(color):
 
 def add_hair(scene, vertices, triangles, normals, data, config):
     policy = config["policy"]
+    if policy["hair_strands"] == 0:
+        return [], {"status": "disabled", "strands": 0}
     observed = data["hair_observed"].astype(bool)
     probability = data["hair_probability"]
     scalp = data["skin_exterior"] > .5
@@ -43,7 +45,7 @@ def add_hair(scene, vertices, triangles, normals, data, config):
         field = .5*field+.5*neighbours/np.maximum(degree, 1)
     roots = scalp & (vertices[:, 1] > eye) & (field > .5)
     faces = triangles[np.all(roots[triangles], axis=1)]
-    if len(faces) == 0 or policy["hair_strands"] == 0:
+    if len(faces) == 0:
         return [], {"status": "no_supported_hair_roots", "strands": 0}
     length = config["hair_length"]
     cap_vertices = vertices + normals * length*.25
@@ -201,6 +203,7 @@ def main(request_path):
     (root / "appearance-runtime.json").write_text(json.dumps({
         "blender": bpy.app.version_string, "cycles_device": scene.cycles.device,
         "geometry_maximum_deviation": deviation, "hair": hair_report, "groom": groom,
+        "hair_objects": [obj.name for obj in hair],
         "unreal_export": "Hair-free head only; OBJ=(GNM Z,X,Y)*100; UE importer flips Y",
         "unreal_metric_scale_calibrated": False,
         "skin": "photo-derived colour with residual lighting; roughness is a chosen constant",

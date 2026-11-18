@@ -73,6 +73,13 @@ def create_blender_head(store, root, model, fitted, views, evidence, uvs, tools,
             raise RuntimeError("Blender did not preserve the new fitted geometry on the requested GPU")
         if policy["hair_strands"] and runtime["hair"].get("strands", 0) <= 0:
             raise RuntimeError("Blender did not create the requested photo-supported hair")
+        if not policy["hair_strands"] and (
+            runtime["hair"].get("status") != "disabled"
+            or runtime["hair"].get("strands", 0) != 0
+            or runtime.get("hair_objects")
+            or runtime.get("groom", "not_exported") != "not_exported"
+        ):
+            raise RuntimeError("Blender created hair despite the disabled hair policy")
         for angle in (-45, 0, 45, 90):
             with Image.open(root / f"appearance-{angle}.png") as image:
                 image.verify()

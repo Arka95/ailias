@@ -101,6 +101,9 @@ class HeadModel:
             "vertices": len(self.vertices), "triangles": len(self.triangles),
             "correspondences": len(self.points),
             "supported_exterior_correspondences": int(self.supported.sum()),
+            "direct_correspondence_vertices": int(len(np.unique(
+                self.indices[self.supported][self.weights[self.supported] > 1e-5]))),
+            "identity_modes_available": len(self.identity),
             "excluded_non_exterior_landmark_indices": np.flatnonzero(~self.supported).tolist(),
             "basis": "GNM bind-pose template + identity + expression; joint rotations fixed at zero",
             "metric_scale_calibrated": False,

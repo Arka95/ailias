@@ -61,13 +61,47 @@ weights and fits a new shared identity/cameras/expressions using the existing
 Character with the factory, conforms it and independently reloads it. It does
 not read a previous personal head, fit, native response, ray correspondence or
 appearance profile. Before Unreal import, the command now creates a fresh
-Blender clay scene, bakes photo colour onto the fitted GNM UVs, adds
-photo-supported approximate hair, saves `blender\textured-head.blend` and
+Blender clay scene, bakes photo colour onto the fitted GNM UVs, omits scalp hair
+by default, saves `blender\textured-head.blend` and
 exports the hair-free mesh that Unreal actually consumes. The Blender export
 must preserve fitted vertices under the declared axis/centimetre conversion.
 Missing scenes, requested hair, render outputs or failed Blender processes stop
 the run; the command does not fall back to the direct Python OBJ.
 No intermediate approval prompt or manual tuning is part of execution.
+
+`--photos-run RUN` adds every accepted original-photo portrait across that
+imageprocessing scan's groups; old eligibility and group-size thresholds do
+not remove accepted portraits. Hash-verified originals retain their full image
+coordinates and resolution; reviewed crops localize detection only. Fresh
+landmarks are mapped back before camera fitting, and parsing is recomputed.
+Review rejections, ambiguous
+target detections and unsupported views remain explicitly accounted for.
+The source-photo inventory is retained in `photo-inputs\manifest.json`.
+
+`--fit-search-config config\facefitting-search.json` replaces the small
+identity-only comparison with an explicit 162-candidate search:
+3 identity capacities x 3 expression capacities x 3 identity-prior strengths x
+3 independent expression-prior strengths x 2 expression bounds. The full
+supported expression basis is 100/100/150 regional modes. Candidates are
+ranked using view-category-balanced RMS over all supported held-out landmarks,
+not only median residuals. Every candidate's parameters/report is retained;
+failed candidates are visible rather than silently omitted. Camera/expression
+are still optimized on validation images: this is identity validation, not an
+independent 3D scan or proof of likeness.
+
+The selected fit is refitted using all prepared images, produces a source-pixel
+landmark overlay for each view under `fit-overlays`, and continues through the
+same Blender/Unreal stages. `view_batch_size` controls GPU Jacobian memory only;
+it never selects or discards images. Both options are opt-in because a broad
+search and original-photo decoding are materially more expensive than a small
+sampled-image run.
+
+The completed original-photo/search run `252acd17` fitted 260 views and tested
+all 162 configurations without a failed trial. It selected 96 identity modes
+and the full 100/100/150 expression basis, then completed Blender and Unreal.
+Its actual renders were inspected; likeness remains unapproved, and texture
+seams, dark native lighting and approximate grooms remain visible.
+See [measured results and remaining bounds](dev.readme.md#fitting-restrictions-and-search).
 
 The command now connects native skin UV export, fresh photo-colour baking and
 Texture2D import to native skin, iris, eyebrow, scalp-hair, facial-hair and
@@ -139,7 +173,10 @@ This is a technical dependency gate, not evidence that texture or final likeness
 |---|---|---|
 | `device` | `cuda:0` | Explicit CUDA index; `cpu` selects the SciPy reference, with no silent fallback |
 | `max_iterations` | `800` | CUDA optimizer iteration budget |
-| `identity_candidates` | `[48, 96]` | Shared identity mode counts compared on held-out views |
+| `identity_candidates` | `[48, 96, 170]` | Compare coarse through full supported head-identity bases on held-out views; extra modes are not extra measured points |
+| `identity_coefficient_limit` / `expression_coefficient_limit` | `3.0` / `3.0` | Symmetric coefficient bounds; the search also tests expression bounds of 6 |
+| `focal_factor_min` / `focal_factor_max` | `0.1` / `5.0` | Focal pixels divided by source long side; replaces the binding 0.45 floor |
+| `view_batch_size` | `16` | Views per CUDA Jacobian batch; every view contributes to each shared-identity iteration |
 | `expression_modes` | `[12, 12, 24]` | Retained mode counts for the three model expression blocks |
 | `identity_regularization` | `0.00001` | Penalty on identity coefficients |
 | `expression_regularization` | `0.000005` | Penalty on per-photo expression coefficients |

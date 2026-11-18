@@ -1,7 +1,7 @@
 {
   "device": "cuda:0",
   "max_iterations": 800,
-  "identity_candidates": [48, 96],
+  "identity_candidates": [48, 96, 170],
   "expression_modes": [12, 12, 24],
   "identity_regularization": 0.00001,
   "expression_regularization": 0.000005,

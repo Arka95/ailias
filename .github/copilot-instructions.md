@@ -15,13 +15,14 @@ render as a new iteration, or a successful tool call as successful likeness.
 On November 18, 2026, the owner requested deletion of the selected
 `hairfree-matched-camera.blend` baseline and its `working-baseline.json` selector.
 They have been removed. Do not restore or use that baseline for new work.
-Full pipeline runs reuse only retained sampled photos and create fresh,
-isolated downstream outputs. Preserve original photos and existing native
+Full pipeline runs reuse retained sampled images and, when requested, original
+photo pixels, creating fresh isolated downstream outputs. Preserve original photos and existing native
 Characters unless their deletion is explicitly requested.
 Match facial hair to the original photo: dark moustache and short beard/stubble,
 denser around the chin/jaw and lighter on the cheeks; do not claim it is applied
 until the saved native Character has been visually checked.
-Compare improvements with this baseline and show each completed visual iteration.
+Compare improvements with original photographs and show each completed visual iteration.
+Blender scalp hair is disabled by default; Unreal groom mapping remains independent.
 Do not treat a completed pipeline run as final likeness or rigging approval.
 The separate Taro reanimation test must not depend on improving this personal head.
 
