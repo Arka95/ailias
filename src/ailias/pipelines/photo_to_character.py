@@ -27,8 +27,21 @@ from ailias.head_reconstruction.evidence.reviewed_photos import prepare_reviewed
 from ailias.head_reconstruction.evidence.fit_comparison import write_fit_overlays
 from ailias.head_reconstruction.geometry.artifact_io import export_obj, save_fit
 from ailias.head_reconstruction.geometry.head_model import HeadModel, model_assets
-from ailias.head_reconstruction.geometry.identity_fitting import fit_multiview_identity
-from ailias.head_reconstruction.geometry.identity_search import search_identity_fit
+from ailias.head_reconstruction.geometry.identity_fitting import (
+    fit_shared_head_identity,
+)
+from ailias.head_reconstruction.geometry.identity_search import (
+    search_shared_head_identity,
+)
+from ailias.head_reconstruction.geometry.feature_reconstruction import (
+    construct_neutral_head_mesh,
+)
+from ailias.head_reconstruction.reconstruction_data import (
+    ExcludedHeadView,
+    ReconstructionFailure,
+    ReconstructionInputs,
+    ReconstructionReport,
+)
 from ailias.head_reconstruction.geometry.optimization import prepare_views
 from ailias.head_reconstruction.geometry.photo_camera import perspective_camera
 from ailias.metahuman.character_features import (
@@ -105,6 +118,7 @@ class PhotoToCharacterPipeline:
         self.manifest = self.root / "manifest.json"
         self.started = time.monotonic()
         self.report = {
+            "schema_version": 2,
             "revision": self.root.name,
             "status": "running",
             "stages": {},
@@ -233,67 +247,101 @@ class PhotoToCharacterPipeline:
                 )
             ),
         }
-        with redirect_stdout(sys.stderr):
-            if self.search_policy is None:
-                self.fit_result = self.journal.execute(
-                    "fresh_shared_identity_fit",
-                    lambda: fit_multiview_identity(
-                        self.head_model, self.fit_views, self.fit_policy, self.report
-                    ),
-                )
-            else:
-                candidates = self.root / "fit-search"
-                candidates.mkdir()
+        self.fit_head_identity()
 
-                def retain_candidate(record, candidate):
-                    name = f"candidate-{record['index']:03d}"
-                    if candidate is not None:
-                        path = candidates / (name + ".npz")
-                        save_fit(path, candidate)
-                        self.report["artifacts"][name] = self.store.reference_artifact(
-                            path
-                        )
-                    atomic_json(candidates / (name + ".json"), record)
-                    atomic_json(self.manifest, self.report)
-                    self.emit_progress(
-                        {
-                            "candidate": record["index"],
-                            "status": record["status"],
-                            "identity_modes": record["identity_modes"],
-                            "expression_modes": record["policy"]["expression_modes"],
-                            "score": record.get("score"),
-                        }
-                    )
-
-                self.report["requested_policy"] = self.fit_policy.record()
-                self.head_model, self.fit_result, self.fit_policy = (
-                    self.journal.execute(
-                        "search_shared_identity_fit",
-                        lambda: search_identity_fit(
-                            lambda modes: HeadModel(
-                                self.store.artifact_path(
-                                    self.model_assets["gnm"]["artifact"]
-                                ),
-                                self.store.artifact_path(
-                                    self.model_assets["correspondence"]["artifact"]
-                                ),
-                                modes,
-                            ),
+    def fit_head_identity(self):
+        """Fit shared identity using typed reconstruction results and persist failure diagnostics.
+        Keep candidate exports and search orchestration outside the numerical fitting module.
+        """
+        self.reconstruction_report = ReconstructionReport(
+            self.fit_policy,
+            ReconstructionInputs(
+                len(self.photo_evidence["frames"]),
+                landmarks_ready=sum(
+                    "source_xy" in frame for frame in self.photo_evidence["frames"]
+                ),
+            ),
+        )
+        self.reconstruction_report.excluded = [
+            ExcludedHeadView(item["face_id"], item["reason"])
+            for item in self.report["inputs"]["excluded"]
+        ]
+        self.reconstruction_report.prepared_view_ids = [
+            view["face_id"] for view in self.fit_views
+        ]
+        try:
+            with redirect_stdout(sys.stderr):
+                if self.search_policy is None:
+                    self.fit_result = self.journal.execute(
+                        "fresh_shared_identity_fit",
+                        lambda: fit_shared_head_identity(
+                            self.head_model,
                             self.fit_views,
                             self.fit_policy,
-                            self.search_policy,
-                            self.report,
-                            retain_candidate,
+                            self.reconstruction_report,
                         ),
                     )
-                )
-                self.report["policy"], self.report["model"] = (
-                    self.fit_policy.record(),
-                    self.head_model.audit(),
-                )
+                else:
+                    self.search_head_identity()
+        except Exception as error:
+            self.reconstruction_report.status = "failed"
+            self.reconstruction_report.failure = ReconstructionFailure(
+                type(error).__name__, str(error)
+            )
+            raise
+        finally:
+            self.report["reconstruction"] = self.reconstruction_report.to_dict()
+
+    def retain_identity_candidate(self, record, candidate):
+        """Export one typed search candidate and its diagnostics into this pipeline's directory.
+        Retain failed candidate records without publishing a substitute fit.
+        """
+        name = f"candidate-{record['index']:03d}"
+        if candidate is not None:
+            path = self.root / "fit-search" / (name + ".npz")
+            save_fit(path, candidate)
+            self.report["artifacts"][name] = self.store.reference_artifact(path)
+        atomic_json(self.root / "fit-search" / (name + ".json"), record)
+        atomic_json(self.manifest, self.report)
+        self.emit_progress(
+            {
+                "candidate": record["index"],
+                "status": record["status"],
+                "identity_modes": record["identity_modes"],
+                "expression_modes": record["policy"]["expression_modes"],
+                "score": record.get("score"),
+            }
+        )
+
+    def search_head_identity(self):
+        """Search explicit head capacities while preserving typed results at the pipeline boundary.
+        Keep the selected model and policy paired with the parameters fitted against them.
+        """
+        (self.root / "fit-search").mkdir()
+        self.report["requested_policy"] = self.fit_policy.record()
+        self.head_model, self.fit_result, self.fit_policy = self.journal.execute(
+            "search_shared_identity_fit",
+            lambda: search_shared_head_identity(
+                lambda modes: HeadModel(
+                    self.store.artifact_path(self.model_assets["gnm"]["artifact"]),
+                    self.store.artifact_path(
+                        self.model_assets["correspondence"]["artifact"]
+                    ),
+                    modes,
+                ),
+                self.fit_views,
+                self.fit_policy,
+                self.search_policy,
+                self.report,
+                self.retain_identity_candidate,
+            ),
+        )
+        self.reconstruction_report.policy = self.fit_policy
+        self.report["policy"] = self.fit_policy.record()
+        self.report["model"] = self.head_model.audit()
 
     def prepare_head_mesh_and_tracking(self):
-        self.report["fit"] = self.fit_result["report"]
+        self.report["fit"] = self.fit_result.summary.to_dict()
         if self.search_policy is not None:
             self.report["artifacts"].update(
                 self.journal.execute(
@@ -307,9 +355,20 @@ class PhotoToCharacterPipeline:
                     ),
                 )
             )
-        self.head_vertices = self.head_model.neutral(self.fit_result["identity"])
-        if not np.isfinite(self.head_vertices).all():
-            raise ValueError("Fresh identity has nonfinite geometry")
+        try:
+            mesh = construct_neutral_head_mesh(
+                self.head_model, self.fit_result, self.reconstruction_report
+            )
+            self.head_vertices = mesh.vertices
+            self.reconstruction_report.status = "awaiting_human_likeness_review"
+        except Exception as error:
+            self.reconstruction_report.status = "failed"
+            self.reconstruction_report.failure = ReconstructionFailure(
+                type(error).__name__, str(error)
+            )
+            raise
+        finally:
+            self.report["reconstruction"] = self.reconstruction_report.to_dict()
         save_fit(self.root / "fit.npz", self.fit_result)
         export_obj(
             self.root / "neutral-head.obj",
@@ -365,7 +424,7 @@ class PhotoToCharacterPipeline:
             self.head_vertices - self.head_model.vertices, axis=1
         )
         self.report["geometry"] = {
-            "identity_modes": len(self.fit_result["identity"]),
+            "identity_modes": len(self.fit_result.parameters.identity_coefficients),
             "vertices": len(self.head_vertices),
             "maximum_template_displacement_cm": float(displacement.max() * 100),
             "median_template_displacement_cm": float(np.median(displacement) * 100),
@@ -397,7 +456,9 @@ class PhotoToCharacterPipeline:
                 (self.root / "tracking-rgba8.bin").write_bytes(rgba.tobytes())
             camera = perspective_camera(
                 {
-                    "camera": self.fit_result["per_view"][index, :7],
+                    "camera": self.fit_result.parameters.cameras_and_expressions[
+                        index, :7
+                    ],
                     "source_size": frame["source_size"],
                 },
                 self.head_model.center,

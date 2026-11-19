@@ -14,6 +14,8 @@ from PIL import Image
 
 from ailias.pipelines.photo_to_character import run_photo_to_character_pipeline
 from ailias.head_reconstruction.geometry.artifact_io import export_obj
+from ailias.head_reconstruction.geometry.tests.fitting_fixtures import make_head_fit
+from ailias.head_reconstruction.settings import FitPolicy
 from ailias.metahuman.character_features import character_package
 from ailias.storage import Store, atomic_json
 
@@ -41,7 +43,9 @@ class PhotoToCharacterTests(unittest.TestCase):
                 ],
             },
         )
-        self.policy = SimpleNamespace(record=lambda: {})
+        self.policy = FitPolicy(
+            device="cpu", identity_candidates=(1,), expression_modes=(1, 1, 1)
+        )
 
     def invoke(self):
         return run_photo_to_character_pipeline(
@@ -100,7 +104,9 @@ class PhotoToCharacterTests(unittest.TestCase):
                 "ailias.pipelines.photo_to_character.extract_photo_evidence",
                 side_effect=error,
             ),
-            patch("ailias.pipelines.photo_to_character.fit_multiview_identity") as fit,
+            patch(
+                "ailias.pipelines.photo_to_character.fit_shared_head_identity"
+            ) as fit,
         ):
             result = self.invoke()
         saved = self.persisted(result)
@@ -123,6 +129,7 @@ class PhotoToCharacterTests(unittest.TestCase):
         narrated=False,
         assembly_fails=False,
         reel_fails=False,
+        invalid_geometry=False,
     ):
         project = self.store.resolve("Project\\Preview.uproject")
         project.parent.mkdir()
@@ -166,16 +173,14 @@ class PhotoToCharacterTests(unittest.TestCase):
         vertices = np.array([[0.0, 0.0, 0.0], [0.1, 0.0, 0.0], [0.0, 0.1, 0.1]])
         model = SimpleNamespace(
             vertices=vertices,
-            neutral=lambda identity: vertices,
+            neutral=lambda identity: (
+                np.zeros_like(vertices) if invalid_geometry else vertices
+            ),
             triangles=np.array([[0, 1, 2]]),
             center=np.zeros(3),
             audit=lambda: {"correspondences": 468},
         )
-        fitted = {
-            "identity": np.zeros(1),
-            "per_view": np.zeros((1, 8)),
-            "report": {"views": [{"face_id": "frame", "supported_points": 120}]},
-        }
+        fitted = make_head_fit(["frame"])
         source = "/Game/Fresh/Character.Character"
         candidate = "/Game/CurrentAppearance/Character.Character"
 
@@ -299,7 +304,7 @@ class PhotoToCharacterTests(unittest.TestCase):
                     [{"face_id": "frame", "view": {"category": "front"}}],
                     [],
                 ),
-                "fit_multiview_identity": lambda *args: fitted,
+                "fit_shared_head_identity": lambda *args: fitted,
                 "save_fit": lambda *args: None,
                 "create_blender_head": blender,
                 "execute_unreal_worker": native,
@@ -319,7 +324,7 @@ class PhotoToCharacterTests(unittest.TestCase):
                 Path("Editor.exe"),
                 project,
                 SimpleNamespace(paths={}),
-                SimpleNamespace(record=lambda: {}, expression_modes=[]),
+                self.policy,
                 generation_policy=SimpleNamespace(),
                 review_policy=review_policy,
                 appearance_policy={
@@ -337,11 +342,24 @@ class PhotoToCharacterTests(unittest.TestCase):
             )
         return result, operations
 
+    def test_invalid_fitted_mesh_stops_before_blender_or_native_handoff(self):
+        result, operations = self.complete(invalid_geometry=True)
+        saved = self.persisted(result)
+        self.assertEqual(saved["status"], "failed")
+        self.assertEqual(saved["reconstruction"]["status"], "failed")
+        self.assertFalse(saved["reconstruction"]["mesh_quality"]["passed"])
+        self.assertFalse(saved["blender_used"])
+        self.assertEqual(operations, [])
+        self.assertTrue(self.store.verify(self.reference))
+
     def test_one_invocation_reaches_fresh_texture_grooms_and_a_new_preview_without_old_baseline(
         self,
     ):
         result, operations = self.complete()
         self.assertEqual(self.persisted(result)["status"], "fresh_video_completed")
+        self.assertEqual(result["schema_version"], 2)
+        self.assertEqual(result["fit"]["runtime"]["device"], "cpu")
+        self.assertEqual(result["reconstruction"]["inputs"]["landmarks_ready"], 1)
         self.assertEqual(
             operations, ["blender", "create", "verify", "import_texture", "preview"]
         )

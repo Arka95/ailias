@@ -70,10 +70,17 @@ No class implements mapping/dictionary emulation.
 `geometry\fitting_results.py` adapts existing CPU/CUDA backend records into the
 typed fitting result, retaining backend-specific provenance. Backend array
 contracts remain internal numerical integration boundaries.
-`fit_multiview_identity()` is a compatibility entry point over the same scoped
-fitting implementation: old photo-to-character callers keep dictionary outputs,
-manifest field names and additional caller-owned report fields. The existing
-`facefitting fit` CLI is not silently migrated to a different evidence pipeline.
+Photo-to-character now calls `fit_shared_head_identity()` and passes its typed
+result through overlays, photo projection and Blender scene construction.
+`search_shared_head_identity()` returns a typed final fit and supplies typed
+candidates to its export callback. The dictionary fitting wrapper and legacy
+diagnostic-copy helper were deleted after their caller and tests migrated.
+The photo-to-character manifest is version 2: `fit` is a serialized
+`HeadFitSummary`; `reconstruction` retains typed input/candidate/mesh diagnostics.
+Neutral geometry passes `construct_neutral_head_mesh()` before any Blender/native
+handoff, including after capacity search. NPZ array names are unchanged.
+The standalone `facefitting fit` CLI and older photo evidence extraction remain
+separate pending migration steps, not alternate implementations of the new API.
 
 The new path disables only legacy angle rejection, not camera initialization,
 foreground/template support, minimum-view, held-out identity or mesh-quality gates.

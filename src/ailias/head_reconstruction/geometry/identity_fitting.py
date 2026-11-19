@@ -16,7 +16,6 @@ from ailias.head_reconstruction.reconstruction_data import (
     FitEvaluation,
     HeadFittingResult,
     IdentityCandidateEvaluation,
-    ReconstructionInputs,
     ReconstructionReport,
 )
 
@@ -180,36 +179,3 @@ def _restore_all_view_parameters(
         candidate.validation["per_view"],
     )
     return np.r_[candidate.training["identity"], per_view.ravel()]
-
-
-def fit_multiview_identity(model, views, policy, report):
-    """Preserve the existing dictionary-based pipeline API while sharing the scoped fitting implementation.
-    Keep legacy callers and persisted report keys unchanged; new consumers use fit_shared_head_identity().
-    """
-    diagnostics = ReconstructionReport(policy, ReconstructionInputs(len(views)))
-    try:
-        return _fit_identity_parameters(model, views, policy, diagnostics)
-    finally:
-        _copy_legacy_diagnostics(diagnostics, report)
-
-
-def _copy_legacy_diagnostics(diagnostics: ReconstructionReport, report: dict) -> None:
-    """Translate completed typed selection diagnostics into the existing legacy manifest fields.
-    Preserve extra caller-owned input/report fields rather than replacing their surrounding dictionaries.
-    """
-    report["inputs"].update(
-        training=diagnostics.inputs.training_view_ids,
-        heldout=diagnostics.inputs.validation_view_ids,
-    )
-    if diagnostics.baseline_score is not None:
-        report["baseline_score"] = diagnostics.baseline_score.to_dict()
-        report["candidates"] = [
-            {
-                "modes": candidate.identity_modes,
-                "score": candidate.score.to_dict(),
-                "frontal_preserved": candidate.frontal_preserved,
-            }
-            for candidate in diagnostics.candidates
-        ]
-    if diagnostics.heldout_improvement is not None:
-        report["heldout_improvement"] = diagnostics.heldout_improvement

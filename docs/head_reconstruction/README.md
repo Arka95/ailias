@@ -89,8 +89,12 @@ These records live in `head_reconstruction.reconstruction_data`. Each supports
 `to_dict()` and strict JSON `str(...)`; arrays become ordinary lists only when
 serialization is requested. `HeadReconstructionError.report` is also a
 `ReconstructionReport`; inspect `.excluded` and `.failure`, not dictionary keys.
-This intentionally replaces dictionary indexing in the new Python API.
-It does not change legacy CLI manifests or add dictionary-emulation methods to classes.
+This intentionally replaces dictionary indexing; classes do not emulate mappings.
+The photo-to-character pipeline, its capacity search, overlays, texture projection
+and Blender handoff now consume the same `HeadFittingResult`. Its version-2 job
+manifest stores the typed fit summary in `fit` and reconstruction diagnostics in
+`reconstruction`; the NPZ parameter keys remain unchanged. The old dictionary
+fitting wrapper has been removed.
 
 At least five geometrically usable views are required. Invalid evidence, camera
 initialization failure and insufficient template/foreground support are reported
@@ -106,7 +110,9 @@ are saved automatically. Use `geometry.artifact_io.export_obj(path, vertices, tr
 and `save_fit(path, reconstruction.fit)` explicitly to export geometry/parameters.
 The existing NPZ field names remain unchanged. This is a new Python entry point;
 the existing `facefitting fit` CLI, its legacy observation path and pose rules
-are unchanged. Pixel-based appearance fitting remains a separate downstream task.
+are not yet migrated. Photo-to-character evidence extraction also still uses
+its older path; migrating its fitting consumers does not claim otherwise.
+Pixel-based appearance fitting remains a separate downstream task.
 
 ## Interpretation
 

@@ -1,15 +1,14 @@
 """Shared identity selection and original-view ordering, without running a fitter."""
 
-from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 import numpy as np
 
 from ailias.head_reconstruction.geometry.identity_fitting import (
-    fit_multiview_identity,
     fit_shared_head_identity,
 )
+from ailias.head_reconstruction.geometry.tests.fitting_fixtures import make_solver_fit
 from ailias.head_reconstruction.reconstruction_data import (
     ReconstructionInputs,
     ReconstructionReport,
@@ -21,14 +20,14 @@ class SharedIdentityTests(unittest.TestCase):
     def fixture(self):
         views = [{"face_id": str(index)} for index in range(3)]
         runs = [
-            {"per_view": np.zeros((2, 2))},
-            {"per_view": np.zeros((1, 2)), "report": {}},
+            {"per_view": np.zeros((2, 8))},
+            {"per_view": np.zeros((1, 8)), "report": {}},
             {
                 "identity": np.array([0.25]),
-                "per_view": np.array([[10.0, 11.0], [30.0, 31.0]]),
+                "per_view": np.array([np.arange(10.0, 18.0), np.arange(30.0, 38.0)]),
             },
-            {"per_view": np.array([[20.0, 21.0]]), "report": {}},
-            {"final_fit": True},
+            {"per_view": np.array([np.arange(20.0, 28.0)]), "report": {}},
+            make_solver_fit(["0", "1", "2"], identity=np.array([0.25])),
         ]
         score = lambda value: {
             "view_balanced_mean_error": value,
@@ -40,7 +39,8 @@ class SharedIdentityTests(unittest.TestCase):
         self,
     ):
         views, runs, score = self.fixture()
-        report = {"inputs": {}}
+        policy = FitPolicy(identity_candidates=(1,))
+        report = ReconstructionReport(policy, ReconstructionInputs(len(views)))
         with (
             patch(
                 "ailias.head_reconstruction.geometry.identity_fitting.validation_indices",
@@ -55,20 +55,26 @@ class SharedIdentityTests(unittest.TestCase):
                 side_effect=[score(1), score(0.8)],
             ),
         ):
-            result = fit_multiview_identity(
-                object(), views, SimpleNamespace(identity_candidates=[1]), report
-            )
-        self.assertEqual(result, {"final_fit": True})
+            result = fit_shared_head_identity(object(), views, policy, report)
+        np.testing.assert_array_equal(result.parameters.identity_coefficients, [0.25])
         np.testing.assert_array_equal(
-            fit.call_args.kwargs["initial"], [0.25, 10.0, 11.0, 20.0, 21.0, 30.0, 31.0]
+            fit.call_args.kwargs["initial"],
+            np.r_[
+                0.25,
+                np.arange(10.0, 18.0),
+                np.arange(20.0, 28.0),
+                np.arange(30.0, 38.0),
+            ],
         )
-        self.assertEqual(report["inputs"]["training"], ["0", "2"])
-        self.assertEqual(report["inputs"]["heldout"], ["1"])
+        self.assertEqual(report.inputs.training_view_ids, ["0", "2"])
+        self.assertEqual(report.inputs.validation_view_ids, ["1"])
 
     def test_insufficient_heldout_improvement_does_not_run_a_final_personalized_fit(
         self,
     ):
         views, runs, score = self.fixture()
+        policy = FitPolicy(identity_candidates=(1,))
+        report = ReconstructionReport(policy, ReconstructionInputs(len(views)))
         with (
             patch(
                 "ailias.head_reconstruction.geometry.identity_fitting.validation_indices",
@@ -84,12 +90,7 @@ class SharedIdentityTests(unittest.TestCase):
             ),
         ):
             with self.assertRaisesRegex(ValueError, "criterion failed"):
-                fit_multiview_identity(
-                    object(),
-                    views,
-                    SimpleNamespace(identity_candidates=[1]),
-                    {"inputs": {}},
-                )
+                fit_shared_head_identity(object(), views, policy, report)
         self.assertEqual(fit.call_count, 4)
 
     def test_completed_candidate_diagnostics_survive_a_later_solver_failure(self):
