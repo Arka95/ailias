@@ -2,6 +2,11 @@
 
 # Generation internals
 
+Session receipts use absolute paths in existing output directories so the host
+and editor can have different working directories. Probe directories are
+resolved before submission. A failed receipt write reports a failed session job
+instead of leaving a synchronous probe permanently busy.
+
 ## Architecture and contracts
 
 | Component | Responsibility |

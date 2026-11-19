@@ -21,7 +21,7 @@ def write_json(path, value):
             except PermissionError:
                 if attempt == 9:
                     raise
-                time.sleep(.01)
+                time.sleep(0.01)
     finally:
         Path(temporary).unlink(missing_ok=True)
 
@@ -39,23 +39,38 @@ class Dispatcher:
     def set_console_variables(self, commands):
         if not commands:
             return
-        world = self.unreal.get_editor_subsystem(self.unreal.UnrealEditorSubsystem).get_editor_world()
+        world = self.unreal.get_editor_subsystem(
+            self.unreal.UnrealEditorSubsystem
+        ).get_editor_world()
         for command in commands.split(","):
             name, _ = command.split(maxsplit=1)
-            self.console_variables[name] = self.unreal.SystemLibrary.get_console_variable_float_value(name)
+            self.console_variables[name] = (
+                self.unreal.SystemLibrary.get_console_variable_float_value(name)
+            )
             self.unreal.SystemLibrary.execute_console_command(world, command)
 
     def restore_console_variables(self):
         if self.console_variables:
-            world = self.unreal.get_editor_subsystem(self.unreal.UnrealEditorSubsystem).get_editor_world()
+            world = self.unreal.get_editor_subsystem(
+                self.unreal.UnrealEditorSubsystem
+            ).get_editor_world()
             for name, value in self.console_variables.items():
-                self.unreal.SystemLibrary.execute_console_command(world, f"{name} {value}")
+                self.unreal.SystemLibrary.execute_console_command(
+                    world, f"{name} {value}"
+                )
             self.console_variables.clear()
 
     def publish(self, status, **values):
-        write_json(self.root / "state.json", {
-            "session_id": self.metadata["session_id"], "status": status, "pid": os.getpid(),
-            "job_id": self.active["job_id"] if self.active else self.seen, **values})
+        write_json(
+            self.root / "state.json",
+            {
+                "session_id": self.metadata["session_id"],
+                "status": status,
+                "pid": os.getpid(),
+                "job_id": self.active["job_id"] if self.active else self.seen,
+                **values,
+            },
+        )
 
     def inspect_completion(self):
         receipt = Path(self.active["request"]["receipt"])
@@ -70,7 +85,7 @@ class Dispatcher:
         self.active = self.module = None
 
     def tick(self, delta_seconds):
-        if time.monotonic() - self.last_poll < .1:
+        if time.monotonic() - self.last_poll < 0.1:
             return
         self.last_poll = time.monotonic()
         if self.active is not None:
@@ -80,11 +95,15 @@ class Dispatcher:
         if not path.exists():
             return
         envelope = json.loads(path.read_text(encoding="utf-8"))
-        if (envelope.get("session_id") != self.metadata["session_id"]
-                or envelope.get("job_id") == self.seen):
+        if (
+            envelope.get("session_id") != self.metadata["session_id"]
+            or envelope.get("job_id") == self.seen
+        ):
             return
         self.seen = envelope["job_id"]
-        if os.path.normcase(envelope["project"]) != os.path.normcase(self.metadata["project"]):
+        if os.path.normcase(envelope["project"]) != os.path.normcase(
+            self.metadata["project"]
+        ):
             self.publish("failed", error_type="ProjectMismatch")
             return
         if envelope["operation"] == "session-stop":
@@ -102,16 +121,23 @@ class Dispatcher:
             if envelope["worker"] is None:
                 if envelope["operation"] != "session-probe":
                     raise ValueError("Unsupported built-in Unreal session operation")
-                write_json(Path(request["receipt"]), {
-                    "status": "session_probe_completed", "pid": os.getpid(),
-                    "session_id": self.metadata["session_id"], "project": self.metadata["project"],
-                    "engine": self.unreal.SystemLibrary.get_engine_version()})
+                write_json(
+                    Path(request["receipt"]),
+                    {
+                        "status": "session_probe_completed",
+                        "pid": os.getpid(),
+                        "session_id": self.metadata["session_id"],
+                        "project": self.metadata["project"],
+                        "engine": self.unreal.SystemLibrary.get_engine_version(),
+                    },
+                )
             else:
                 source = Path(envelope["worker"]).read_bytes()
                 if hashlib.sha256(source).hexdigest() != envelope["worker_sha256"]:
                     raise ValueError("Unreal worker changed before dispatch")
-                spec = importlib.util.spec_from_file_location("ailias_job_" + envelope["job_id"],
-                                                             envelope["worker"])
+                spec = importlib.util.spec_from_file_location(
+                    "ailias_job_" + envelope["job_id"], envelope["worker"]
+                )
                 self.module = importlib.util.module_from_spec(spec)
                 exec(compile(source, envelope["worker"], "exec"), self.module.__dict__)
                 callback = self.callback
@@ -123,23 +149,42 @@ class Dispatcher:
                     self.module.main(request, keep_alive=True)
                 finally:
                     if callback is not None:
-                        self.callback = self.unreal.register_slate_post_tick_callback(self.tick)
+                        self.callback = self.unreal.register_slate_post_tick_callback(
+                            self.tick
+                        )
             self.inspect_completion()
         except Exception as error:
             receipt = Path(envelope["request"]["receipt"])
             try:
-                result = json.loads(receipt.read_text(encoding="utf-8")) if receipt.exists() else {}
+                result = (
+                    json.loads(receipt.read_text(encoding="utf-8"))
+                    if receipt.exists()
+                    else {}
+                )
             except (OSError, ValueError):
                 result = {}
-            result.update(status="failed", error_type=type(error).__name__,
-                          project_may_contain_partial_outputs=True)
-            write_json(receipt, result)
+            result.update(
+                status="failed",
+                error_type=type(error).__name__,
+                project_may_contain_partial_outputs=bool(envelope["worker"]),
+            )
             try:
                 self.restore_console_variables()
             except Exception:
                 result["session_cleanup_failed"] = True
+            try:
                 write_json(receipt, result)
-            self.publish("failed", error_type=type(error).__name__)
+            except OSError as persistence_error:
+                result["receipt_error_type"] = type(persistence_error).__name__
+            self.publish(
+                "failed",
+                error_type=type(error).__name__,
+                **{
+                    key: result[key]
+                    for key in ("receipt_error_type", "session_cleanup_failed")
+                    if key in result
+                },
+            )
             self.active = self.module = None
 
 
@@ -149,11 +194,13 @@ def main():
     metadata_path = Path(os.environ["AILIAS_UNREAL_SESSION"])
     deadline = time.monotonic() + 10
     while not metadata_path.exists() and time.monotonic() < deadline:
-        time.sleep(.05)
+        time.sleep(0.05)
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     project = Path(unreal.Paths.get_project_file_path()).resolve()
-    if (os.path.normcase(str(project)) != os.path.normcase(metadata["project"])
-            or metadata["process"]["pid"] != os.getpid()):
+    if (
+        os.path.normcase(str(project)) != os.path.normcase(metadata["project"])
+        or metadata["process"]["pid"] != os.getpid()
+    ):
         raise ValueError("Persistent Unreal bootstrap project/process mismatch")
     if not unreal.SystemLibrary.get_engine_version().startswith("5.8."):
         raise ValueError("Persistent Unreal execution requires the verified UE 5.8 API")
