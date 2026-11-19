@@ -79,7 +79,8 @@ of the internal `head_reconstruction`, `metahuman` and `pipelines` package names
 |---|---|---|---|---|
 | ![Photograph](docs/images/pipeline/portrait.png) | ![Head-only crop](docs/images/pipeline/cutout.png) | ![Neutral mesh](docs/images/pipeline/clay.png) | ![Surface appearance](docs/images/pipeline/appearance.png) | ![Editable native Character](docs/images/pipeline/native-appearance.png) |
 
-These illustrate formats rather than a likeness guarantee.
+The fitted mesh, surface appearance and native Character come from the same
+photo-to-character run. These illustrate formats rather than a likeness guarantee.
 [Image provenance](docs/images/pipeline/provenance.json) records their sources.
 
 ## Configuration and output
