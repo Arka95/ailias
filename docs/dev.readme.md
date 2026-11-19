@@ -32,6 +32,7 @@ saved-asset checks use a separate editor process.
 |---|---|
 | `cli.py`, module CLIs | Validate arguments, call Python APIs and emit JSON results |
 | `pipelines` | Compose cross-domain operations using `common.execution`; persist stage boundaries |
+| `workflows` | Independent opt-in workflow objects: atomic action chains, shared run context, explicit save/cleanup; no existing-job migration |
 | `imageprocessing` | Decode, group, mask and measure images through task-scoped model adapters |
 | `head_reconstruction` | Fit shared shape/per-photo cameras, export meshes and prepare photo colour |
 | `metahuman` | Import/conform native geometry, apply feature profiles and verify saved assets |
@@ -82,6 +83,12 @@ Neither establishes anatomical accuracy.
 stops on failure. `StageJournal` records individual stage outcomes in the job
 manifest. Domain modules keep their own numerical/native APIs rather than
 inheriting a universal pipeline base class.
+
+New object-based jobs may use [workflows](workflows/README.md): `IWorkflow`
+defines the explicit lifecycle and run GUID; actions share current/named context
+and have no GUIDs. `save()` snapshots current structured data to run-local JSON;
+cleanup delegates owned resources/scratch to entered actions. This separate
+foundation does not replace existing job orchestration or the manual `workflow.py`.
 
 Resource-owning operations release handles and finalize files in `finally`
 blocks. Pure transformations have no artificial cleanup method. A job does

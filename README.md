@@ -109,6 +109,7 @@ resemblance, calibrated skin colour, acting quality or lip-sync accuracy.
 | Document | Dev guide | Purpose |
 |---|---|---|
 | [Core workflow](docs/workflow.md) | [Development](docs/dev.readme.md) | Capture, durable state, configuration and resource ownership |
+| [Workflow objects](docs/workflows/README.md) | [Internals](docs/workflows/dev.readme.md) | Atomic action chains, per-run GUID/context, explicit JSON save and cleanup |
 | [Imageprocessing](docs/imageprocessing/README.md) | [Internals](docs/imageprocessing/dev.readme.md) | Photo grouping, head extraction and curation |
 | [Head reconstruction](docs/head_reconstruction/README.md) | [Internals](docs/head_reconstruction/dev.readme.md) | Numerical fitting, mesh export and photo appearance |
 | [MetaHuman](docs/metahuman/README.md) | [Internals](docs/metahuman/dev.readme.md) | Native assets, feature profiles, assembly and reload verification |
