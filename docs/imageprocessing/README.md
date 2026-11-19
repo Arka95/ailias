@@ -2,25 +2,69 @@
 
 # Imageprocessing
 
-Extract reviewable face groups, portraits and head-only foreground from photos.
-Original files remain unchanged. The new API groups one person's views;
-the existing CLI retains its heuristic identity grouping and quality gates.
-Reusable photo-feature extraction belongs here; native asset/control translation
-belongs downstream. Regional geometry/colour/iris evidence does not include
-separate beard/lash segmentation or automatic native likeness fitting.
-See the [research and limitations](photo-to-metahuman-research.md).
-For model-by-model inputs, outputs and actual local portrait examples, see the
-[illustrated image-to-features pipeline](illustrated-pipeline.md).
+Prepare images/video frames and extract one known person's facial measurements
+and appearance. This module does not construct a head, fit a 3D model or operate
+an editor. Original files remain unchanged; exports are explicit.
+
+## One image through the two CNNs
+
+`ImageProcessor.process_image()` runs the following preparation steps. A CNN is
+a trained convolutional neural network; **MODNet and BiSeNet are the two
+preparation CNNs**, not the later facial-landmark model.
+
+| Step | Input and operation | Output passed forward |
+|---|---|---|
+| Load | Decode the original with EXIF orientation and colour-profile handling; keep supplied transparency | Native-size image and an unchanged RGB reference |
+| **1. MODNet: remove background** | Composite existing transparency onto neutral grey; letterbox to the model's 512-square input; predict opacity and resize it back | RGBA person foreground with soft alpha. Neck and clothing can still remain; existing alpha is never restored |
+| **2. BiSeNet ResNet18: isolate head** | Composite the MODNet result onto neutral grey; infer 19 semantic classes at 512 square; restore labels with nearest-neighbour resizing | Native-size label image plus RGBA head. Face/ears/hair and the parser's glasses class are retained; neck/clothing/background are removed |
+| Optional colour normalization | Estimate bounded white balance from original scene neutrals outside the head; skip unsupported estimates | Corrected head RGB with unchanged alpha; original RGB remains available for measurements |
+
+BiSeNet receives **the grey-composited MODNet result**, not a second independent
+copy of the original. Neither CNN crops, aligns or frontalizes the returned
+image. Both predictions are restored to the input pixel grid.
+
+| Existing original | Example head output after MODNet and BiSeNet |
+|---|---|
+| ![Original portrait](images/original.png) | ![Head-only output from the existing full-image MODNet and BiSeNet experiment](images/modnet-bisenet.png) |
+
+These are retained local demonstration images, **not a newly executed run**.
+The cutout comes from the full-image MODNet -> grey composite -> BiSeNet
+experiment. White balance and the later MediaPipe stage are not demonstrated
+in these previews. The [illustrated guide](illustrated-pipeline.md) also labels
+the separate older crop/detection examples; those are not steps of this API.
+
+Preparation returns these values **in memory**, without saving sidecars:
+
+| Field | Contents |
+|---|---|
+| `image` | Native-size RGBA head, optionally colour-normalized |
+| `original_image` | Original RGB reference on the same oriented grid, before normalization |
+| `regions` | Grayscale image of semantic class IDs, not an RGB preview or per-class probability maps |
+| `colour` | White-balance outcome and gains, or a skipped/not-applied result |
+| `status`, `quality` | `ready` means nonempty head foreground, not approval of facial quality |
+| Source/execution fields | Source path, optional video frame/index time, and requested/backend execution details |
+
+## From prepared appearance to FaceFeatures
+
+`FaceFeatureExtractor` consumes the **existing head image, original RGB and
+BiSeNet labels together**. It does not repeat either preparation CNN.
+
+1. `extract_bisenet_features(original_rgb, regions)` measures natural-region
+   appearance: pixel coverage, bounds, usable colour samples and review flags.
+   This is pixel measurement using existing labels, **not another CNN**.
+2. MediaPipe receives the prepared RGBA head composited onto neutral grey and
+   predicts 478 landmarks, expression scores and a facial transform.
+3. Landmarks map onto the unchanged source grid. `photo_features()` combines
+   them with original RGB and the **already measured** BiSeNet region record
+   to calculate projected facial ratios and landmark-guided iris colour.
+4. The extractor assembles `FaceFeatures`, adding orientation and quality
+   annotations. Regional colours do not feed into or refine MediaPipe.
+
+No separate appearance pass needs to run before calling the extractor: it owns
+steps 1-4. Missing/ambiguous landmark detection can leave partial regional
+appearance without inventing facial geometry.
 
 ## Simple Python API
-
-`images.py` prepares pixels with **MODNet -> BiSeNet -> optional white balance**.
-`face_feature_extraction.py` uses **MediaPipe -> facial features**, reusing the
-prepared head and labels: no second matting, parsing or head-isolation pass.
-The extractor also calculates **orientation and quality**.
-`face_grouping.py` consumes that evidence for **view groups -> selection**.
-These stages use no YuNet, SFace, automatic cropping or alignment. Existing commands
-below are unchanged and still use their original pipeline.
 
 **Single-person scope:** every input belongs to the same known person. Identity
 embeddings, person clustering and subject matching are intentionally unnecessary
@@ -64,21 +108,30 @@ CPU-only processing. On Windows in CUDA mode, **only MediaPipe uses CPU**, becau
 its Python GPU delegate is unsupported there. Elsewhere CUDA mode requests the
 MediaPipe GPU delegate. Unsupported requested GPU execution fails; no CPU retry.
 
-| Stage | Result fields |
-|---|---|
-| Preparation | `image`: native-size RGBA head; `original_image`: untouched RGB on the same grid; `regions`: semantic labels; `colour`: white-balance outcome |
-| `FaceFeatures` | `source_size`: landmark-grid width/height; `landmarks`, `blendshapes`, raw `facial_transform`, derived `orientation`, typed `quality`; `features`: facial ratios/iris evidence; `bisenet`: natural-region appearance; colour-source semantics |
-| Batch `FaceExtractionResult` | Facial data in `.features`; source/frame metadata, original/prepared pixels, execution provenance and optional `.error_type`/`.reason` |
-| `FaceGroupingResult` | `.groups`: all candidates by view, including excluded members; `.selected`/`.excluded`: decision lists with orientation, quality warnings and review-copy outcome |
+## What FaceFeatures contains
 
-Preparation `ready` means a nonempty head, **not face-quality approval**.
-The extractor records measurements, raw model predictions, derived orientation
-and image-quality assessment. Grouping owns view bins and keep/exclude decisions;
-it never recalculates orientation or quality.
-`extract_features(prepared)` returns a **`FaceFeatures` instance** containing
-facial data only. It can contain partial BiSeNet evidence without landmarks.
-For grouping, use batch extraction: **its items are now `FaceExtractionResult`**,
-not `FaceFeatures`. Source/frame/backend/error fields moved into this wrapper.
+`extract_features(prepared)` returns a `FaceFeatures` instance containing facial
+data only. Its fields describe one view, not an identity model or a constructed head.
+
+| Field | Contents and limits |
+|---|---|
+| `source_size` | `(width, height)` of the landmark pixel grid, including any explicit caller crop |
+| `landmarks` | `normalized_predicted`: 478 x 3 raw MediaPipe predictions; `source_xy`: 478 x 2 pixel coordinates; `on_head`: 478 in-image/positive-alpha support flags. Predicted z is not metric depth |
+| `bisenet` | Typed `FaceFeaturesBiseNet`: natural-region appearance records described below, not dense pixel masks |
+| `features` | Dictionary containing `geometry_2d` pixel lengths/eye-span ratios, `regions` appearance summaries and separate `iris` evidence, plus unresolved-measurement/limitation flags |
+| `blendshapes` | Per-view expression scores, not shared identity or a neutral mesh |
+| `facial_transform` | Raw model transform, when available |
+| `orientation` | Approximate pitch/yaw/roll or a missing/invalid-pose diagnostic; not calibrated anatomical direction |
+| `quality` | Typed `FaceQuality`: detail, exposure, support, clipping, expression and warning reasons |
+| `features_colour_source` | `"original_rgb"`: colours retain the photographed lighting, not the normalized cutout colours |
+
+`FaceFeatures` contains **no image pixels, alpha image, dense parser masks,
+source path or selection decision**. For grouping, use batch extraction:
+its `FaceExtractionResult` items keep facial data in `.features`, original/head
+Pillow references in `.image`/`.head_image`, and source/frame/backend/error
+metadata alongside it. Wrapper JSON omits the image pixels.
+`FaceGroupingResult` owns `.groups`, `.selected` and `.excluded`; grouping never
+recalculates orientation or quality.
 `mediapipe_model` and `quality_policy` belong to the extractor; view-bin policy
 belongs to grouping.
 
@@ -101,6 +154,27 @@ colour when measurable, and review/provenance fields. Missing parts request
 review instead of inventing colours. Accessories, neck and clothing are excluded.
 Eye-region colour is not a separate iris or pupil measurement.
 
+For example, one **illustrative, not measured-from-the-previews** skin record is:
+
+```json
+{
+  "status": "observed",
+  "parser_classes": [1],
+  "region_pixels": 18000,
+  "sample_pixels": 15600,
+  "bounds_xy": [[40, 35], [180, 210]],
+  "median_linear_rgb": [0.20, 0.13, 0.10],
+  "photographed_lighting_retained": true
+}
+```
+
+`region_pixels` counts the region before colour-sample filtering;
+`sample_pixels` counts usable, non-clipped colour samples. The RGB values are
+independent normalized linear-light channel intensities, **not percentages
+that add up to 100**. Missing/insufficient regions retain review evidence
+instead of a fabricated colour. Beard, moustache and eyelashes have no separate
+class in the current parser and remain explicitly unresolved.
+
 These are derived pixel statistics, not retained raw CNN score maps. They reuse
 existing labels and do not feed into or refine MediaPipe. The enclosing
 `FaceFeatures` also supports `to_dict()` and `str(...)` for dictionary/JSON output.
@@ -109,13 +183,14 @@ inference or image loading. `source_size` belongs to the landmark coordinate fra
 not source identity: it is the width/height of the prepared, EXIF-oriented pixel
 grid, including any explicit caller crop. It contains no RGB/alpha pixels.
 
-For geometry, pass selected features to the downstream
-[feature-based head reconstruction API](../head_reconstruction/README.md#reconstruct-from-retained-facefeatures).
-Imageprocessing does not import a head model or fitter. Dimensions, source-pixel
-landmarks and foreground support are sufficient inputs for that model-based fit;
-colours, predicted landmark z and expression scores are not measured 3D geometry.
+**Next step:** selected `FaceFeatures` supply dimensions, 2D landmarks and support
+to the separate [head-reconstruction fitter](../head_reconstruction/README.md#reconstruct-from-retained-facefeatures),
+which owns shared-identity fitting and neutral-head construction.
+
 Old bare feature records without dimensions are not independently usable for fitting;
 recover the matching grid dimensions from their extraction wrapper, not by guessing.
+
+## View grouping and runtime
 
 Colour normalization is enabled by default for the returned cutout, not feature
 samples; pass `normalize_colour=False` to skip it. Original RGB supplies the
@@ -167,7 +242,12 @@ Use each instance serially, not concurrent calls sharing mutable model state.
 No alpha sidecars, JSON or previews are retained automatically; grouping writes
 only the explicitly requested excluded-image review copies.
 
-## Inputs and outputs
+## Existing CLI inputs and outputs
+
+The commands below still use the older production path during the staged
+migration; they do **not yet** compose the Python API described above.
+Their identity grouping, alignment and stricter selection are not prerequisites
+of the new single-person API.
 
 | Input | Output | Consumer |
 |---|---|---|
