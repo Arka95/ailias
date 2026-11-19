@@ -59,9 +59,11 @@ except HeadReconstructionError as error:
     print(error.report)  # Includes per-view exclusions even if fitting cannot start.
     raise
 
-vertices = reconstruction["vertices"]
-triangles = reconstruction["triangles"]
-parameters = reconstruction["fit"]
+vertices = reconstruction.mesh.vertices
+triangles = reconstruction.mesh.triangles
+parameters = reconstruction.fit.parameters
+print(reconstruction.report.status)
+report_json = str(reconstruction.report)  # Explicit strict JSON; no file writes.
 ```
 
 `grouped` comes from `group_face_images()` in the
@@ -73,6 +75,23 @@ outer-eye spacing is derived, not a physical interpupillary measurement.
 No live pixels, BiSeNet inference, identity matching, MediaPipe transform or
 MediaPipe expression scores are required by this fitting connection.
 
+The Python API returns classes, not a large nested dictionary:
+
+| Class | Responsibility |
+|---|---|
+| `HeadReconstructionResult` | Associates `.mesh`, `.fit`, `.observations` and `.report` |
+| `HeadMesh` | Neutral `.vertices` and `.triangles`, without per-photo expression |
+| `HeadFittingResult` | Numerical `.parameters` plus typed per-view/runtime `.summary` |
+| `ReconstructionReport` | Input counts/split, exclusions, candidate evaluations, mesh checks and outcome |
+| `HeadViewObservation` | One view's source-grid geometry/support or explicit evidence failure |
+
+These records live in `head_reconstruction.reconstruction_data`. Each supports
+`to_dict()` and strict JSON `str(...)`; arrays become ordinary lists only when
+serialization is requested. `HeadReconstructionError.report` is also a
+`ReconstructionReport`; inspect `.excluded` and `.failure`, not dictionary keys.
+This intentionally replaces dictionary indexing in the new Python API.
+It does not change legacy CLI manifests or add dictionary-emulation methods to classes.
+
 At least five geometrically usable views are required. Invalid evidence, camera
 initialization failure and insufficient template/foreground support are reported
 per view. Blur/exposure/expression warnings and large orientation angles do not
@@ -83,8 +102,9 @@ collapse/flip/stretch checks remain required; failure does not publish a
 generic head as a successful personal reconstruction.
 
 The result is in memory: no previews, sidecars, meshes, models or native assets
-are saved automatically. Use `geometry.artifact_io.export_obj()` and `save_fit()`
-explicitly to export the returned geometry/fit. This is a new Python entry point;
+are saved automatically. Use `geometry.artifact_io.export_obj(path, vertices, triangles)`
+and `save_fit(path, reconstruction.fit)` explicitly to export geometry/parameters.
+The existing NPZ field names remain unchanged. This is a new Python entry point;
 the existing `facefitting fit` CLI, its legacy observation path and pose rules
 are unchanged. Pixel-based appearance fitting remains a separate downstream task.
 

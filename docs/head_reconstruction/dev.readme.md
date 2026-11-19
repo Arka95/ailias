@@ -17,6 +17,7 @@ lives in `pipelines`.
 | `blender` | Clay/appearance scenes, tracking views and coordinate-preserving exports |
 | `pipeline.py` | Standalone photo-fit job, review products and artifact checks |
 | `settings.py`, `artifacts.py` | Domain policy validation and retained-job loading |
+| `reconstruction_data.py` | Typed evidence, numerical results, neutral geometry and stage diagnostics for the feature-based API |
 
 ## Fitting
 
@@ -45,20 +46,49 @@ out-of-image support without mutating predictions. Invalid records retain their
 view ID and reason. It performs no image I/O, neural inference or identity matching.
 
 `geometry\feature_reconstruction.py` exposes `reconstruct_head_from_features()`.
-The caller supplies the loaded model and explicit `FitPolicy`; the function
-uses `prepare_views()` and `fit_multiview_identity()` rather than the legacy
-photo pipeline that reruns detection and produces render/review artifacts.
+Its stages are observation conversion, `prepare_head_views()`,
+`fit_shared_head_identity()` and `construct_neutral_head_mesh()`. The caller
+supplies the loaded model and explicit `FitPolicy`; no stage runs image
+inference, opens source images, exports files or starts a native editor.
+The short orchestration function owns status/failure transitions only.
+
+`identity_fitting.py` separates generic-reference fitting, candidate evaluation,
+frontal-preserving selection and final all-view parameter restoration/refitting.
+Completed candidate diagnostics survive later solver failures. The 1% minimum
+held-out improvement and 5% maximum frontal regression are unchanged named
+constants near their owner. Per-view expression remains separate from shared identity.
+
+`HeadReconstructionResult`, `HeadFittingResult`, `HeadFitParameters`,
+`HeadFitSummary`, `HeadMesh` and `ReconstructionReport` replace the new API's
+output dictionaries. Nested inputs, exclusions, candidate scores, runtime,
+per-view metrics, mesh quality and failures have scoped record classes.
+Orientation and backend-specific scalar metadata remain small explicitly scoped
+maps rather than becoming arbitrary root reports. `.to_dict()` and `str(...)`
+convert NumPy arrays into strict JSON data explicitly; nonfinite values fail.
+No class implements mapping/dictionary emulation.
+
+`geometry\fitting_results.py` adapts existing CPU/CUDA backend records into the
+typed fitting result, retaining backend-specific provenance. Backend array
+contracts remain internal numerical integration boundaries.
+`fit_multiview_identity()` is a compatibility entry point over the same scoped
+fitting implementation: old photo-to-character callers keep dictionary outputs,
+manifest field names and additional caller-owned report fields. The existing
+`facefitting fit` CLI is not silently migrated to a different evidence pipeline.
+
 The new path disables only legacy angle rejection, not camera initialization,
 foreground/template support, minimum-view, held-out identity or mesh-quality gates.
-`prepare_views(report=...)` retains prepared IDs/exclusions before its five-view
-check, so `HeadReconstructionError.report` explains failures instead of losing
-their per-view diagnostics. CPU/CUDA dispatch remains policy-controlled.
+`prepare_views(report=...)` diagnostics are translated into typed exclusions even
+when the five-view check fails. `HeadReconstructionError.report.failure` retains
+the original exception category/explanation, with the original exception as cause.
+CPU/CUDA dispatch remains policy-controlled.
 
 `geometry\mesh_quality.py` owns the shared surface-deformation check, also reused
-by native-video fitting through its existing compatibility import. The feature
-API returns neutral vertices/topology and raw fitting parameters in memory;
+by native-video fitting through its existing dictionary compatibility function.
+The feature API returns typed neutral geometry, fitting parameters and reports in memory;
 no artifact lifecycle, editor connection, workflow migration or automatic save
-is implied. Synthetic CPU tests cover actual feature-to-fit numerical execution;
+is implied. `save_fit()` accepts the typed fitting result and preserves the
+existing NPZ layout. Synthetic CPU tests cover actual feature-to-fit execution,
+typed JSON serialization, explicit OBJ/NPZ export and per-stage failure diagnostics;
 they do not validate real-photo likeness or installed GNM assets.
 
 ## Photo appearance

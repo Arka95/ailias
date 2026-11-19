@@ -2,12 +2,23 @@
 
 import numpy as np
 
+from ailias.head_reconstruction.reconstruction_data import HeadFittingResult
 
-def export_obj(path, vertices, triangles, *, description="photo-conditioned neutral GNM head; uncalibrated scale",
-               triangle_uvs=None):
+
+def export_obj(
+    path,
+    vertices,
+    triangles,
+    *,
+    description="photo-conditioned neutral GNM head; uncalibrated scale",
+    triangle_uvs=None,
+):
     if triangle_uvs is not None:
         triangle_uvs = np.asarray(triangle_uvs)
-        if triangle_uvs.shape != (len(triangles), 3, 2) or not np.isfinite(triangle_uvs).all():
+        if (
+            triangle_uvs.shape != (len(triangles), 3, 2)
+            or not np.isfinite(triangle_uvs).all()
+        ):
             raise ValueError("OBJ triangle UVs must match finite per-corner topology")
     with path.open("w", encoding="ascii") as stream:
         stream.write(f"# ailias {description}\n")
@@ -20,9 +31,28 @@ def export_obj(path, vertices, triangles, *, description="photo-conditioned neut
             if triangle_uvs is None:
                 stream.write(f"f {a} {b} {c}\n")
             else:
-                uv = index*3+1
-                stream.write(f"f {a}/{uv} {b}/{uv+1} {c}/{uv+2}\n")
+                uv = index * 3 + 1
+                stream.write(f"f {a}/{uv} {b}/{uv + 1} {c}/{uv + 2}\n")
+
 
 def save_fit(path, result):
-    np.savez_compressed(path, identity=result["identity"], per_view=result["per_view"],
-                        parameters=result["parameters"], projected=result["projected"])
+    """Save explicit fitting arrays from typed results or existing legacy solver records.
+    Keep the NPZ field names stable so downstream readers do not depend on the Python API migration.
+    """
+    if isinstance(result, HeadFittingResult):
+        parameters = result.parameters
+        np.savez_compressed(
+            path,
+            identity=parameters.identity_coefficients,
+            per_view=parameters.cameras_and_expressions,
+            parameters=parameters.optimizer_parameters,
+            projected=parameters.projected_landmarks,
+        )
+        return
+    np.savez_compressed(
+        path,
+        identity=result["identity"],
+        per_view=result["per_view"],
+        parameters=result["parameters"],
+        projected=result["projected"],
+    )
