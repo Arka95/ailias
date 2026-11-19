@@ -100,6 +100,20 @@ class FaceFeatureExtractorTests(unittest.TestCase):
             self.assertEqual(prepared[key].tobytes(), pixels)
         self.assertEqual(set(self.root.iterdir()), files)
 
+    def test_feature_roundtrip_retains_geometry_grid_and_typed_assessments_without_pixels(self):
+        """Keep non-square pixel dimensions with the landmarks after strict-JSON serialization.
+        Restore retained predictions, regions and quality without loading pixels or rerunning extraction.
+        """
+        features = self.extract_image(self.image)
+        with patch("PIL.Image.open", side_effect=AssertionError("Pixels were reloaded")):
+            restored = FaceFeatures.from_dict(json.loads(str(features)))
+        self.assertEqual(restored, features)
+        self.assertEqual(restored.source_size, (160, 128))
+        self.assertEqual(restored.to_dict()["source_size"], [160, 128])
+        self.assertIsInstance(restored.bisenet, FaceFeaturesBiseNet)
+        self.assertIsInstance(restored.quality, FaceQuality)
+        self.assertEqual(self.landmarker.detect.call_count, 1)
+
     def test_landmarker_is_lazy_reused_and_closed_after_feature_collection(self):
         """Reuse only the owned landmark task across streamed feature extraction.
         Closing preparation is not part of this object's lifecycle.

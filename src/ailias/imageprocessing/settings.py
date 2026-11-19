@@ -28,20 +28,12 @@ class ProcessingPolicy:
     max_dark_fraction: float = 0.5
     # Largest permitted fraction of sampled grayscale face pixels at/above intensity 240; higher flags overexposure.
     max_bright_fraction: float = 0.5
-    # Minimum opacity beneath a landmark for foreground support: 0 is transparent, 255 is opaque.
-    # A point below this threshold is unsupported, not automatically an invalid prediction.
+    # Historical manifest fields only: active extraction reads FaceQualityPolicy instead.
+    # Keep accepting stored values so legacy CLI/downstream manifests remain loadable.
     min_landmark_alpha: int = 240
-    # Require this many of the 468 base face points to lie on supported foreground; iris points do not count.
-    # Fewer supported points flags the image for review but does not discard extracted evidence.
     min_supported_landmarks: int = 150
-    # Largest permitted mouth/brow/cheek/nose/eye-expression or jaw-open model score for a neutral face.
-    # A higher score flags non-neutral expression; the score is not a calibrated probability.
     max_neutral_expression: float = 0.5
-    # Maximum absolute predicted up/down tilt (pitch) or sideways head tilt (roll), in degrees.
-    # Exceeding either limit flags extreme pose; these angles are predictions, not calibrated measurements.
     max_pitch_roll_degrees: float = 25.0
-    # Maximum absolute predicted left/right head turn (yaw), in degrees.
-    # A larger turn flags extreme pose because less of the face is visible.
     max_yaw_degrees: float = 70.0
     identity_cosine_threshold: float = 0.5
     identity_ambiguity_margin: float = 0.05

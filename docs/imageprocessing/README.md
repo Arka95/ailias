@@ -67,7 +67,7 @@ MediaPipe GPU delegate. Unsupported requested GPU execution fails; no CPU retry.
 | Stage | Result fields |
 |---|---|
 | Preparation | `image`: native-size RGBA head; `original_image`: untouched RGB on the same grid; `regions`: semantic labels; `colour`: white-balance outcome |
-| `FaceFeatures` | `landmarks`, `blendshapes`, raw `facial_transform`, derived `orientation`, typed `quality`; `features`: facial ratios/iris evidence; `bisenet`: natural-region appearance; colour-source semantics |
+| `FaceFeatures` | `source_size`: landmark-grid width/height; `landmarks`, `blendshapes`, raw `facial_transform`, derived `orientation`, typed `quality`; `features`: facial ratios/iris evidence; `bisenet`: natural-region appearance; colour-source semantics |
 | Batch `FaceExtractionResult` | Facial data in `.features`; source/frame metadata, original/prepared pixels, execution provenance and optional `.error_type`/`.reason` |
 | `FaceGroupingResult` | `.groups`: all candidates by view, including excluded members; `.selected`/`.excluded`: decision lists with orientation, quality warnings and review-copy outcome |
 
@@ -104,6 +104,18 @@ Eye-region colour is not a separate iris or pupil measurement.
 These are derived pixel statistics, not retained raw CNN score maps. They reuse
 existing labels and do not feed into or refine MediaPipe. The enclosing
 `FaceFeatures` also supports `to_dict()` and `str(...)` for dictionary/JSON output.
+`FaceFeatures.from_dict(data)` restores typed regions/quality from saved JSON without
+inference or image loading. `source_size` belongs to the landmark coordinate frame,
+not source identity: it is the width/height of the prepared, EXIF-oriented pixel
+grid, including any explicit caller crop. It contains no RGB/alpha pixels.
+
+For geometry, pass selected features to the downstream
+[feature-based head reconstruction API](../head_reconstruction/README.md#reconstruct-from-retained-facefeatures).
+Imageprocessing does not import a head model or fitter. Dimensions, source-pixel
+landmarks and foreground support are sufficient inputs for that model-based fit;
+colours, predicted landmark z and expression scores are not measured 3D geometry.
+Old bare feature records without dimensions are not independently usable for fitting;
+recover the matching grid dimensions from their extraction wrapper, not by guessing.
 
 Colour normalization is enabled by default for the returned cutout, not feature
 samples; pass `normalize_colour=False` to skip it. Original RGB supplies the
@@ -244,11 +256,6 @@ file/policy into the extractor's separate quality configuration above.
 | `min_laplacian_variance` | `40` | Minimum face-region focus score after bounded downsampling |
 | `max_dark_fraction` | `0.5` | Maximum dark-pixel fraction in the face quality test |
 | `max_bright_fraction` | `0.5` | Maximum bright-pixel fraction in the face quality test |
-| `min_landmark_alpha` | `240` | Minimum 0-255 head opacity for a dense landmark to count as supported |
-| `min_supported_landmarks` | `150` | Retained compatibility key; new extractor reads its separate quality policy |
-| `max_neutral_expression` | `0.5` | Retained compatibility key; new extractor reads its separate quality policy |
-| `max_pitch_roll_degrees` | `25.0` | Retained compatibility key; does not limit new view grouping |
-| `max_yaw_degrees` | `70.0` | Retained compatibility key; does not limit new view grouping |
 | `identity_cosine_threshold` | `0.5` | Minimum pairwise SFace cosine for complete-link grouping |
 | `identity_ambiguity_margin` | `0.05` | Near-tie margin used to flag ambiguous identity assignments |
 | `portrait_side_margin` | `0.6` | Extra crop margin per side, relative to face-box width |
@@ -262,6 +269,14 @@ file/policy into the extractor's separate quality configuration above.
 Exact reviewed labels take priority. New acceptance also requires quality gates;
 new rejection needs all negative-score, positive-ceiling and margin tests.
 Cosines are not calibrated probabilities.
+
+Inactive `min_landmark_alpha`, `min_supported_landmarks`, `max_neutral_expression`,
+`max_pitch_roll_degrees` and `max_yaw_degrees` defaults were removed from this
+configuration. `ProcessingPolicy` still accepts the historical fields because
+saved CLI manifests are deserialized by cleansing, generation and reconstruction.
+They do not control new extraction/grouping; active quality thresholds belong
+in `face_quality.json`. Legacy modules remain because their CLI/downstream
+callers are live; this change does not retire or migrate those commands.
 
 ## Portrait background removal and colour consistency
 

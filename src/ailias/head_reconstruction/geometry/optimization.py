@@ -70,7 +70,10 @@ def initialize_camera(points, target, center, supported, eye_span):
     return best[1]
 
 
-def prepare_views(model, observations, entries):
+def prepare_views(model, observations, entries, *, reject_extreme_pose=True, report=None):
+    """Prepare normalized targets, cameras and geometric support from existing observations.
+    Keep legacy pose rejection by default; optionally retain diagnostics even when too few views can fit.
+    """
     prepared, excluded = [], []
     for observation in observations:
         if observation["status"] != "ready":
@@ -101,7 +104,7 @@ def prepare_views(model, observations, entries):
         weights /= weights.sum()
         lighting = entry.get("lighting", {}).get("baseline_penalty", 0)
         view = dense_view(camera, model.center, model.points)
-        if abs(view["yaw_deg"]) > 95 or abs(view["pitch_deg"]) > 55:
+        if reject_extreme_pose and (abs(view["yaw_deg"]) > 95 or abs(view["pitch_deg"]) > 55):
             excluded.append({"face_id": observation["face_id"], "reason": "extreme_or_ambiguous_dense_pose"})
             continue
         prepared.append({
@@ -110,6 +113,8 @@ def prepare_views(model, observations, entries):
             "view_weight": (1 if view["category"] == "front" else .85) / (1 + lighting),
             "view": view,
         })
+    if report is not None:
+        report.update(prepared_view_ids=[view["face_id"] for view in prepared], excluded=excluded)
     if len(prepared) < 5:
         raise ValueError("Need at least five reliable dense views for shared-identity fitting")
     return prepared, excluded

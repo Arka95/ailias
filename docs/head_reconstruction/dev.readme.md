@@ -36,6 +36,31 @@ Mapped face observations constrain the exterior. Iris observations do not
 receive invented surface anchors. Neutral export omits per-photo expression.
 CPU and CUDA share the objective, not an identical numerical update sequence.
 
+### Retained facial-feature boundary
+
+`evidence\feature_observations.py` converts `FaceFeatures` keyed by view ID into
+existing numerical observation records. It requires the retained pixel-grid
+dimensions and finite dense points/support, derives outer-eye span and suppresses
+out-of-image support without mutating predictions. Invalid records retain their
+view ID and reason. It performs no image I/O, neural inference or identity matching.
+
+`geometry\feature_reconstruction.py` exposes `reconstruct_head_from_features()`.
+The caller supplies the loaded model and explicit `FitPolicy`; the function
+uses `prepare_views()` and `fit_multiview_identity()` rather than the legacy
+photo pipeline that reruns detection and produces render/review artifacts.
+The new path disables only legacy angle rejection, not camera initialization,
+foreground/template support, minimum-view, held-out identity or mesh-quality gates.
+`prepare_views(report=...)` retains prepared IDs/exclusions before its five-view
+check, so `HeadReconstructionError.report` explains failures instead of losing
+their per-view diagnostics. CPU/CUDA dispatch remains policy-controlled.
+
+`geometry\mesh_quality.py` owns the shared surface-deformation check, also reused
+by native-video fitting through its existing compatibility import. The feature
+API returns neutral vertices/topology and raw fitting parameters in memory;
+no artifact lifecycle, editor connection, workflow migration or automatic save
+is implied. Synthetic CPU tests cover actual feature-to-fit numerical execution;
+they do not validate real-photo likeness or installed GNM assets.
+
 ## Photo appearance
 
 `appearance\pipeline.py` enforces the matching geometry-review dependency.

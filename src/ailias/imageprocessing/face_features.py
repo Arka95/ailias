@@ -102,7 +102,7 @@ class FaceQuality:
 @dataclass(frozen=True)
 class FaceFeatures:
     """Keep facial measurements and raw model predictions separate from collection decisions.
-    Include extracted orientation/quality; leave source metadata, failures and selection to result records.
+    Include the landmark pixel-grid size; leave source identity, failures and selection to result records.
     """
 
     features: dict | None = None
@@ -113,12 +113,30 @@ class FaceFeatures:
     orientation: dict | None = None
     quality: FaceQuality | None = None
     features_colour_source: str = "original_rgb"
+    source_size: tuple[int, int] | None = None
+
+    @classmethod
+    def from_dict(cls, value: dict) -> "FaceFeatures":
+        """Restore serialized facial evidence and its typed region/quality records without inference.
+        Leave absent legacy dimensions unknown rather than guessing a landmark coordinate frame.
+        """
+        data = dict(value)
+        if data.get("bisenet") is not None:
+            data["bisenet"] = FaceFeaturesBiseNet(**{
+                name: FaceRegionFeatures(**region) for name, region in data["bisenet"].items()
+            })
+        if data.get("quality") is not None:
+            data["quality"] = FaceQuality(**data["quality"])
+        if data.get("source_size") is not None:
+            data["source_size"] = tuple(data["source_size"])
+        return cls(**data)
 
     def to_dict(self) -> dict:
         """Return facial measurements as nested ordinary Python data.
         Serialize structured BiSeNet regions using their own evidence-preserving contract.
         """
         result = asdict(self)
+        result["source_size"] = list(self.source_size) if self.source_size is not None else None
         if self.bisenet is not None:
             result["bisenet"] = self.bisenet.to_dict()
         return result

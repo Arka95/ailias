@@ -93,7 +93,8 @@ class FaceFeatureExtractor:
         """Extract MediaPipe predictions and original-pixel appearance using existing region labels.
         Return only facial data; batch results additionally carry provenance and failure reasons.
         """
-        return self._extract_result(prepared_image).features or FaceFeatures()
+        return self._extract_result(prepared_image).features or FaceFeatures(
+            source_size=prepared_image["image"].size)
 
     def _extract_result(self, prepared_image: dict) -> FaceExtractionResult:
         """Associate facial measurements, orientation and quality annotations with their input.
@@ -108,7 +109,7 @@ class FaceFeatureExtractor:
         if head.getchannel("A").getbbox() is None:
             return replace(result, error_type="ValueError", reason="no_head_foreground")
         bisenet = extract_bisenet_features(original_rgb, regions)
-        result = replace(result, features=FaceFeatures(bisenet=bisenet))
+        result = replace(result, features=FaceFeatures(bisenet=bisenet, source_size=head.size))
         detection = self.detect_face_landmarks(head)
         result.execution["mediapipe_executed"] = True
         if len(detection["faces"]) != 1:
@@ -166,7 +167,7 @@ class FaceFeatureExtractor:
         blendshapes = detection["blendshapes"][0] if detection["blendshapes"] else {}
         transform = detection["transforms"][0] if detection["transforms"] else None
         return FaceFeatures(
-            bisenet=bisenet, landmarks={
+            source_size=head.size, bisenet=bisenet, landmarks={
                 "normalized_predicted": landmarks["normalized_predicted"].tolist(),
                 "source_xy": landmarks["source_xy"].tolist(), "on_head": landmarks["on_head"].tolist(),
             },

@@ -29,7 +29,8 @@ This preserves the uncorrected-photo colour contract, including its lighting/cas
 without retaining manifests. MediaPipe receives the prepared head, not original RGB.
 `extract_features()` returns a facial-data-only `FaceFeatures`: raw predictions,
 regional appearance, ratios, iris evidence, derived orientation, structured quality
-and colour-source semantics.
+and colour-source semantics. `source_size` retains the landmark coordinate-grid
+width/height even after serialization and pixel release. It is not a copy of RGB.
 The batch contract intentionally changed to `FaceExtractionResult`: its `.features`
 contains that data while source/frame/backend/errors live alongside it.
 The wrapper retains original/prepared pixels by reference for later grouping and
@@ -49,7 +50,14 @@ explicit review reason. Eye masks do not replace separate landmark-based iris sa
 The legacy feature dictionary keeps its original keys and adds the individual
 regions. `to_dict()` recursively produces plain data; `__str__()` emits strict
 JSON, including stringified source paths, without writing artifacts.
-The new class is retained output, not a new native-model integration. Existing
+`FaceFeatures.from_dict()` restores typed BiSeNet regions/quality and tuple
+dimensions from saved data without model execution. Missing dimensions in
+older records remain unknown. Head reconstruction owns
+`evidence\feature_observations.py`, which validates dimensions, finite coordinates,
+boolean support and nonzero outer-eye span; it masks support outside the grid.
+`geometry\feature_reconstruction.py` connects those observations to the existing
+camera/shared-identity/expression solver without repeating extraction.
+The new class is retained evidence, not a native-editor integration. Existing
 dictionary consumers use skin evidence for texture fill and hair/brow evidence
 for approximate groom settings. Additional individual-region summaries currently
 have no dedicated native consumer; they do not drive MediaPipe or 3D shape fitting.
@@ -108,8 +116,11 @@ creation, partial copies are cleaned up, originals are untouched and per-item
 copy errors remain in the report. Selected images write nothing. Group/decision
 records serialize with `to_dict()`/`str()`; no JSON sidecars are written.
 `FaceFeatures` contains none of this collection policy or bookkeeping.
-Legacy `ProcessingPolicy` configuration remains accepted and unchanged; the new
-grouper does not read identity settings or the old angle-rejection thresholds.
+Legacy `ProcessingPolicy` fields remain accepted for saved-manifest compatibility;
+the five inactive dense-quality/angle defaults are no longer advertised in
+`imageprocessing.json`. The new grouper does not read identity settings or old
+angle-rejection thresholds. All older modules still have CLI/downstream consumers;
+none was removed merely because the new API does not import it.
 Model input sizes, landmark counts and trained RGB normalization remain named
 model constants, not adjustable grouping thresholds.
 `Frame` sampling uses presentation timestamps with bounded lazy consumption,

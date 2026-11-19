@@ -9,6 +9,7 @@ import numpy as np
 
 from ailias.head_reconstruction.geometry.optimization import evaluation_score, fit, prepare_views
 from ailias.head_reconstruction.geometry.head_model import HeadModel, model_assets
+from ailias.head_reconstruction.geometry.mesh_quality import surface_quality as surface_quality
 from ailias.head_reconstruction.geometry.surface_correspondence import rebind_native_faces, sample_native
 from ailias.head_reconstruction.geometry.sculpt_fitting import proposed_vertices
 from ailias.head_reconstruction.geometry.artifact_io import export_obj, save_fit
@@ -40,23 +41,6 @@ def align_expression_basis(source, target, expressions, supported):
 def geometry_score(result, views):
     """Category balance prevents many frontal neighbours from hiding side regressions."""
     return evaluation_score(result["report"], views)["per_initial_view_category"]
-
-
-def surface_quality(reference, candidate, triangles):
-    """Reject collapsed/flipped predicted faces; this does not test self-intersections."""
-    before, after = (np.asarray(value)[triangles] for value in (reference, candidate))
-    normals = [np.cross(value[:, 1]-value[:, 0], value[:, 2]-value[:, 0])
-               for value in (before, after)]
-    areas = [np.linalg.norm(value, axis=1) for value in normals]
-    active = areas[0] > 1e-8
-    ratio = areas[1][active]/areas[0][active]
-    if not len(ratio) or not np.isfinite(ratio).all():
-        raise ValueError("Native prediction has no valid comparable surface")
-    flipped = int(np.sum(np.einsum("ij,ij->i", *normals)[active] <= 0))
-    quantiles = np.quantile(ratio, [.01, .5, .99])
-    return {"flipped_or_collapsed_triangles": flipped, "area_ratio_quantiles": quantiles.tolist(),
-            "passed": flipped == 0 and bool(quantiles[0] > .1 and quantiles[-1] < 10),
-            "self_intersections_checked": False}
 
 
 def fit_native_video(store, evidence_path, response_path, correspondence_path, appearance_path, policy,
