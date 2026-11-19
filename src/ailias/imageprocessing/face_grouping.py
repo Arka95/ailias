@@ -1,7 +1,7 @@
-"""Orient, group and select images of one known person; preserve excluded source copies."""
+"""Group extracted orientations and select one person's images; preserve excluded source copies."""
 
 from collections.abc import Iterable
-from dataclasses import dataclass, field, fields, replace
+from dataclasses import dataclass, fields, replace
 import json
 import math
 from pathlib import Path
@@ -10,36 +10,20 @@ import uuid
 
 import numpy as np
 
-from ailias.imageprocessing.face_features import FaceExtractionResult
-from ailias.imageprocessing.features import face_quality
+from ailias.imageprocessing.face_features import FaceExtractionResult, FaceQuality
 from ailias.imageprocessing.settings import MEDIAPIPE_BASE_FACE_POINT_COUNT, MEDIAPIPE_LANDMARK_COUNT
 from ailias.settings import PROJECT_ROOT
 
 
 DEFAULT_GROUPING_CONFIG = PROJECT_ROOT / "config" / "face_grouping.json"
-# Allow numerical drift after removing uniform scale, not non-rigid shear or reflected coordinates.
-ROTATION_VALIDATION_TOLERANCE = 0.02
 
 
 @dataclass(frozen=True)
 class FaceGroupingPolicy:
-    """Configure descriptive quality warnings and model-space view bins for one person's images.
-    No quality warning or angle threshold discards an otherwise usable extraction.
+    """Configure view bins using orientation already calculated by feature extraction.
+    View boundaries never discard an otherwise usable extraction.
     """
 
-    # Native face-box short side in pixels; smaller faces get a detail warning, not exclusion.
-    min_face_size: int = 256
-    # Grayscale focus heuristic on a face crop downsampled to at most 256 pixels per side.
-    min_laplacian_variance: float = 40.0
-    # Warn above these fractions of face pixels below intensity 16 or at/above 240, respectively.
-    max_dark_fraction: float = 0.5
-    max_bright_fraction: float = 0.5
-    # Opacity from 1 to 255 needed to count a landmark as well supported by the prepared head.
-    min_landmark_alpha: int = 240
-    # Fewer supported base-face points warn; iris points are excluded from this count.
-    min_supported_landmarks: int = 150
-    # Expression/jaw score above this value warns about expression, not identity or image validity.
-    max_neutral_expression: float = 0.5
     # Absolute yaw up to this angle belongs to the frontal view bin.
     frontal_yaw_degrees: float = 20.0
     # Absolute yaw at/above this angle belongs to a profile rather than an oblique bin.
@@ -48,21 +32,13 @@ class FaceGroupingPolicy:
     vertical_pitch_degrees: float = 20.0
 
     def __post_init__(self):
-        """Validate view boundaries, opacity/count domains and finite quality-warning thresholds.
+        """Validate finite, ordered yaw and pitch boundaries for view classification.
         Reject invalid configuration before grouping or writing any review copies.
         """
         for item in fields(self):
             value = getattr(self, item.name)
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
                 raise ValueError(f"{item.name} must be a nonnegative finite number")
-        for name, maximum in (("min_face_size", None), ("min_landmark_alpha", 255),
-                              ("min_supported_landmarks", MEDIAPIPE_BASE_FACE_POINT_COUNT)):
-            value = getattr(self, name)
-            if not isinstance(value, int) or value < 1 or (maximum is not None and value > maximum):
-                raise ValueError(f"Invalid {name}")
-        for name in ("max_dark_fraction", "max_bright_fraction", "max_neutral_expression"):
-            if getattr(self, name) > 1:
-                raise ValueError(f"{name} must be between 0 and 1")
         if not 0 < self.frontal_yaw_degrees < self.profile_yaw_degrees <= 90:
             raise ValueError("Yaw bins must satisfy 0 < frontal < profile <= 90 degrees")
         if not 0 < self.vertical_pitch_degrees <= 90:
@@ -76,12 +52,27 @@ class GroupedFaceImage:
     """
 
     extraction: FaceExtractionResult
-    orientation: dict
     selected: bool = False
-    quality: dict = field(default_factory=lambda: {"reasons": []})
     exclusion_reason: str | None = None
     review_copy: Path | None = None
     review_copy_error: str | None = None
+
+    @property
+    def orientation(self) -> dict:
+        """Expose the extracted orientation without computing another pose or storing a duplicate.
+        Report unavailable orientation for failed or partially extracted facial evidence.
+        """
+        features = self.extraction.features
+        if features is not None and features.orientation is not None:
+            return features.orientation
+        return {"calibrated": False, "reason": "missing_or_invalid_pose"}
+
+    @property
+    def quality(self) -> FaceQuality | None:
+        """Expose the same structured quality record produced by feature extraction.
+        Leave unavailable assessment as None instead of remeasuring pixels during grouping.
+        """
+        return self.extraction.features.quality if self.extraction.features is not None else None
 
     def to_dict(self) -> dict:
         """Return source/feature metadata and grouping decisions without image pixel objects.
@@ -89,7 +80,8 @@ class GroupedFaceImage:
         """
         return {
             "extraction": self.extraction.to_dict(), "orientation": dict(self.orientation),
-            "selected": self.selected, "quality": self.quality, "exclusion_reason": self.exclusion_reason,
+            "selected": self.selected, "quality": self.quality.to_dict() if self.quality is not None else None,
+            "exclusion_reason": self.exclusion_reason,
             "review_copy": str(self.review_copy) if self.review_copy is not None else None,
             "review_copy_error": self.review_copy_error,
         }
@@ -137,38 +129,13 @@ def load_grouping_policy(path: str | Path = DEFAULT_GROUPING_CONFIG) -> FaceGrou
     return FaceGroupingPolicy(**json.loads(Path(path).read_text(encoding="utf-8")))
 
 
-def determine_face_orientation(transform, policy: FaceGroupingPolicy) -> dict:
-    """Derive approximate model-space Euler angles from MediaPipe's raw face transform.
-    Remove uniform scale before validating rotation; unavailable orientation remains an unknown view.
-    """
-    unknown = {"category": "unknown", "calibrated": False, "reason": "missing_or_invalid_pose"}
-    try:
-        matrix = np.asarray(transform, dtype=float)
-    except (TypeError, ValueError):
-        return unknown
-    if matrix.shape != (4, 4) or not np.isfinite(matrix).all():
-        return unknown
-    linear = matrix[:3, :3]
-    scale = float(np.linalg.norm(linear[:, 0]))
-    if scale <= np.finfo(float).eps:
-        return unknown
-    # MediaPipe's canonical-to-runtime transform can contain uniform scale as well as rotation.
-    rotation = linear / scale
-    if (not np.allclose(matrix[3], [0, 0, 0, 1], atol=ROTATION_VALIDATION_TOLERANCE)
-            or not np.allclose(rotation.T @ rotation, np.eye(3), atol=ROTATION_VALIDATION_TOLERANCE)
-            or not math.isclose(float(np.linalg.det(rotation)), 1.0, abs_tol=ROTATION_VALIDATION_TOLERANCE)):
-        return unknown
-    yaw = math.degrees(math.atan2(-rotation[2, 0], math.hypot(rotation[0, 0], rotation[1, 0])))
-    pitch = math.degrees(math.atan2(rotation[2, 1], rotation[2, 2]))
-    roll = math.degrees(math.atan2(rotation[1, 0], rotation[0, 0]))
-    return {"category": _view_category(yaw, pitch, policy), "pitch_deg": pitch,
-            "yaw_deg": yaw, "roll_deg": roll, "calibrated": False}
-
-
-def _view_category(yaw: float, pitch: float, policy: FaceGroupingPolicy) -> str:
+def _view_category(orientation: dict, policy: FaceGroupingPolicy) -> str:
     """Label approximate yaw and pitch bins without declaring any view invalid.
     Preserve combined side-and-vertical views rather than collapsing their upper/lower information.
     """
+    if "reason" in orientation:
+        return "unknown"
+    yaw, pitch = orientation["yaw_deg"], orientation["pitch_deg"]
     if abs(yaw) <= policy.frontal_yaw_degrees:
         category = "front"
     else:
@@ -180,49 +147,25 @@ def _view_category(yaw: float, pitch: float, policy: FaceGroupingPolicy) -> str:
     return category
 
 
-def _face_bounds(extraction: FaceExtractionResult) -> tuple[list | None, np.ndarray | None, str | None]:
+def _extraction_invalid_reason(extraction: FaceExtractionResult) -> str | None:
     """Check that extracted base-face coordinates overlap their source image with nonzero extent.
     Treat missing, nonfinite or entirely outside landmarks as invalid, not as another identity.
     """
     if extraction.error_type is not None or extraction.reason is not None:
-        return None, None, extraction.reason or extraction.error_type
+        return extraction.reason or extraction.error_type
     if extraction.image is None or extraction.features is None or extraction.features.landmarks is None:
-        return None, None, "missing_image_or_face_features"
+        return "missing_image_or_face_features"
     try:
         points = np.asarray(extraction.features.landmarks["source_xy"], dtype=float)
     except (KeyError, TypeError, ValueError):
-        return None, None, "invalid_dense_landmarks"
+        return "invalid_dense_landmarks"
     if points.shape != (MEDIAPIPE_LANDMARK_COUNT, 2) or not np.isfinite(points).all():
-        return None, None, "invalid_dense_landmarks"
+        return "invalid_dense_landmarks"
     base = points[:MEDIAPIPE_BASE_FACE_POINT_COUNT]
     low, high = np.maximum(0, base.min(0)), np.minimum(extraction.image.size, base.max(0))
     if np.any(high <= low):
-        return None, None, "face_outside_image_or_degenerate_landmarks"
-    return [*low.tolist(), *(high - low).tolist()], points, None
-
-
-def _assess_image_quality(extraction: FaceExtractionResult, box: list, points, policy: FaceGroupingPolicy) -> dict:
-    """Annotate detail, exposure, clipping, alpha support and expression without rejecting usable views.
-    Orientation and facial angles never add an extreme-pose penalty to these warnings.
-    """
-    quality = face_quality(extraction.image, box, policy)
-    base = points[:MEDIAPIPE_BASE_FACE_POINT_COUNT]
-    inside = ((base >= 0) & (base < extraction.image.size)).all(1)
-    if not inside.all():
-        quality["reasons"].append("face_clipped")
-    if extraction.head_image is not None and extraction.head_image.size == extraction.image.size:
-        if "A" in extraction.head_image.getbands():
-            samples = np.clip(np.floor(base).astype(int), 0, np.asarray(extraction.image.size) - 1)
-            alpha = np.asarray(extraction.head_image.getchannel("A"))
-            supported = inside & (alpha[samples[:, 1], samples[:, 0]] >= policy.min_landmark_alpha)
-            if int(supported.sum()) < policy.min_supported_landmarks:
-                quality["reasons"].append("insufficient_head_support")
-    expression = max((value for name, value in extraction.features.blendshapes.items()
-                      if name.startswith(("mouth", "brow", "cheek", "noseSneer", "eyeWide", "eyeSquint"))
-                      or name == "jawOpen"), default=0.0)
-    if expression > policy.max_neutral_expression:
-        quality["reasons"].append("non_neutral_expression")
-    return quality
+        return "face_outside_image_or_degenerate_landmarks"
+    return None
 
 
 def _copy_excluded_image(extraction: FaceExtractionResult, directory: Path) -> Path:
@@ -251,14 +194,13 @@ def _copy_excluded_image(extraction: FaceExtractionResult, directory: Path) -> P
     return target
 
 
-def _select_group_member(item: GroupedFaceImage, directory: Path, policy: FaceGroupingPolicy) -> GroupedFaceImage:
+def _select_group_member(item: GroupedFaceImage, directory: Path) -> GroupedFaceImage:
     """Keep every usable extraction and copy only failed/invalid inputs for review.
     Report unavailable copies explicitly rather than deleting originals or silently dropping candidates.
     """
-    box, points, reason = _face_bounds(item.extraction)
+    reason = _extraction_invalid_reason(item.extraction)
     if reason is None:
-        quality = _assess_image_quality(item.extraction, box, points, policy)
-        return replace(item, selected=True, quality=quality)
+        return replace(item, selected=True)
     excluded = replace(item, exclusion_reason=reason)
     try:
         return replace(excluded, review_copy=_copy_excluded_image(item.extraction, directory))
@@ -270,17 +212,16 @@ def group_face_images(
     extractions: Iterable[FaceExtractionResult], *, review_directory: str | Path,
     policy: FaceGroupingPolicy | None = None,
 ) -> FaceGroupingResult:
-    """Determine orientation, form one person's view groups, then select every usable member.
+    """Consume extracted orientation/quality, form view groups, then select every usable member.
     Copy excluded candidates into the explicit review directory without modifying or deleting originals.
     """
     policy = policy if policy is not None else load_grouping_policy()
     groups = {}
     for extraction in extractions:
-        transform = extraction.features.facial_transform if extraction.features is not None else None
-        orientation = determine_face_orientation(transform, policy)
-        groups.setdefault(orientation["category"], []).append(GroupedFaceImage(extraction, orientation))
+        item = GroupedFaceImage(extraction)
+        groups.setdefault(_view_category(item.orientation, policy), []).append(item)
     directory = Path(review_directory)
     return FaceGroupingResult({
-        name: [_select_group_member(item, directory, policy) for item in members]
+        name: [_select_group_member(item, directory) for item in members]
         for name, members in groups.items()
     })

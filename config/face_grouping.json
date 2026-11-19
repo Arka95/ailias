@@ -1,11 +1,4 @@
 {
-  "min_face_size": 256,
-  "min_laplacian_variance": 40.0,
-  "max_dark_fraction": 0.5,
-  "max_bright_fraction": 0.5,
-  "min_landmark_alpha": 240,
-  "min_supported_landmarks": 150,
-  "max_neutral_expression": 0.5,
   "frontal_yaw_degrees": 20.0,
   "profile_yaw_degrees": 55.0,
   "vertical_pitch_degrees": 20.0

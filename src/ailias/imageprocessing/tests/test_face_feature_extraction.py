@@ -9,8 +9,22 @@ import numpy as np
 from PIL import Image
 
 from ailias.imageprocessing.face_feature_extraction import (
-    FaceExtractionResult, FaceFeatureExtractor, FaceFeatures, FaceFeaturesBiseNet,
+    FaceExtractionResult, FaceFeatureExtractor, FaceFeatures, FaceFeaturesBiseNet, FaceQuality,
 )
+from ailias.imageprocessing.settings import FaceQualityPolicy, load_face_quality_policy
+
+
+def face_transform(yaw=0, pitch=0, roll=0, scale=1):
+    """Build a synthetic scaled Rz/Ry/Rx transform with independent Euler angles.
+    Exercise transform arithmetic without claiming a real photo's physical head orientation.
+    """
+    yaw, pitch, roll = np.deg2rad([yaw, pitch, roll])
+    rx = np.array([[1, 0, 0], [0, np.cos(pitch), -np.sin(pitch)], [0, np.sin(pitch), np.cos(pitch)]])
+    ry = np.array([[np.cos(yaw), 0, np.sin(yaw)], [0, 1, 0], [-np.sin(yaw), 0, np.cos(yaw)]])
+    rz = np.array([[np.cos(roll), -np.sin(roll), 0], [np.sin(roll), np.cos(roll), 0], [0, 0, 1]])
+    result = np.eye(4)
+    result[:3, :3], result[:3, 3] = scale * rz @ ry @ rx, [1, 2, 3]
+    return result.tolist()
 
 
 def dense_prediction():
@@ -169,7 +183,7 @@ class FaceFeatureExtractorTests(unittest.TestCase):
 
     def test_feature_visibility_records_positive_alpha_without_collection_quality_thresholds(self):
         """Retain faint visible pixels as raw support rather than applying a quality-selection threshold.
-        Leave stricter opacity warnings to grouping while preserving the original head pixels.
+        Retain stricter opacity warnings separately in FaceQuality without changing head pixels.
         """
         prepared = self.prepared_image(self.image)
         alpha = np.asarray(prepared["image"].getchannel("A")).copy()
@@ -178,6 +192,12 @@ class FaceFeatureExtractorTests(unittest.TestCase):
         before = prepared["image"].tobytes()
         result = self.extractor.extract_features(prepared)
         self.assertTrue(all(result.landmarks["on_head"]))
+        self.assertEqual(result.quality.supported_landmarks, 0)
+        self.assertIn("insufficient_head_support", result.quality.reasons)
+        self.extractor.quality_policy = replace(self.extractor.quality_policy, min_landmark_alpha=220)
+        adjusted = self.extractor.extract_features(prepared)
+        self.assertEqual(adjusted.quality.supported_landmarks, 468)
+        self.assertNotIn("insufficient_head_support", adjusted.quality.reasons)
         self.assertEqual(prepared["image"].tobytes(), before)
 
     def test_default_cuda_keeps_explicit_windows_cpu_exception(self):
@@ -228,10 +248,11 @@ class FaceFeatureExtractorTests(unittest.TestCase):
                 self.assertIsNone(result.features.features)
                 self.assertIsInstance(result.features.bisenet, FaceFeaturesBiseNet)
                 self.assertEqual(result.features.bisenet.skin.status, "observed")
+                self.assertIsNone(result.features.quality)
 
     def test_outside_and_clipped_landmarks_preserve_distinct_review_outcomes(self):
         """Retain structurally valid point predictions even when outside or clipped against the image.
-        Leave image-overlap validation and selection to the grouping stage.
+        Annotate their quality without taking over grouping's keep/exclude decision.
         """
         for outside in (True, False):
             with self.subTest(outside=outside):
@@ -246,6 +267,112 @@ class FaceFeatureExtractorTests(unittest.TestCase):
                 result = self.extract_image(self.image)
                 self.assertIsNotNone(result.features)
                 self.assertEqual(result.landmarks["normalized_predicted"], detection["faces"][0])
+                self.assertIn("face_clipped", result.quality.reasons)
+                self.assertEqual(result.quality.clipped_landmarks, 468 if outside else 1)
+                self.assertEqual(result.quality.native_short_side is None, outside)
+
+    def test_extraction_retains_typed_quality_metrics_and_expression_evidence_as_strict_json(self):
+        """Compute structured quality before grouping and preserve scores/counts, not only warning strings.
+        Measure original pixels even when the prepared head's visible colour is different.
+        """
+        detection = dense_prediction()
+        detection["blendshapes"][0]["jawOpen"] = .9
+        self.landmarker.detect.side_effect = None
+        self.landmarker.detect.return_value = detection
+        for colour, fraction, warning in (
+            ("black", "dark_fraction", "face_underexposed"),
+            ("white", "bright_fraction", "face_overexposed"),
+        ):
+            with self.subTest(colour=colour):
+                prepared = self.prepared_image(Image.new("RGB", self.image.size, colour))
+                prepared["image"].paste((120, 120, 120, 255), (0, 0, 160, 64))
+                result = self.extractor.extract_features(prepared)
+                self.assertIsInstance(result.quality, FaceQuality)
+                self.assertEqual(getattr(result.quality, fraction), 1)
+                self.assertEqual(result.quality.laplacian_variance, 0)
+                self.assertEqual(result.quality.supported_landmarks, 468)
+                self.assertEqual(result.quality.clipped_landmarks, 0)
+                self.assertEqual(result.quality.max_expression_score, .9)
+                self.assertLess(result.quality.native_short_side, 256)
+                for reason in (warning, "face_too_small", "face_blurred_or_low_detail", "non_neutral_expression"):
+                    self.assertIn(reason, result.quality.reasons)
+                self.assertEqual(json.loads(str(result.quality)), result.quality.to_dict())
+                self.assertEqual(json.loads(str(result))["quality"], result.quality.to_dict())
+        self.extractor.quality_policy = replace(self.extractor.quality_policy, max_neutral_expression=.95)
+        adjusted = self.extractor.extract_features(prepared)
+        self.assertNotIn("non_neutral_expression", adjusted.quality.reasons)
+        self.assertEqual(adjusted.quality.max_expression_score, .9)
+
+    def test_configured_support_count_changes_warning_without_losing_landmarks(self):
+        """Apply feature-extraction support thresholds while keeping their measured count unchanged.
+        Preserve raw predictions even when quality annotation requests further review.
+        """
+        detection = dense_prediction()
+        for point in detection["faces"][0][100:]:
+            point[1] = .75
+        self.landmarker.detect.side_effect = None
+        self.landmarker.detect.return_value = detection
+        result = self.extract_image(self.image)
+        self.assertEqual(result.quality.supported_landmarks, 100)
+        self.assertIn("insufficient_head_support", result.quality.reasons)
+        self.extractor.quality_policy = replace(self.extractor.quality_policy, min_supported_landmarks=50)
+        adjusted = self.extract_image(self.image)
+        self.assertNotIn("insufficient_head_support", adjusted.quality.reasons)
+        self.assertEqual(result.landmarks, adjusted.landmarks)
+
+    def test_scaled_transform_produces_orientation_during_extraction_without_angle_penalty(self):
+        """Interpret positive uniform scale and large yaw/pitch/roll in the extraction result itself.
+        Retain raw transforms and uncalibrated angles without requiring grouping or adding pose penalties.
+        """
+        self.landmarker.detect.side_effect = None
+        for scale in (.25, 1, 3.5):
+            with self.subTest(scale=scale):
+                detection = dense_prediction()
+                detection["transforms"] = [face_transform(-75, 35, 70, scale)]
+                self.landmarker.detect.return_value = detection
+                result = self.extract_image(self.image)
+                for name, angle in (("yaw", -75), ("pitch", 35), ("roll", 70)):
+                    self.assertAlmostEqual(result.orientation[name + "_deg"], angle)
+                self.assertFalse(result.orientation["calibrated"])
+                self.assertEqual(result.facial_transform, detection["transforms"][0])
+                self.assertNotIn("extreme_pose", result.quality.reasons)
+
+    def test_invalid_or_missing_transforms_report_orientation_diagnostics_without_extraction_failure(self):
+        """Treat missing, reflected, sheared and malformed transforms as unavailable orientation.
+        Keep facial evidence and successful extraction independent of pose availability.
+        """
+        shear, perspective = np.eye(4), np.eye(4)
+        shear[0, 1], perspective[3, 0] = .3, 1
+        transforms = [None, "invalid", [[1]], np.zeros((4, 4)).tolist(),
+                      np.diag([1, 2, 1, 1]).tolist(), np.diag([-1, 1, 1, 1]).tolist(),
+                      np.full((4, 4), np.nan).tolist(), shear.tolist(), perspective.tolist()]
+        self.landmarker.detect.side_effect = None
+        for transform in transforms:
+            with self.subTest(transform=transform):
+                detection = dense_prediction()
+                detection["transforms"] = [] if transform is None else [transform]
+                self.landmarker.detect.return_value = detection
+                result = next(self.extractor.extract_features_batch([self.prepared_image(self.image)]))
+                self.assertIsNone(result.error_type)
+                self.assertEqual(result.features.orientation["reason"], "missing_or_invalid_pose")
+                self.assertIsNotNone(result.features.landmarks)
+                self.assertIsInstance(result.features.quality, FaceQuality)
+
+    def test_quality_configuration_loads_independently_of_grouping_and_rejects_invalid_thresholds(self):
+        """Load extraction-only warning thresholds without identity, grouping or pose-limit settings.
+        Reject opacity/count/score domains that would make assessment invalid.
+        """
+        path = self.root / "quality.json"
+        path.write_text('{"min_face_size": 10, "min_landmark_alpha": 220}', encoding="utf-8")
+        policy = load_face_quality_policy(path)
+        with FaceFeatureExtractor(device="cpu", quality_policy=policy) as extractor:
+            self.assertIs(extractor.quality_policy, policy)
+        for changes in ({"min_landmark_alpha": 0}, {"min_landmark_alpha": 256}, {"min_landmark_alpha": 1.5},
+                        {"min_supported_landmarks": 0}, {"min_supported_landmarks": 469},
+                        {"max_neutral_expression": 1.1}, {"max_neutral_expression": float("nan")},
+                        {"max_dark_fraction": True}, {"min_laplacian_variance": -1}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                FaceQualityPolicy(**changes)
 
     def test_non_windows_cuda_requests_gpu_landmarks_without_retry(self):
         """Request the MediaPipe GPU delegate outside Windows when CUDA mode is selected.
@@ -280,3 +407,5 @@ class DenseDelegateTests(unittest.TestCase):
         self.assertEqual(create.call_args_list[1].args[0].base_options.delegate, "gpu-fixture")
         cpu.close()
         gpu.close()
+from dataclasses import replace
+import json

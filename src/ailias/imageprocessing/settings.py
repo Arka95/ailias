@@ -8,6 +8,7 @@ from pathlib import Path
 from ailias.settings import PROJECT_ROOT
 
 DEFAULT_PROCESSING_CONFIG = PROJECT_ROOT / "config" / "imageprocessing.json"
+DEFAULT_FACE_QUALITY_CONFIG = PROJECT_ROOT / "config" / "face_quality.json"
 # MediaPipe's model emits 468 face points and 10 additional iris points.
 MEDIAPIPE_BASE_FACE_POINT_COUNT = 468
 MEDIAPIPE_LANDMARK_COUNT = 478
@@ -95,3 +96,48 @@ def load_policy(path: Path = DEFAULT_PROCESSING_CONFIG) -> ProcessingPolicy:
     Apply defaults for omitted fields and validate the resulting policy before use.
     """
     return ProcessingPolicy(**json.loads(path.read_text(encoding="utf-8")))
+
+
+@dataclass(frozen=True)
+class FaceQualityPolicy:
+    """Configure quality annotations during feature extraction without identity or angle-rejection rules.
+    Thresholds describe possible limitations; they never decide whether grouping keeps an image.
+    """
+
+    # Native face-crop short side in pixels; smaller crops request a detail warning.
+    min_face_size: int = 256
+    # Minimum grayscale Laplacian variance after downsampling to at most 256 pixels per side.
+    min_laplacian_variance: float = 40.0
+    # Warn above these fractions of grayscale crop pixels below 16 or at/above 240, respectively.
+    max_dark_fraction: float = 0.5
+    max_bright_fraction: float = 0.5
+    # Minimum 1-255 opacity for quality-support counting, independent of raw positive-alpha visibility.
+    min_landmark_alpha: int = 240
+    # Minimum supported landmarks among the 468 base-face predictions, excluding iris points.
+    min_supported_landmarks: int = 150
+    # Maximum expression/jaw score before warning; this is not calibrated confidence.
+    max_neutral_expression: float = 0.5
+
+    def __post_init__(self):
+        """Validate finite warning thresholds and the model's opacity/count domains.
+        Reject invalid configuration before inference rather than weakening quality annotations.
+        """
+        for item in fields(self):
+            value = getattr(self, item.name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+                raise ValueError(f"{item.name} must be a nonnegative finite number")
+        for name, maximum in (("min_face_size", None), ("min_landmark_alpha", 255),
+                              ("min_supported_landmarks", MEDIAPIPE_BASE_FACE_POINT_COUNT)):
+            value = getattr(self, name)
+            if not isinstance(value, int) or value < 1 or (maximum is not None and value > maximum):
+                raise ValueError(f"Invalid {name}")
+        for name in ("max_dark_fraction", "max_bright_fraction", "max_neutral_expression"):
+            if getattr(self, name) > 1:
+                raise ValueError(f"{name} must be between 0 and 1")
+
+
+def load_face_quality_policy(path: str | Path = DEFAULT_FACE_QUALITY_CONFIG) -> FaceQualityPolicy:
+    """Load feature-extraction quality settings from the selected JSON configuration file.
+    Apply defaults for omitted fields and validate thresholds without identity-related configuration.
+    """
+    return FaceQualityPolicy(**json.loads(Path(path).read_text(encoding="utf-8")))

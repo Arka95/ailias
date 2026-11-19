@@ -8,15 +8,17 @@
 MODNet predicts opacity; BiSeNet labels a grey composite of that result and
 restricts its alpha. Optional white balance completes preparation.
 `face_feature_extraction.py` owns `FaceFeatureExtractor`: MediaPipe inference,
-coordinate mapping and calls to `photo_features()`, not orientation or selection.
+coordinate mapping, calls to `photo_features()`, orientation and quality calculation,
+but not collection selection.
 It consumes existing `image`, `original_image` and `regions` values on one
 validated pixel grid; it never reloads source files, mattes, reparses or isolates
 the head again. Neither class imports the other or depends on native-engine modules.
 Each function has a short descriptive docstring naming its model where applicable.
 
-`face_grouping.py` derives orientation from raw transforms, forms view groups,
-then annotates quality and selects every usable extraction within each group.
-It performs no inference, identity matching or native-engine operations.
+`face_grouping.py` consumes extracted angles to form view groups, then selects
+every usable extraction within each group. It reuses extracted quality without
+recalculating metrics or orientation, and performs no inference, identity matching
+or native-engine operations.
 
 The public entry points only orchestrate their scoped stages. Networks and
 the dense detector load lazily, are reused serially, and have independent
@@ -26,7 +28,8 @@ are sampled from original RGB using existing semantic labels and dense points.
 This preserves the uncorrected-photo colour contract, including its lighting/cast,
 without retaining manifests. MediaPipe receives the prepared head, not original RGB.
 `extract_features()` returns a facial-data-only `FaceFeatures`: raw predictions,
-regional appearance, ratios, iris evidence and colour-source semantics.
+regional appearance, ratios, iris evidence, derived orientation, structured quality
+and colour-source semantics.
 The batch contract intentionally changed to `FaceExtractionResult`: its `.features`
 contains that data while source/frame/backend/errors live alongside it.
 The wrapper retains original/prepared pixels by reference for later grouping and
@@ -70,7 +73,7 @@ Preparation errors retain decoded frame pixels/timing or in-memory inputs for re
 Grouping retains all candidates in their view groups, so bound large video batches.
 Individual region/iris review flags remain measurement-level abstentions.
 
-Grouping removes positive uniform scale from MediaPipe's transform before validating
+Feature extraction removes positive uniform scale from MediaPipe's transform before validating
 a proper rotation; shear, reflection, degenerate and nonfinite transforms produce an
 `unknown` category and diagnostic, never exclusion by themselves.
 See the [MediaPipe transform contract](https://github.com/google-ai-edge/mediapipe/blob/master/mediapipe/modules/face_geometry/libs/procrustes_solver.h).
@@ -78,12 +81,23 @@ Pitch/yaw/roll are approximate uncalibrated model-coordinate angles, not certifi
 anatomical direction/camera elevation. Combined side-and-up/down bins retain both
 axes. Large angles and roll have no rejection limit.
 
-`FaceGroupingPolicy` loads `config\face_grouping.json`, or a caller supplies a
-validated policy explicitly. View boundaries and quality-only thresholds are
-documented next to their definitions in `face_grouping.py`. Raw landmark visibility
-records alpha greater than zero; grouping independently applies its stricter alpha
-threshold for quality warnings. It reuses the existing pure `face_quality()` pixel
-metrics, not identity helpers or legacy selection/ranking.
+`FaceFeatures.orientation` retains approximate angles or an unavailable-pose diagnostic,
+not the view-group category. `FaceGroupingPolicy` reads only view-bin boundaries
+from `config\face_grouping.json`, or accepts explicit caller settings.
+`FaceFeatureExtractor.quality_policy` is a `FaceQualityPolicy`, loaded from
+`config\face_quality.json` unless supplied explicitly. Quality settings formerly
+in the grouping policy/config moved here. Both policies document units and
+heuristics beside their definitions.
+Raw landmark visibility records alpha greater than zero; feature extraction
+independently applies its stricter alpha threshold for quality-support counting.
+It reuses the existing pure `face_quality()` pixel metrics, not identity helpers
+or legacy selection/ranking, then adds support/clipping counts and the maximum
+checked expression score. `FaceQuality` in `face_features.py` retains all these
+metrics and warning strings, supports `to_dict()`/strict JSON `str()`, and contains
+no source metadata or selection decision. Partial extractions leave quality `None`;
+invalid face bounds leave crop metrics unknown rather than inventing measurements.
+`GroupedFaceImage.orientation`/`.quality` are read-only accessors to the same
+extracted records, not independent copies or recomputations.
 Blur, size, exposure, clipping, alpha support and expression warnings never exclude
 usable candidates. Only extraction failures or invalid/missing/entirely-outside
 facial coordinate evidence are excluded.
@@ -171,9 +185,9 @@ Model download identities are pinned in the model adapters, separate from policy
 | Component | Responsibility / boundary |
 |---|---|
 | `images.py` | Image/frame I/O, explicit cropping, MODNet/BiSeNet preparation and bounded colour normalization; no landmark inference |
-| `face_feature_extraction.py` | MediaPipe lifecycle, raw native-grid predictions and facial measurements from existing pixels/labels |
-| `face_features.py` | Facial-only evidence and separate extraction provenance/pixel wrappers; in-memory dict/JSON serialization |
-| `face_grouping.py` | Orientation, view groups, quality warnings, selection and explicit excluded-image review copies |
+| `face_feature_extraction.py` | MediaPipe lifecycle, native-grid evidence, orientation and quality calculation from existing pixels/labels |
+| `face_features.py` | Facial evidence, typed `FaceQuality` and separate extraction provenance/pixel wrappers; dict/JSON serialization |
+| `face_grouping.py` | View bins from extracted angles, keep/exclude selection, access to extracted quality and explicit review copies |
 | `dense.py` | Explicit MediaPipe CPU/GPU delegate; legacy CPU default and reversible source coordinates; no GNM dependency |
 | `appearance_features.py` | Pure per-photo geometry ratios, semantic-region colour and pupil-excluding iris sampling |
 | `feature_evidence.py` | Validate input hashes/curation/transforms; retain versioned features and parser masks |

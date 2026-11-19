@@ -72,9 +72,37 @@ class FaceFeaturesBiseNet:
 
 
 @dataclass(frozen=True)
+class FaceQuality:
+    """Retain image-quality metrics and descriptive warnings without making selection decisions.
+    Missing crop metrics remain unknown; support, clipping and expression evidence stay explicit.
+    """
+
+    native_short_side: int | None = None
+    laplacian_variance: float | None = None
+    dark_fraction: float | None = None
+    bright_fraction: float | None = None
+    supported_landmarks: int | None = None
+    clipped_landmarks: int | None = None
+    max_expression_score: float | None = None
+    reasons: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        """Return quality metrics and warnings as ordinary Python values, including unknown metrics.
+        Keep the result independent of source paths, selection policy and image pixels.
+        """
+        return asdict(self)
+
+    def __str__(self) -> str:
+        """Return strict JSON for the same measurements exposed by to_dict().
+        Serialize in memory without saving sidecars or accepting nonfinite numeric tokens.
+        """
+        return json.dumps(self.to_dict(), sort_keys=True, allow_nan=False)
+
+
+@dataclass(frozen=True)
 class FaceFeatures:
     """Keep facial measurements and raw model predictions separate from collection decisions.
-    Leave source metadata, inference failures, orientation and selection to their own result records.
+    Include extracted orientation/quality; leave source metadata, failures and selection to result records.
     """
 
     features: dict | None = None
@@ -82,6 +110,8 @@ class FaceFeatures:
     landmarks: dict | None = None
     blendshapes: dict = field(default_factory=dict)
     facial_transform: list[list[float]] | None = None
+    orientation: dict | None = None
+    quality: FaceQuality | None = None
     features_colour_source: str = "original_rgb"
 
     def to_dict(self) -> dict:

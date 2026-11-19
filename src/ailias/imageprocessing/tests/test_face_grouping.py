@@ -8,23 +8,17 @@ from unittest.mock import patch
 import numpy as np
 from PIL import Image
 
-from ailias.imageprocessing.face_features import FaceExtractionResult, FaceFeatures
+from ailias.imageprocessing.face_features import FaceExtractionResult, FaceFeatures, FaceQuality
 from ailias.imageprocessing.face_grouping import (
-    FaceGroupingPolicy, determine_face_orientation, group_face_images, load_grouping_policy,
+    FaceGroupingPolicy, group_face_images, load_grouping_policy,
 )
 
 
-def face_transform(yaw=0, pitch=0, roll=0, scale=1):
-    """Build a synthetic scaled Rz/Ry/Rx transform with independent Euler angles.
-    Exercise transform arithmetic without claiming a real photo's physical head orientation.
+def extracted_orientation(yaw=0, pitch=0, roll=0):
+    """Provide previously extracted orientation without computing a transform during grouping tests.
+    Keep fixtures independent of inference and of the extraction stage's pose arithmetic.
     """
-    yaw, pitch, roll = np.deg2rad([yaw, pitch, roll])
-    rx = np.array([[1, 0, 0], [0, np.cos(pitch), -np.sin(pitch)], [0, np.sin(pitch), np.cos(pitch)]])
-    ry = np.array([[np.cos(yaw), 0, np.sin(yaw)], [0, 1, 0], [-np.sin(yaw), 0, np.cos(yaw)]])
-    rz = np.array([[np.cos(roll), -np.sin(roll), 0], [np.sin(roll), np.cos(roll), 0], [0, 0, 1]])
-    result = np.eye(4)
-    result[:3, :3], result[:3, 3] = scale * rz @ ry @ rx, [1, 2, 3]
-    return result.tolist()
+    return {"yaw_deg": yaw, "pitch_deg": pitch, "roll_deg": roll, "calibrated": False}
 
 
 class FaceGroupingTests(unittest.TestCase):
@@ -42,7 +36,8 @@ class FaceGroupingTests(unittest.TestCase):
         self.result = FaceExtractionResult(
             image=image, head_image=image.convert("RGBA"),
             features=FaceFeatures(landmarks={"source_xy": self.points.tolist()},
-                                  facial_transform=face_transform()))
+                                  facial_transform=np.eye(4).tolist(), orientation=extracted_orientation(),
+                                  quality=FaceQuality()))
         self.policy = FaceGroupingPolicy()
 
     def group(self, inputs, **options):
@@ -50,18 +45,6 @@ class FaceGroupingTests(unittest.TestCase):
         Permit narrowly scoped policy changes without loading models or user configuration.
         """
         return group_face_images(inputs, review_directory=self.review, policy=options.get("policy", self.policy))
-
-    def test_scaled_transform_preserves_orientation_and_translation_does_not_change_angles(self):
-        """Remove MediaPipe-compatible positive uniform scale before interpreting face orientation.
-        Recover independent yaw/pitch/roll angles rather than rejecting a valid scaled rotation.
-        """
-        for scale in (0.25, 1, 3.5):
-            with self.subTest(scale=scale):
-                pose = determine_face_orientation(face_transform(-75, 35, 40, scale), self.policy)
-                self.assertEqual(pose["category"], "left_profile_up")
-                for name, angle in (("yaw", -75), ("pitch", 35), ("roll", 40)):
-                    self.assertAlmostEqual(pose[name + "_deg"], angle)
-                self.assertFalse(pose["calibrated"])
 
     def test_all_usable_views_including_side_upper_lower_and_roll_are_kept(self):
         """Keep all usable members in view groups, including large and combined head angles.
@@ -75,7 +58,7 @@ class FaceGroupingTests(unittest.TestCase):
             (75, -35, 0, "right_profile_down"),
         )
         inputs = [replace(self.result, features=replace(
-            self.result.features, facial_transform=face_transform(yaw, pitch, roll)))
+            self.result.features, orientation=extracted_orientation(yaw, pitch, roll)))
             for yaw, pitch, roll, _ in views]
         result = self.group(inputs)
         self.assertEqual(len(result.selected), len(inputs))
@@ -86,18 +69,12 @@ class FaceGroupingTests(unittest.TestCase):
         self.assertEqual(json.loads(str(result)), result.to_dict())
 
     def test_missing_or_invalid_orientation_reports_unknown_without_excluding_images(self):
-        """Report malformed, missing, reflected, sheared or nonuniform transforms without raising errors.
+        """Consume unavailable orientation diagnostics without recalculating the raw facial transform.
         Keep otherwise valid facial extractions in the unknown view instead of discarding them.
         """
-        shear = np.eye(4)
-        shear[0, 1] = 0.3
-        perspective = np.eye(4)
-        perspective[3, 0] = 1
-        transforms = [None, "invalid", [[1]], np.zeros((4, 4)).tolist(),
-                      np.diag([1, 2, 1, 1]).tolist(), np.diag([-1, 1, 1, 1]).tolist(),
-                      np.full((4, 4), np.nan).tolist(), shear.tolist(), perspective.tolist()]
-        inputs = [replace(self.result, features=replace(self.result.features, facial_transform=value))
-                  for value in transforms]
+        orientations = [None, {"calibrated": False, "reason": "missing_or_invalid_pose"}]
+        inputs = [replace(self.result, features=replace(self.result.features, orientation=value))
+                  for value in orientations]
         result = self.group(inputs)
         self.assertEqual(len(result.groups["unknown"]), len(inputs))
         self.assertEqual(len(result.selected), len(inputs))
@@ -108,46 +85,25 @@ class FaceGroupingTests(unittest.TestCase):
             self.assertIsNone(item.review_copy)
         self.assertFalse(self.review.exists())
 
-    def test_quality_warnings_never_exclude_low_detail_exposure_or_expression(self):
-        """Annotate unusably lit-looking or expressive inputs without overriding the keep-usable policy.
-        Keep quality thresholds separate from extraction validity and retain every view member.
+    def test_grouping_reuses_extracted_quality_and_orientation_without_recalculation_or_rejection(self):
+        """Keep already assessed evidence and warning-only inputs without running assessment again.
+        Use stored angles even when the retained raw transform would describe another view.
         """
-        for colour, warning in (("black", "face_underexposed"), ("white", "face_overexposed"),
-                                ("gray", "face_blurred_or_low_detail")):
-            with self.subTest(colour=colour):
-                source = replace(self.result, image=Image.new("RGB", (160, 128), colour),
-                                 features=replace(self.result.features, blendshapes={"jawOpen": .9}))
-                item = self.group([source]).selected[0]
-                self.assertIn(warning, item.quality["reasons"])
-                self.assertIn("non_neutral_expression", item.quality["reasons"])
-                permissive = replace(self.policy, max_neutral_expression=.95)
-                adjusted = self.group([source], policy=permissive).selected[0]
-                self.assertNotIn("non_neutral_expression", adjusted.quality["reasons"])
+        quality = FaceQuality(laplacian_variance=0, supported_landmarks=0, max_expression_score=.9,
+                              reasons=["face_blurred_or_low_detail", "insufficient_head_support",
+                                       "non_neutral_expression"])
+        features = replace(self.result.features, orientation=extracted_orientation(80, 35, 70), quality=quality)
+        with patch("ailias.imageprocessing.features.face_quality", side_effect=AssertionError("recomputed")), patch(
+            "ailias.imageprocessing.face_feature_extraction.determine_face_orientation",
+            side_effect=AssertionError("recomputed"),
+        ):
+            result = self.group([replace(self.result, features=features)])
+        self.assertIn("right_profile_up", result.groups)
+        item = result.selected[0]
+        self.assertIs(item.quality, quality)
+        self.assertIs(item.orientation, features.orientation)
+        self.assertEqual(item.to_dict()["quality"], quality.to_dict())
         self.assertFalse(self.review.exists())
-
-    def test_alpha_and_supported_count_thresholds_change_annotations_not_features_or_selection(self):
-        """Recompute quality support from prepared alpha with grouping-owned opacity/count thresholds.
-        Preserve raw facial evidence and cutout pixels while changing only the warning decision.
-        """
-        head = self.result.head_image.copy()
-        head.putalpha(230)
-        source = replace(self.result, head_image=head)
-        original_pixels = head.tobytes()
-        item = self.group([source]).selected[0]
-        self.assertIn("insufficient_head_support", item.quality["reasons"])
-        permissive = replace(self.policy, min_landmark_alpha=220)
-        adjusted = self.group([source], policy=permissive).selected[0]
-        self.assertNotIn("insufficient_head_support", adjusted.quality["reasons"])
-        self.assertIs(adjusted.extraction.features, source.features)
-        self.assertEqual(head.tobytes(), original_pixels)
-        alpha = Image.new("L", head.size)
-        for x, y in self.points[:100].astype(int):
-            alpha.putpixel((int(x), int(y)), 255)
-        head.putalpha(alpha)
-        self.assertIn("insufficient_head_support", self.group([source]).selected[0].quality["reasons"])
-        fewer_required = replace(self.policy, min_supported_landmarks=50)
-        self.assertNotIn("insufficient_head_support",
-                         self.group([source], policy=fewer_required).selected[0].quality["reasons"])
 
     def test_group_before_selection_keeps_excluded_candidates_with_their_view(self):
         """Retain a failed candidate in its known view group alongside successful members.
@@ -176,7 +132,7 @@ class FaceGroupingTests(unittest.TestCase):
         clipped[0, 0] = -10
         source = replace(self.result, features=replace(
             self.result.features, landmarks={"source_xy": clipped.tolist()}))
-        self.assertIn("face_clipped", self.group([source]).selected[0].quality["reasons"])
+        self.assertEqual(len(self.group([source]).selected), 1)
 
     def test_source_copies_preserve_original_bytes_and_never_overwrite_an_earlier_copy(self):
         """Copy an excluded source photo unchanged with a fresh destination for repeated inputs.
@@ -250,15 +206,12 @@ class FaceGroupingTests(unittest.TestCase):
         """
         path = self.root / "grouping.json"
         path.write_text('{"frontal_yaw_degrees": 30}', encoding="utf-8")
-        source = replace(self.result, features=replace(self.result.features, facial_transform=face_transform(25)))
+        source = replace(self.result, features=replace(self.result.features, orientation=extracted_orientation(25)))
         self.assertIn("right_oblique", self.group([source]).groups)
         self.assertIn("front", self.group([source], policy=load_grouping_policy(path)).groups)
         self.assertEqual(len(group_face_images([source], review_directory=self.review).selected), 1)
-        for changes in ({"min_landmark_alpha": 0}, {"min_landmark_alpha": 256}, {"min_landmark_alpha": 1.5},
-                        {"min_supported_landmarks": 0}, {"min_supported_landmarks": 469},
-                        {"max_neutral_expression": 1.1}, {"max_neutral_expression": float("nan")},
-                        {"frontal_yaw_degrees": 56}, {"profile_yaw_degrees": 91},
+        for changes in ({"frontal_yaw_degrees": 56}, {"profile_yaw_degrees": 91},
                         {"vertical_pitch_degrees": 0}, {"vertical_pitch_degrees": 91},
-                        {"max_dark_fraction": True}):
+                        {"frontal_yaw_degrees": True}, {"vertical_pitch_degrees": float("nan")}):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 replace(self.policy, **changes)

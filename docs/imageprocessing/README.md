@@ -17,7 +17,8 @@ For model-by-model inputs, outputs and actual local portrait examples, see the
 `images.py` prepares pixels with **MODNet -> BiSeNet -> optional white balance**.
 `face_feature_extraction.py` uses **MediaPipe -> facial features**, reusing the
 prepared head and labels: no second matting, parsing or head-isolation pass.
-`face_grouping.py` determines **orientation -> view groups -> selection**.
+The extractor also calculates **orientation and quality**.
+`face_grouping.py` consumes that evidence for **view groups -> selection**.
 These stages use no YuNet, SFace, automatic cropping or alignment. Existing commands
 below are unchanged and still use their original pipeline.
 
@@ -49,6 +50,8 @@ face_features: FaceFeatures | None = extractions[0].features
 if face_features is not None and face_features.bisenet is not None:
     region_data = face_features.bisenet.to_dict()  # Nested dictionary.
     region_json = str(face_features.bisenet)  # JSON string; no file writes.
+if face_features is not None and face_features.quality is not None:
+    print(face_features.orientation, face_features.quality.reasons)
 grouped = group_face_images(
     extractions, review_directory=Path(r"data\arka\imageprocessing\review"),
 )
@@ -64,18 +67,30 @@ MediaPipe GPU delegate. Unsupported requested GPU execution fails; no CPU retry.
 | Stage | Result fields |
 |---|---|
 | Preparation | `image`: native-size RGBA head; `original_image`: untouched RGB on the same grid; `regions`: semantic labels; `colour`: white-balance outcome |
-| `FaceFeatures` | `landmarks`, `blendshapes`, raw `facial_transform`, `features`: facial ratios/iris evidence; `bisenet`: natural-region appearance; colour-source semantics |
+| `FaceFeatures` | `landmarks`, `blendshapes`, raw `facial_transform`, derived `orientation`, typed `quality`; `features`: facial ratios/iris evidence; `bisenet`: natural-region appearance; colour-source semantics |
 | Batch `FaceExtractionResult` | Facial data in `.features`; source/frame metadata, original/prepared pixels, execution provenance and optional `.error_type`/`.reason` |
 | `FaceGroupingResult` | `.groups`: all candidates by view, including excluded members; `.selected`/`.excluded`: decision lists with orientation, quality warnings and review-copy outcome |
 
 Preparation `ready` means a nonempty head, **not face-quality approval**.
-The extractor records measurements and raw model predictions; grouping owns
-orientation, image-quality assessment and keep/exclude decisions.
+The extractor records measurements, raw model predictions, derived orientation
+and image-quality assessment. Grouping owns view bins and keep/exclude decisions;
+it never recalculates orientation or quality.
 `extract_features(prepared)` returns a **`FaceFeatures` instance** containing
 facial data only. It can contain partial BiSeNet evidence without landmarks.
 For grouping, use batch extraction: **its items are now `FaceExtractionResult`**,
 not `FaceFeatures`. Source/frame/backend/error fields moved into this wrapper.
-`mediapipe_model` belongs to the extractor; quality/view policy belongs to grouping.
+`mediapipe_model` and `quality_policy` belong to the extractor; view-bin policy
+belongs to grouping.
+
+`face_features.quality` is a `FaceQuality` instance with `native_short_side`,
+`laplacian_variance`, `dark_fraction`, `bright_fraction`, `supported_landmarks`,
+`clipped_landmarks`, `max_expression_score` and warning `reasons`.
+Counts refer to the 468 base-face landmarks, excluding iris points. It supports
+`to_dict()` and `str(...)` for dictionary/strict JSON output. Quality is `None`
+when facial extraction cannot produce an assessment; crop metrics remain `None`
+for entirely outside or degenerate face bounds. Missing values are not invented.
+Grouping's `.quality` and `.orientation` properties expose the same extracted
+records, not new measurements or independent copies.
 
 `face_features.bisenet` is a `FaceFeaturesBiseNet` instance with named region
 objects: `skin`, `left_eyebrow`, `right_eyebrow`, `left_eye`, `right_eye`,
@@ -92,7 +107,7 @@ existing labels and do not feed into or refine MediaPipe. The enclosing
 
 Colour normalization is enabled by default for the returned cutout, not feature
 samples; pass `normalize_colour=False` to skip it. Original RGB supplies the
-uncorrected colour reference and later image-quality assessment; MediaPipe does not require it.
+uncorrected colour reference and feature-stage image-quality assessment; MediaPipe does not require it.
 This is bounded scene-neutral
 white balance, not calibrated skin colour or cross-photo exposure matching.
 No/ambiguous detections or invalid dense points are extraction failures. Grouping
@@ -100,9 +115,10 @@ also excludes missing facial data, degenerate bounds or faces entirely outside
 the image. Low detail/exposure, partial clipping, weak alpha support and expressions
 are warnings only. Region/iris features can independently require review.
 
-Orientation never discards images or raises a per-image pose error: unavailable
-or invalid transforms produce `category="unknown"` with
-`reason="missing_or_invalid_pose"`. Otherwise bins include `front`, `left_oblique`,
+Orientation calculation never discards images or raises a per-image pose error:
+unavailable or invalid transforms produce an orientation diagnostic
+`reason="missing_or_invalid_pose"`; grouping places these images in `unknown`.
+Otherwise bins include `front`, `left_oblique`,
 `right_oblique`, `left_profile`, `right_profile`, `up`, `down` and combined views
 such as `left_profile_up`. Angles are approximate model-coordinate conventions,
 not certified anatomical side or camera elevation; roll is retained, not penalized.
@@ -188,11 +204,12 @@ Matting setup requires the optional `matting-tools` extra; see [runtime setup](d
 
 ## Configuration
 
-### New single-person grouping: `config\face_grouping.json`
+### Feature-extraction quality: `config\face_quality.json`
 
-`group_face_images()` loads this file unless given an explicit `FaceGroupingPolicy`.
-Use `load_grouping_policy(path)` for another file. These warning thresholds do
-not exclude usable extractions; view boundaries label orientation, not acceptability.
+`FaceFeatureExtractor` loads this file unless given an explicit
+`quality_policy=FaceQualityPolicy(...)`. Use `load_face_quality_policy(path)`
+from `ailias.imageprocessing.settings` for another file. These thresholds
+annotate measurements; they do not exclude images.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -202,6 +219,16 @@ not exclude usable extractions; view boundaries label orientation, not acceptabi
 | `min_landmark_alpha` | `240` | Minimum 0-255 opacity for quality-support counting |
 | `min_supported_landmarks` | `150` | Required supported points among the 468 base-face predictions |
 | `max_neutral_expression` | `0.5` | Expression/jaw score warning threshold |
+
+### Single-person grouping: `config\face_grouping.json`
+
+`group_face_images()` loads this file unless given an explicit `FaceGroupingPolicy`.
+Use `load_grouping_policy(path)` for another file. View boundaries classify
+already extracted angles, not acceptability. Quality settings moved from this
+file/policy into the extractor's separate quality configuration above.
+
+| Key | Default | Meaning |
+|---|---|---|
 | `frontal_yaw_degrees` | `20.0` | Maximum absolute frontal-bin yaw |
 | `profile_yaw_degrees` | `55.0` | Minimum absolute profile-bin yaw; intervening views are oblique |
 | `vertical_pitch_degrees` | `20.0` | Absolute pitch above this adds up/down classification |
@@ -218,8 +245,8 @@ not exclude usable extractions; view boundaries label orientation, not acceptabi
 | `max_dark_fraction` | `0.5` | Maximum dark-pixel fraction in the face quality test |
 | `max_bright_fraction` | `0.5` | Maximum bright-pixel fraction in the face quality test |
 | `min_landmark_alpha` | `240` | Minimum 0-255 head opacity for a dense landmark to count as supported |
-| `min_supported_landmarks` | `150` | Retained compatibility key; new API reads its separate grouping policy |
-| `max_neutral_expression` | `0.5` | Retained compatibility key; new API reads its separate grouping policy |
+| `min_supported_landmarks` | `150` | Retained compatibility key; new extractor reads its separate quality policy |
+| `max_neutral_expression` | `0.5` | Retained compatibility key; new extractor reads its separate quality policy |
 | `max_pitch_roll_degrees` | `25.0` | Retained compatibility key; does not limit new view grouping |
 | `max_yaw_degrees` | `70.0` | Retained compatibility key; does not limit new view grouping |
 | `identity_cosine_threshold` | `0.5` | Minimum pairwise SFace cosine for complete-link grouping |

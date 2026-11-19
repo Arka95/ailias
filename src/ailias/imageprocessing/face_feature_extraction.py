@@ -5,20 +5,23 @@ Preparation and model-free image operations belong to the separate images module
 
 from collections.abc import Iterable, Iterator
 from dataclasses import replace
+import math
 from pathlib import Path
 import platform
 
 from PIL import Image
 
 from ailias.imageprocessing.face_features import (
-    FaceExtractionResult, FaceFeatures, FaceFeaturesBiseNet as FaceFeaturesBiseNet,
+    FaceExtractionResult, FaceFeatures, FaceFeaturesBiseNet as FaceFeaturesBiseNet, FaceQuality,
 )
 from ailias.imageprocessing.settings import (
-    MEDIAPIPE_LANDMARK_COUNT,
+    MEDIAPIPE_BASE_FACE_POINT_COUNT, MEDIAPIPE_LANDMARK_COUNT, FaceQualityPolicy, load_face_quality_policy,
 )
 
 
 NEUTRAL_BACKGROUND = (127, 127, 127, 255)
+# Allow numerical drift after removing uniform scale, not non-rigid shear or reflected coordinates.
+ROTATION_VALIDATION_TOLERANCE = 0.02
 
 
 class FaceFeatureExtractor:
@@ -28,13 +31,15 @@ class FaceFeatureExtractor:
 
     def __init__(
         self, *, mediapipe_model: str | Path | None = None, device: str = "cuda",
+        quality_policy: FaceQualityPolicy | None = None,
     ):
-        """Accept an existing MediaPipe bundle without loading weights or selecting collection members.
+        """Accept a local MediaPipe bundle and quality policy without loading weights or selecting images.
         Default to CUDA mode; choose the platform-specific delegate only when inference is requested.
         """
         if device not in {"cpu", "cuda"}:
             raise ValueError("Feature extraction device must be cpu or cuda")
         self.device = device
+        self.quality_policy = quality_policy if quality_policy is not None else load_face_quality_policy()
         self.landmarker_device = "cpu" if device == "cpu" or platform.system() == "Windows" else "gpu"
         self._model_path = Path(mediapipe_model) if mediapipe_model is not None else None
         self._landmarker = None
@@ -91,8 +96,8 @@ class FaceFeatureExtractor:
         return self._extract_result(prepared_image).features or FaceFeatures()
 
     def _extract_result(self, prepared_image: dict) -> FaceExtractionResult:
-        """Associate extracted measurements with their input without deciding pose or image suitability.
-        Retain partial BiSeNet evidence and extraction failures for the grouping stage to assess.
+        """Associate facial measurements, orientation and quality annotations with their input.
+        Retain partial BiSeNet evidence and failures without making collection-selection decisions.
         """
         if self._closed:
             raise RuntimeError("Face feature extractor is closed")
@@ -152,7 +157,7 @@ class FaceFeatureExtractor:
         bisenet: FaceFeaturesBiseNet,
     ) -> FaceFeatures:
         """Combine MediaPipe points and existing BiSeNet labels into original-pixel feature evidence.
-        Preserve raw transform and expression predictions without interpreting orientation or suitability.
+        Calculate orientation and structured quality once without selecting or rejecting collection members.
         """
         import numpy as np
         from ailias.imageprocessing.appearance_features import photo_features
@@ -166,6 +171,8 @@ class FaceFeatureExtractor:
                 "source_xy": landmarks["source_xy"].tolist(), "on_head": landmarks["on_head"].tolist(),
             },
             blendshapes=blendshapes, facial_transform=transform,
+            orientation=determine_face_orientation(transform),
+            quality=self._assess_face_quality(original_rgb, head, landmarks["source_xy"], blendshapes),
             features=photo_features(np.asarray(original_rgb), landmarks["source_xy"], regions,
                                     landmarks["on_head"], region_features=bisenet),
         )
@@ -189,6 +196,37 @@ class FaceFeatureExtractor:
             "on_head": on_head,
         }
 
+    def _assess_face_quality(self, original_rgb: Image.Image, head: Image.Image, points, blendshapes: dict) -> FaceQuality:
+        """Measure detail, exposure, clipping, alpha support and expression during feature extraction.
+        Retain measured counts/scores and warnings without penalizing angle or deciding selection.
+        """
+        import numpy as np
+        from ailias.imageprocessing.features import face_quality
+
+        base = points[:MEDIAPIPE_BASE_FACE_POINT_COUNT]
+        inside = ((base >= 0) & (base < original_rgb.size)).all(1)
+        samples = np.clip(np.floor(base).astype(int), 0, np.asarray(head.size) - 1)
+        alpha = np.asarray(head.getchannel("A"))
+        supported = inside & (alpha[samples[:, 1], samples[:, 0]] >= self.quality_policy.min_landmark_alpha)
+        expression = float(max((value for name, value in blendshapes.items()
+                                if name.startswith(("mouth", "brow", "cheek", "noseSneer", "eyeWide", "eyeSquint"))
+                                or name == "jawOpen"), default=0.0))
+        low, high = np.maximum(0, base.min(0)), np.minimum(original_rgb.size, base.max(0))
+        if np.any(high <= low):
+            metrics = {"reasons": ["face_outside_image_or_degenerate_landmarks"]}
+        else:
+            box = [*low.tolist(), *(high - low).tolist()]
+            metrics = face_quality(original_rgb, box, self.quality_policy)
+        reasons = metrics["reasons"]
+        if not inside.all():
+            reasons.append("face_clipped")
+        if int(supported.sum()) < self.quality_policy.min_supported_landmarks:
+            reasons.append("insufficient_head_support")
+        if expression > self.quality_policy.max_neutral_expression:
+            reasons.append("non_neutral_expression")
+        return FaceQuality(**metrics, supported_landmarks=int(supported.sum()),
+                           clipped_landmarks=int((~inside).sum()), max_expression_score=expression)
+
     def extract_features_batch(self, prepared_images: Iterable[dict]) -> Iterator[FaceExtractionResult]:
         """Stream facial data together with source metadata and per-image extraction failures.
         Reuse one landmarker and keep original pixels available for subsequent grouping and review copies.
@@ -211,3 +249,32 @@ class FaceFeatureExtractor:
             error_type=type(error).__name__ if error is not None else prepared_image.get("error_type"),
             reason=str(error) if error is not None else prepared_image.get("reason"),
         )
+
+
+def determine_face_orientation(transform) -> dict:
+    """Derive approximate model-space Euler angles from MediaPipe's raw face transform.
+    Remove uniform scale before validating rotation; unavailable orientation is a diagnostic, not an error.
+    """
+    import numpy as np
+
+    unknown = {"calibrated": False, "reason": "missing_or_invalid_pose"}
+    try:
+        matrix = np.asarray(transform, dtype=float)
+    except (TypeError, ValueError):
+        return unknown
+    if matrix.shape != (4, 4) or not np.isfinite(matrix).all():
+        return unknown
+    linear = matrix[:3, :3]
+    scale = float(np.linalg.norm(linear[:, 0]))
+    if scale <= np.finfo(float).eps:
+        return unknown
+    # MediaPipe's canonical-to-runtime transform can contain uniform scale as well as rotation.
+    rotation = linear / scale
+    if (not np.allclose(matrix[3], [0, 0, 0, 1], atol=ROTATION_VALIDATION_TOLERANCE)
+            or not np.allclose(rotation.T @ rotation, np.eye(3), atol=ROTATION_VALIDATION_TOLERANCE)
+            or not math.isclose(float(np.linalg.det(rotation)), 1.0, abs_tol=ROTATION_VALIDATION_TOLERANCE)):
+        return unknown
+    yaw = math.degrees(math.atan2(-rotation[2, 0], math.hypot(rotation[0, 0], rotation[1, 0])))
+    pitch = math.degrees(math.atan2(rotation[2, 1], rotation[2, 2]))
+    roll = math.degrees(math.atan2(rotation[1, 0], rotation[0, 0]))
+    return {"pitch_deg": pitch, "yaw_deg": yaw, "roll_deg": roll, "calibrated": False}

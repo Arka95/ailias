@@ -7,7 +7,7 @@
 **New API:** `ImageProcessor.process_image()` prepares **original -> MODNet ->
 BiSeNet -> optional white balance**. Then `FaceFeatureExtractor.extract_features()`
 runs **MediaPipe -> features**, reusing the existing head, original RGB and region
-labels. `face_grouping.py` then determines orientation, groups views and keeps
+labels, and calculates orientation/quality. `face_grouping.py` consumes that evidence, groups views and keeps
 every usable extraction; excluded-image copies go to an explicit review directory.
 No repeated head isolation, YuNet or alignment. [Usage](README.md#simple-python-api).
 
