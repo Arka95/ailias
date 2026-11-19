@@ -1,4 +1,3 @@
-from dataclasses import replace
 from pathlib import Path
 import sys
 import tempfile
@@ -10,9 +9,8 @@ import numpy as np
 from PIL import Image
 
 from ailias.imageprocessing.face_feature_extraction import (
-    FaceFeatureExtractor, FaceFeatures, FaceFeaturesBiseNet,
+    FaceExtractionResult, FaceFeatureExtractor, FaceFeatures, FaceFeaturesBiseNet,
 )
-from ailias.imageprocessing.settings import ProcessingPolicy
 
 
 def dense_prediction():
@@ -40,9 +38,7 @@ class FaceFeatureExtractorTests(unittest.TestCase):
         self.landmarker.detect.side_effect = lambda rgb: dense_prediction()
         self.create_landmarker = self.enterContext(patch(
             "ailias.imageprocessing.dense.DenseDetector", return_value=self.landmarker))
-        self.extractor = FaceFeatureExtractor(
-            mediapipe_model=model, device="cpu",
-            quality_policy=ProcessingPolicy(min_face_size=1, min_laplacian_variance=0.01))
+        self.extractor = FaceFeatureExtractor(mediapipe_model=model, device="cpu")
         self.addCleanup(self.extractor.close)
         y, x = np.indices((128, 160))
         values = ((x * 41 + y * 31) % 140 + 50).astype(np.uint8)
@@ -77,7 +73,6 @@ class FaceFeatureExtractorTests(unittest.TestCase):
         with patch("cv2.dnn.readNetFromONNX", side_effect=AssertionError("Preparation was rerun")):
             result = self.extractor.extract_features(prepared)
         self.assertIsInstance(result, FaceFeatures)
-        self.assertEqual(result.status, "ready")
         normalized = np.asarray(result.landmarks["normalized_predicted"])
         np.testing.assert_allclose(result.landmarks["source_xy"], normalized[:, :2] * self.image.size)
         skin = result.features["regions"]["skin"]
@@ -86,10 +81,7 @@ class FaceFeatureExtractorTests(unittest.TestCase):
         self.assertEqual(skin["status"], "observed")
         self.assertAlmostEqual(skin["median_linear_rgb"][0], skin["median_linear_rgb"][2])
         self.assertEqual(result.features_colour_source, "original_rgb")
-        self.assertFalse(result.metric_depth_measured)
-        self.assertEqual(result.source, prepared["source"])
-        self.assertEqual(result.frame_index, 12)
-        self.assertEqual(result.timestamp_seconds, 1.5)
+        self.assertFalse(result.features["metric_depth_measured"])
         for key, pixels in before.items():
             self.assertEqual(prepared[key].tobytes(), pixels)
         self.assertEqual(set(self.root.iterdir()), files)
@@ -101,8 +93,13 @@ class FaceFeatureExtractorTests(unittest.TestCase):
         prepared = self.prepared_image(self.image)
         results = self.extractor.extract_features_batch([prepared, prepared])
         self.create_landmarker.assert_not_called()
-        self.assertEqual(next(results).status, "ready")
-        self.assertEqual(next(results).status, "ready")
+        first, second = next(results), next(results)
+        self.assertIsNone(first.error_type)
+        self.assertIsNotNone(second.features.landmarks)
+        self.assertEqual(first.source, prepared["source"])
+        self.assertEqual(first.frame_index, 12)
+        self.assertEqual(first.timestamp_seconds, 1.5)
+        self.assertIs(first.image, prepared["original_image"])
         self.create_landmarker.assert_called_once_with(self.root / "mediapipe.model", device="cpu")
         self.extractor.close()
         self.extractor.close()
@@ -122,14 +119,14 @@ class FaceFeatureExtractorTests(unittest.TestCase):
         np.testing.assert_array_equal(rgb, np.full((128, 128, 3), 127, np.uint8))
 
     def test_empty_head_skips_landmarker_loading(self):
-        """Return a review result when prepared alpha contains no head foreground.
+        """Return an extraction failure when prepared alpha contains no head foreground.
         Avoid constructing the neural task for an empty cutout.
         """
         prepared = self.prepared_image(self.image)
         prepared["image"].putalpha(0)
-        result = self.extractor.extract_features(prepared)
-        self.assertIsInstance(result, FaceFeatures)
-        self.assertEqual(result.quality["reasons"], ["no_head_foreground"])
+        result = next(self.extractor.extract_features_batch([prepared]))
+        self.assertIsInstance(result, FaceExtractionResult)
+        self.assertEqual(result.reason, "no_head_foreground")
         self.assertFalse(result.execution["mediapipe_executed"])
         self.create_landmarker.assert_not_called()
 
@@ -158,33 +155,29 @@ class FaceFeatureExtractorTests(unittest.TestCase):
         self.landmarker.detect.side_effect = [RuntimeError("fixture"), dense_prediction()]
         results = list(self.extractor.extract_features_batch([error, prepared, prepared]))
         for result in results:
-            self.assertIsInstance(result, FaceFeatures)
-        self.assertEqual(results[0].status, "error")
+            self.assertIsInstance(result, FaceExtractionResult)
         self.assertEqual(results[0].source, error["source"])
         self.assertEqual(results[0].error_type, error["error_type"])
         self.assertEqual(results[0].reason, error["reason"])
         self.assertIsNone(results[0].features)
         self.assertEqual(results[1].error_type, "RuntimeError")
         self.assertEqual(results[1].reason, "fixture")
-        self.assertEqual(results[1].status, "error")
         self.assertEqual(results[1].frame_index, 12)
-        self.assertEqual(results[2].status, "ready")
+        self.assertIsNone(results[2].error_type)
+        self.assertIsNotNone(results[2].features.landmarks)
         self.create_landmarker.assert_called_once()
 
-    def test_configured_alpha_threshold_controls_foreground_support_review(self):
-        """Change landmark-support review using policy without modifying prepared opacity.
-        Both extractions reuse the exact same precomputed head image and semantic labels.
+    def test_feature_visibility_records_positive_alpha_without_collection_quality_thresholds(self):
+        """Retain faint visible pixels as raw support rather than applying a quality-selection threshold.
+        Leave stricter opacity warnings to grouping while preserving the original head pixels.
         """
         prepared = self.prepared_image(self.image)
         alpha = np.asarray(prepared["image"].getchannel("A")).copy()
         alpha[alpha != 0] = 230
         prepared["image"].putalpha(Image.fromarray(alpha))
         before = prepared["image"].tobytes()
-        original = self.extractor.extract_features(prepared)
-        self.assertIn("insufficient_head_support", original.quality["reasons"])
-        self.extractor.quality_policy = replace(self.extractor.quality_policy, min_landmark_alpha=220)
-        adjusted = self.extractor.extract_features(prepared)
-        self.assertNotIn("insufficient_head_support", adjusted.quality["reasons"])
+        result = self.extractor.extract_features(prepared)
+        self.assertTrue(all(result.landmarks["on_head"]))
         self.assertEqual(prepared["image"].tobytes(), before)
 
     def test_default_cuda_keeps_explicit_windows_cpu_exception(self):
@@ -194,7 +187,7 @@ class FaceFeatureExtractorTests(unittest.TestCase):
         with patch("ailias.imageprocessing.face_feature_extraction.platform.system", return_value="Windows"):
             extractor = FaceFeatureExtractor(mediapipe_model=self.root / "mediapipe.model")
         with extractor:
-            result = extractor.extract_features(self.prepared_image(self.image))
+            result = next(extractor.extract_features_batch([self.prepared_image(self.image)]))
         self.create_landmarker.assert_called_once_with(self.root / "mediapipe.model", device="cpu")
         self.assertEqual(result.execution, {
             "requested_device": "cuda", "mediapipe_device": "cpu", "mediapipe_executed": True})
@@ -224,118 +217,21 @@ class FaceFeatureExtractorTests(unittest.TestCase):
         """
         for faces, reason in (
             ([], "no_face_detected"),
-            (dense_prediction()["faces"] * 2, "multiple_faces_detected"),
+            (dense_prediction()["faces"] * 2, "ambiguous_face_detections"),
             ([[[float("nan"), 0, 0]] * 478], "invalid_dense_landmarks"),
         ):
             with self.subTest(reason=reason):
                 self.landmarker.detect.side_effect = None
                 self.landmarker.detect.return_value = {"faces": faces, "blendshapes": [], "transforms": []}
-                result = self.extract_image(self.image)
-                self.assertIsInstance(result, FaceFeatures)
-                self.assertEqual(result.status, "review")
-                self.assertIn(reason, result.quality["reasons"])
-                self.assertIsNone(result.features)
-                self.assertIsInstance(result.bisenet, FaceFeaturesBiseNet)
-                self.assertEqual(result.bisenet.skin.status, "observed")
-
-    def test_quality_flags_low_detail_and_expression_without_discarding_evidence(self):
-        """Expose low-detail and non-neutral-expression warnings for downstream review.
-        Still return extracted evidence instead of treating successful inference as approval.
-        """
-        detection = dense_prediction()
-        detection["blendshapes"][0]["mouthSmileLeft"] = .9
-        self.landmarker.detect.side_effect = None
-        self.landmarker.detect.return_value = detection
-        result = self.extract_image(Image.new("RGB", self.image.size, (160, 110, 75)))
-        self.assertEqual(result.status, "review")
-        self.assertIn("face_blurred_or_low_detail", result.quality["reasons"])
-        self.assertIn("non_neutral_expression", result.quality["reasons"])
-        self.assertIsNotNone(result.features)
-
-    def test_quality_flags_extreme_or_unavailable_pose_without_claiming_calibration(self):
-        """Flag a strongly rolled face and an invalid transform for explicit review.
-        Preserve the predicted pose as uncalibrated image evidence rather than measured orientation.
-        """
-        angle = np.deg2rad(40)
-        transform = np.eye(4)
-        transform[:2, :2] = [[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]]
-        for transforms, reason in (([transform.tolist()], "extreme_pose"),
-                                    ([], "missing_or_invalid_pose")):
-            with self.subTest(reason=reason):
-                detection = dense_prediction()
-                detection["transforms"] = transforms
-                self.landmarker.detect.side_effect = None
-                self.landmarker.detect.return_value = detection
-                result = self.extract_image(self.image)
-                self.assertIn(reason, result.quality["reasons"])
-                if transforms:
-                    self.assertAlmostEqual(result.quality["pose"]["roll_deg"], 40)
-                    self.assertFalse(result.quality["pose"]["calibrated"])
-
-    def test_configured_supported_point_count_controls_review_without_dropping_features(self):
-        """Apply the requested minimum number of supported base-face landmarks.
-        Keep regional evidence available when a stricter support requirement requests review.
-        """
-        detection = dense_prediction()
-        for point in detection["faces"][0][100:]:
-            point[1] = .75
-        self.landmarker.detect.side_effect = None
-        self.landmarker.detect.return_value = detection
-        original = self.extract_image(self.image)
-        self.assertIn("insufficient_head_support", original.quality["reasons"])
-        self.assertIsNotNone(original.features)
-        self.extractor.quality_policy = replace(self.extractor.quality_policy, min_supported_landmarks=50)
-        adjusted = self.extract_image(self.image)
-        self.assertNotIn("insufficient_head_support", adjusted.quality["reasons"])
-
-    def test_configured_expression_and_pose_limits_control_review_flags(self):
-        """Read expression, pitch/roll and yaw limits from the supplied quality policy.
-        Changing a review threshold must not change the underlying predicted transform or scores.
-        """
-        cases = (
-            ("non_neutral_expression", {"max_neutral_expression": .95}, "expression", .9),
-            ("extreme_pose", {"max_pitch_roll_degrees": 45}, "roll", 40),
-            ("extreme_pose", {"max_yaw_degrees": 85}, "yaw", 80),
-        )
-        base_policy = self.extractor.quality_policy
-        for reason, changes, kind, value in cases:
-            with self.subTest(kind=kind):
-                detection = dense_prediction()
-                if kind == "expression":
-                    detection["blendshapes"][0]["mouthSmileLeft"] = value
-                else:
-                    sine, cosine = np.sin(np.deg2rad(value)), np.cos(np.deg2rad(value))
-                    matrix = np.eye(4)
-                    axes = (0, 1) if kind == "roll" else (0, 2)
-                    matrix[np.ix_(axes, axes)] = [[cosine, -sine], [sine, cosine]]
-                    detection["transforms"] = [matrix.tolist()]
-                self.landmarker.detect.side_effect = None
-                self.landmarker.detect.return_value = detection
-                self.extractor.quality_policy = base_policy
-                original = self.extract_image(self.image)
-                self.assertIn(reason, original.quality["reasons"])
-                self.extractor.quality_policy = replace(base_policy, **changes)
-                adjusted = self.extract_image(self.image)
-                self.assertNotIn(reason, adjusted.quality["reasons"])
-                self.assertEqual(original.facial_transform, adjusted.facial_transform)
-
-    def test_quality_policy_rejects_review_thresholds_outside_their_meaningful_ranges(self):
-        """Reject opacity/count/score/angle thresholds outside their documented domains.
-        Prevent invalid configuration from weakening or breaking face-quality assessment.
-        """
-        for changes in (
-            {"min_landmark_alpha": 0}, {"min_landmark_alpha": 256}, {"min_landmark_alpha": 1.5},
-            {"min_supported_landmarks": 0}, {"min_supported_landmarks": 469},
-            {"max_neutral_expression": 1.1}, {"max_neutral_expression": float("nan")},
-            {"max_pitch_roll_degrees": 0}, {"max_pitch_roll_degrees": 181},
-            {"max_yaw_degrees": 0}, {"max_yaw_degrees": 91},
-        ):
-            with self.subTest(changes=changes), self.assertRaises(ValueError):
-                replace(self.extractor.quality_policy, **changes)
+                result = next(self.extractor.extract_features_batch([self.prepared_image(self.image)]))
+                self.assertEqual(result.reason, reason)
+                self.assertIsNone(result.features.features)
+                self.assertIsInstance(result.features.bisenet, FaceFeaturesBiseNet)
+                self.assertEqual(result.features.bisenet.skin.status, "observed")
 
     def test_outside_and_clipped_landmarks_preserve_distinct_review_outcomes(self):
-        """Preserve early rejection for an out-of-image face and a warning for partial clipping.
-        Return features only when the predicted face still overlaps the source image.
+        """Retain structurally valid point predictions even when outside or clipped against the image.
+        Leave image-overlap validation and selection to the grouping stage.
         """
         for outside in (True, False):
             with self.subTest(outside=outside):
@@ -348,9 +244,8 @@ class FaceFeatureExtractorTests(unittest.TestCase):
                 self.landmarker.detect.side_effect = None
                 self.landmarker.detect.return_value = detection
                 result = self.extract_image(self.image)
-                reason = "face_outside_image" if outside else "face_clipped"
-                self.assertIn(reason, result.quality["reasons"])
-                self.assertEqual(result.features is None, outside)
+                self.assertIsNotNone(result.features)
+                self.assertEqual(result.landmarks["normalized_predicted"], detection["faces"][0])
 
     def test_non_windows_cuda_requests_gpu_landmarks_without_retry(self):
         """Request the MediaPipe GPU delegate outside Windows when CUDA mode is selected.

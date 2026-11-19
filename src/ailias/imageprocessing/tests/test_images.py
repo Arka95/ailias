@@ -174,6 +174,18 @@ class ImageProcessorTests(unittest.TestCase):
         self.assertEqual(results[1]["status"], "ready")
         self.assertEqual(self.load.call_count, 2)
 
+    def test_failed_preparation_retains_frame_and_memory_pixels_for_review_copies(self):
+        """Keep failed inputs' pixels and frame association available to later collection review.
+        Do not lose the decoded frame or substitute the whole video file after a preparation error.
+        """
+        frame = Frame(self.image, self.root / "video.mp4", 12, 1.5)
+        with patch.object(self.processor, "process_image", side_effect=ValueError("fixture")):
+            failed_frame, failed_image = self.processor.process_images([frame, self.image])
+        self.assertIs(failed_frame["original_image"], frame.image)
+        self.assertEqual(failed_frame["frame_index"], 12)
+        self.assertEqual(failed_frame["timestamp_seconds"], 1.5)
+        self.assertIs(failed_image["original_image"], self.image)
+
     def test_colour_normalization_uses_scene_neutrals_and_preserves_alpha(self):
         """Correct a supported scene cast while excluding the supplied head region.
         Preserve transparency and abstain rather than forcing correction on saturated scenes.
@@ -340,6 +352,39 @@ class ImageProcessorTests(unittest.TestCase):
         self.bisenet.forward.assert_called_once()
         landmarker.detect.assert_called_once()
         landmarker.close.assert_called_once()
+
+    def test_failed_video_preparation_reaches_grouping_review_without_losing_frame_identity(self):
+        """Compose preparation, feature extraction and grouping with a failed frame and a usable successor.
+        Preserve frame pixels/timing in review while reusing fake models and leaving originals untouched.
+        """
+        from ailias.imageprocessing.face_feature_extraction import FaceFeatureExtractor
+        from ailias.imageprocessing.face_grouping import group_face_images
+
+        model = self.root / "mediapipe.model"
+        model.write_bytes(b"fixture, not model weights")
+        landmarker = Mock()
+        points = [[.2 + i % 23 * .025, .1 + i // 23 * .014, 0] for i in range(478)]
+        landmarker.detect.return_value = {
+            "faces": [points], "blendshapes": [{}], "transforms": [np.eye(4).tolist()]}
+        self.create_landmarker.side_effect = None
+        self.create_landmarker.return_value = landmarker
+        self.modnet.forward.side_effect = [RuntimeError("fixture"),
+                                          np.ones((1, 1, 512, 512), np.float32)]
+        frame = Frame(self.image, self.root / "video.mp4", 12, 1.5)
+        original_pixels = self.image.tobytes()
+        with FaceFeatureExtractor(mediapipe_model=model, device="cpu") as extractor:
+            prepared = self.processor.process_images([frame, self.image], normalize_colour=False)
+            grouped = group_face_images(extractor.extract_features_batch(prepared),
+                                        review_directory=self.root / "review")
+        self.assertEqual(len(grouped.selected), 1)
+        self.assertEqual(len(grouped.excluded), 1)
+        excluded = grouped.excluded[0]
+        self.assertEqual(excluded.extraction.frame_index, 12)
+        self.assertEqual(excluded.extraction.timestamp_seconds, 1.5)
+        with Image.open(excluded.review_copy) as copy:
+            self.assertEqual(copy.tobytes(), original_pixels)
+        self.assertEqual(self.image.tobytes(), original_pixels)
+        landmarker.detect.assert_called_once()
 
 
 class VideoFrameTests(unittest.TestCase):

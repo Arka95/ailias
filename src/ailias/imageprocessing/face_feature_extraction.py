@@ -5,23 +5,20 @@ Preparation and model-free image operations belong to the separate images module
 
 from collections.abc import Iterable, Iterator
 from dataclasses import replace
-import math
 from pathlib import Path
 import platform
 
 from PIL import Image
 
 from ailias.imageprocessing.face_features import (
-    FaceFeatures, FaceFeaturesBiseNet as FaceFeaturesBiseNet,
+    FaceExtractionResult, FaceFeatures, FaceFeaturesBiseNet as FaceFeaturesBiseNet,
 )
 from ailias.imageprocessing.settings import (
-    MEDIAPIPE_BASE_FACE_POINT_COUNT, MEDIAPIPE_LANDMARK_COUNT, ProcessingPolicy, load_policy,
+    MEDIAPIPE_LANDMARK_COUNT,
 )
 
 
 NEUTRAL_BACKGROUND = (127, 127, 127, 255)
-# Allow small numerical drift in a unit orthogonal rotation, not extra head-angle deviation.
-ROTATION_VALIDATION_TOLERANCE = 0.02
 
 
 class FaceFeatureExtractor:
@@ -31,16 +28,14 @@ class FaceFeatureExtractor:
 
     def __init__(
         self, *, mediapipe_model: str | Path | None = None, device: str = "cuda",
-        quality_policy: ProcessingPolicy | None = None,
     ):
-        """Accept an existing MediaPipe bundle and validated review policy without loading weights.
+        """Accept an existing MediaPipe bundle without loading weights or selecting collection members.
         Default to CUDA mode; choose the platform-specific delegate only when inference is requested.
         """
         if device not in {"cpu", "cuda"}:
             raise ValueError("Feature extraction device must be cpu or cuda")
         self.device = device
         self.landmarker_device = "cpu" if device == "cpu" or platform.system() == "Windows" else "gpu"
-        self.quality_policy = quality_policy if quality_policy is not None else load_policy()
         self._model_path = Path(mediapipe_model) if mediapipe_model is not None else None
         self._landmarker = None
         self._closed = False
@@ -91,22 +86,34 @@ class FaceFeatureExtractor:
 
     def extract_features(self, prepared_image: dict) -> FaceFeatures:
         """Extract MediaPipe predictions and original-pixel appearance using existing region labels.
-        Return a FaceFeatures instance without matting, parsing, colour correction or file writes.
+        Return only facial data; batch results additionally carry provenance and failure reasons.
+        """
+        return self._extract_result(prepared_image).features or FaceFeatures()
+
+    def _extract_result(self, prepared_image: dict) -> FaceExtractionResult:
+        """Associate extracted measurements with their input without deciding pose or image suitability.
+        Retain partial BiSeNet evidence and extraction failures for the grouping stage to assess.
         """
         if self._closed:
             raise RuntimeError("Face feature extractor is closed")
         from ailias.imageprocessing.appearance_features import extract_bisenet_features
 
         original_rgb, head, regions = self._validate_prepared_image(prepared_image)
-        result = self._create_feature_result(prepared_image)
+        result = self._create_extraction_result(prepared_image)
         if head.getchannel("A").getbbox() is None:
-            result.quality["reasons"].append("no_head_foreground")
-            return result
-        result = replace(result, bisenet=extract_bisenet_features(original_rgb, regions))
+            return replace(result, error_type="ValueError", reason="no_head_foreground")
+        bisenet = extract_bisenet_features(original_rgb, regions)
+        result = replace(result, features=FaceFeatures(bisenet=bisenet))
         detection = self.detect_face_landmarks(head)
         result.execution["mediapipe_executed"] = True
-        return replace(
-            result, **self._extract_face_evidence(original_rgb, head, regions, detection, result.bisenet))
+        if len(detection["faces"]) != 1:
+            reason = "no_face_detected" if not detection["faces"] else "ambiguous_face_detections"
+            return replace(result, error_type="ValueError", reason=reason)
+        try:
+            features = self._extract_face_measurements(original_rgb, head, regions, detection, bisenet)
+        except ValueError as error:
+            return replace(result, error_type="ValueError", reason=str(error))
+        return replace(result, features=features)
 
     @staticmethod
     def _validate_prepared_image(prepared_image: dict) -> tuple[Image.Image, Image.Image, Image.Image]:
@@ -126,11 +133,12 @@ class FaceFeatureExtractor:
             raise ValueError("Prepared image, original pixels and region labels must share one pixel grid")
         return original_rgb.convert("RGB"), head, regions
 
-    def _create_feature_result(self, prepared_image: dict) -> FaceFeatures:
-        """Create feature-only output with source identity and explicit inference provenance.
-        Leave image preparation products owned by the caller instead of copying them into feature evidence.
+    def _create_extraction_result(self, prepared_image: dict) -> FaceExtractionResult:
+        """Keep source/frame/backend metadata alongside facial measurements rather than inside them.
+        Retain supplied pixels by reference for grouping and review; never reload or alter the source.
         """
-        return FaceFeatures(
+        return FaceExtractionResult(
+            image=prepared_image.get("original_image"), head_image=prepared_image.get("image"),
             source=prepared_image.get("source"), frame_index=prepared_image.get("frame_index"),
             timestamp_seconds=prepared_image.get("timestamp_seconds"),
             execution={
@@ -139,129 +147,67 @@ class FaceFeatureExtractor:
             },
         )
 
-    def _extract_face_evidence(
+    def _extract_face_measurements(
         self, original_rgb: Image.Image, head: Image.Image, regions: Image.Image, detection: dict,
         bisenet: FaceFeaturesBiseNet,
-    ) -> dict:
+    ) -> FaceFeatures:
         """Combine MediaPipe points and existing BiSeNet labels into original-pixel feature evidence.
-        Keep invalid-face review outcomes separate from coordinate mapping and quality assessment.
+        Preserve raw transform and expression predictions without interpreting orientation or suitability.
         """
         import numpy as np
         from ailias.imageprocessing.appearance_features import photo_features
 
-        if len(detection["faces"]) != 1:
-            reason = "no_face_detected" if not detection["faces"] else "multiple_faces_detected"
-            return {"quality": {"reasons": [reason]}}
         landmarks = self._map_face_landmarks(detection["faces"][0], head)
-        if "review_reason" in landmarks:
-            return {"quality": {"reasons": [landmarks["review_reason"]]}}
         blendshapes = detection["blendshapes"][0] if detection["blendshapes"] else {}
         transform = detection["transforms"][0] if detection["transforms"] else None
-        quality = self._assess_face_quality(original_rgb, landmarks, blendshapes, transform)
-        return {
-            "status": "review" if quality["reasons"] else "ready", "quality": quality,
-            "landmarks": {
+        return FaceFeatures(
+            bisenet=bisenet, landmarks={
                 "normalized_predicted": landmarks["normalized_predicted"].tolist(),
                 "source_xy": landmarks["source_xy"].tolist(), "on_head": landmarks["on_head"].tolist(),
             },
-            "blendshapes": blendshapes, "facial_transform": transform,
-            "features": photo_features(np.asarray(original_rgb), landmarks["source_xy"], regions,
-                                       landmarks["on_head"], region_features=bisenet),
-        }
+            blendshapes=blendshapes, facial_transform=transform,
+            features=photo_features(np.asarray(original_rgb), landmarks["source_xy"], regions,
+                                    landmarks["on_head"], region_features=bisenet),
+        )
 
     def _map_face_landmarks(self, normalized_points: list, head: Image.Image) -> dict:
         """Map MediaPipe's 478 normalized predictions onto the unchanged source-image grid.
-        Derive face bounds and alpha support without treating predicted depth as measured geometry.
+        Record visible-alpha support without applying quality thresholds, pose limits or selection policy.
         """
         import numpy as np
 
         normalized = np.asarray(normalized_points, dtype=float)
         if normalized.shape != (MEDIAPIPE_LANDMARK_COUNT, 3) or not np.isfinite(normalized).all():
-            return {"review_reason": "invalid_dense_landmarks"}
+            raise ValueError("invalid_dense_landmarks")
         source_xy = normalized[:, :2] * head.size
         inside_image = ((source_xy >= 0) & (source_xy < head.size)).all(1)
         sample_pixels = np.clip(np.floor(source_xy).astype(int), 0, np.asarray(head.size) - 1)
         alpha = np.asarray(head.getchannel("A"))
-        on_head = inside_image & (
-            alpha[sample_pixels[:, 1], sample_pixels[:, 0]] >= self.quality_policy.min_landmark_alpha)
-        face_points = source_xy[:MEDIAPIPE_BASE_FACE_POINT_COUNT]
-        minimum_xy, maximum_xy = face_points.min(0), face_points.max(0)
-        left, top = np.maximum(0, minimum_xy)
-        right, bottom = np.minimum(head.size, maximum_xy)
-        if right <= left or bottom <= top:
-            return {"review_reason": "face_outside_image"}
+        on_head = inside_image & (alpha[sample_pixels[:, 1], sample_pixels[:, 0]] > 0)
         return {
             "normalized_predicted": normalized, "source_xy": source_xy,
-            "inside_image": inside_image, "on_head": on_head,
-            "face_box": [left, top, right - left, bottom - top],
+            "on_head": on_head,
         }
 
-    def _assess_face_quality(
-        self, original_rgb: Image.Image, landmarks: dict, blendshapes: dict, transform,
-    ) -> dict:
-        """Assess image detail, clipping, head support, expression and predicted pose independently.
-        Return review reasons without discarding usable features or claiming calibrated confidence.
-        """
-        from ailias.imageprocessing.features import face_quality
-
-        quality = face_quality(original_rgb, landmarks["face_box"], self.quality_policy)
-        if not landmarks["inside_image"][:MEDIAPIPE_BASE_FACE_POINT_COUNT].all():
-            quality["reasons"].append("face_clipped")
-        supported_points = int(landmarks["on_head"][:MEDIAPIPE_BASE_FACE_POINT_COUNT].sum())
-        if supported_points < self.quality_policy.min_supported_landmarks:
-            quality["reasons"].append("insufficient_head_support")
-        expression = max((value for name, value in blendshapes.items()
-                          if name.startswith(("mouth", "brow", "cheek", "noseSneer", "eyeWide", "eyeSquint"))
-                          or name == "jawOpen"), default=0.0)
-        if expression > self.quality_policy.max_neutral_expression:
-            quality["reasons"].append("non_neutral_expression")
-        pose, pose_warning = self._assess_face_pose(transform)
-        if pose is not None:
-            quality["pose"] = pose
-        if pose_warning is not None:
-            quality["reasons"].append(pose_warning)
-        return quality
-
-    def _assess_face_pose(self, transform) -> tuple[dict | None, str | None]:
-        """Validate the predicted rotation and derive uncalibrated pitch, yaw and roll.
-        Flag unavailable or extreme pose without fitting a camera or altering image pixels.
-        """
-        import numpy as np
-
-        matrix = np.asarray(transform, dtype=float)
-        if (matrix.shape != (4, 4) or not np.isfinite(matrix).all()
-                or not np.allclose(matrix[:3, :3].T @ matrix[:3, :3], np.eye(3),
-                                   atol=ROTATION_VALIDATION_TOLERANCE)
-                or not math.isclose(float(np.linalg.det(matrix[:3, :3])), 1.0,
-                                    abs_tol=ROTATION_VALIDATION_TOLERANCE)):
-            return None, "missing_or_invalid_pose"
-        yaw = math.degrees(math.atan2(-matrix[2, 0], math.hypot(matrix[0, 0], matrix[1, 0])))
-        pitch = math.degrees(math.atan2(matrix[2, 1], matrix[2, 2]))
-        roll = math.degrees(math.atan2(matrix[1, 0], matrix[0, 0]))
-        pose = {"pitch_deg": pitch, "yaw_deg": yaw, "roll_deg": roll, "calibrated": False}
-        extreme = (abs(yaw) > self.quality_policy.max_yaw_degrees
-                   or max(abs(pitch), abs(roll)) > self.quality_policy.max_pitch_roll_degrees)
-        return pose, "extreme_pose" if extreme else None
-
-    def extract_features_batch(self, prepared_images: Iterable[dict]) -> Iterator[FaceFeatures]:
-        """Stream FaceFeatures instances while reusing one landmarker and existing prepared pixels.
-        Preserve preparation failures and per-image extraction errors as class instances, not dictionaries.
+    def extract_features_batch(self, prepared_images: Iterable[dict]) -> Iterator[FaceExtractionResult]:
+        """Stream facial data together with source metadata and per-image extraction failures.
+        Reuse one landmarker and keep original pixels available for subsequent grouping and review copies.
         """
         for prepared in prepared_images:
             if prepared.get("status") == "error":
                 yield self._create_error_result(prepared)
                 continue
             try:
-                yield self.extract_features(prepared)
+                yield self._extract_result(prepared)
             except (OSError, ValueError, RuntimeError) as error:
                 yield self._create_error_result(prepared, error)
 
-    def _create_error_result(self, prepared_image: dict, error: Exception | None = None) -> FaceFeatures:
-        """Represent a preparation or extraction failure with the same FaceFeatures output contract.
+    def _create_error_result(self, prepared_image: dict, error: Exception | None = None) -> FaceExtractionResult:
+        """Represent a preparation or extraction failure outside the facial-data class.
         Preserve source identity without claiming successful model execution or fabricated observations.
         """
         return replace(
-            self._create_feature_result(prepared_image), status="error", execution={},
+            self._create_extraction_result(prepared_image), execution={},
             error_type=type(error).__name__ if error is not None else prepared_image.get("error_type"),
             reason=str(error) if error is not None else prepared_image.get("reason"),
         )

@@ -3,7 +3,8 @@
 # Imageprocessing
 
 Extract reviewable face groups, portraits and head-only foreground from photos.
-Original files remain unchanged; identity grouping and quality gates are heuristics.
+Original files remain unchanged. The new API groups one person's views;
+the existing CLI retains its heuristic identity grouping and quality gates.
 Reusable photo-feature extraction belongs here; native asset/control translation
 belongs downstream. Regional geometry/colour/iris evidence does not include
 separate beard/lash segmentation or automatic native likeness fitting.
@@ -16,19 +17,20 @@ For model-by-model inputs, outputs and actual local portrait examples, see the
 `images.py` prepares pixels with **MODNet -> BiSeNet -> optional white balance**.
 `face_feature_extraction.py` uses **MediaPipe -> facial features**, reusing the
 prepared head and labels: no second matting, parsing or head-isolation pass.
-Neither stage uses YuNet, SFace, automatic cropping or alignment. Existing commands
+`face_grouping.py` determines **orientation -> view groups -> selection**.
+These stages use no YuNet, SFace, automatic cropping or alignment. Existing commands
 below are unchanged and still use their original pipeline.
 
 **Single-person scope:** every input belongs to the same known person. Identity
 embeddings, person clustering and subject matching are intentionally unnecessary
 in this API. Grouping means organizing views, not identifying people.
-The next stages are **view grouping, then selection within each view group**;
-neither is implemented in the new API yet. Earlier quality warnings are evidence
-for selection, not instructions to delete images or reject useful side/upper views.
+Every usable extraction is selected, with no per-view quota. Quality warnings
+annotate images; they do not reject useful side/upper/lower views.
 
 ```python
 from pathlib import Path
 from ailias.imageprocessing.face_feature_extraction import FaceFeatureExtractor, FaceFeatures
+from ailias.imageprocessing.face_grouping import group_face_images
 from ailias.imageprocessing.images import ImageProcessor
 
 models = Path(r"data\arka\imageprocessing\models")
@@ -41,13 +43,17 @@ with ImageProcessor(
 with FaceFeatureExtractor(
     mediapipe_model=Path(r"data\arka\facefitting\models\mp-face-landmarker-v1\face_landmarker.task"),
 ) as extractor:
-    face_features: FaceFeatures = extractor.extract_features(prepared)
+    extractions = list(extractor.extract_features_batch([prepared]))
 
-print(face_features.status, face_features.features)
-if face_features.bisenet is not None:
+face_features: FaceFeatures | None = extractions[0].features
+if face_features is not None and face_features.bisenet is not None:
     region_data = face_features.bisenet.to_dict()  # Nested dictionary.
     region_json = str(face_features.bisenet)  # JSON string; no file writes.
-prepared["image"].save("head.png")  # Explicit export; neither stage writes automatically.
+grouped = group_face_images(
+    extractions, review_directory=Path(r"data\arka\imageprocessing\review"),
+)
+print(len(grouped.selected), len(grouped.excluded))
+prepared["image"].save("head.png")  # Separate, explicit head export.
 ```
 
 The default is `device="cuda", gpu_index=0`; use `device="cpu"` only for explicit
@@ -58,16 +64,18 @@ MediaPipe GPU delegate. Unsupported requested GPU execution fails; no CPU retry.
 | Stage | Result fields |
 |---|---|
 | Preparation | `image`: native-size RGBA head; `original_image`: untouched RGB on the same grid; `regions`: semantic labels; `colour`: white-balance outcome |
-| Feature extraction | `landmarks`, `blendshapes`, `facial_transform`, `features`: original-grid predictions, facial ratios and iris evidence; `bisenet`: structured natural-region appearance |
-| Both | Own `status`, `quality`, `execution` and source/frame metadata |
+| `FaceFeatures` | `landmarks`, `blendshapes`, raw `facial_transform`, `features`: facial ratios/iris evidence; `bisenet`: natural-region appearance; colour-source semantics |
+| Batch `FaceExtractionResult` | Facial data in `.features`; source/frame metadata, original/prepared pixels, execution provenance and optional `.error_type`/`.reason` |
+| `FaceGroupingResult` | `.groups`: all candidates by view, including excluded members; `.selected`/`.excluded`: decision lists with orientation, quality warnings and review-copy outcome |
 
 Preparation `ready` means a nonempty head, **not face-quality approval**.
-The extractor performs face-quality review separately. `mediapipe_model` and
-`quality_policy` belong to `FaceFeatureExtractor`, not `ImageProcessor`.
-`extract_features()` returns a **`FaceFeatures` class instance**, not a dictionary;
-read `face_features.landmarks`, `.features`, `.quality` and `.source` as attributes.
-Nested measurement/quality payloads remain dictionaries. Batch results use the
-same class for `ready`, `review` and `error`; errors expose `.error_type` and `.reason`.
+The extractor records measurements and raw model predictions; grouping owns
+orientation, image-quality assessment and keep/exclude decisions.
+`extract_features(prepared)` returns a **`FaceFeatures` instance** containing
+facial data only. It can contain partial BiSeNet evidence without landmarks.
+For grouping, use batch extraction: **its items are now `FaceExtractionResult`**,
+not `FaceFeatures`. Source/frame/backend/error fields moved into this wrapper.
+`mediapipe_model` belongs to the extractor; quality/view policy belongs to grouping.
 
 `face_features.bisenet` is a `FaceFeaturesBiseNet` instance with named region
 objects: `skin`, `left_eyebrow`, `right_eyebrow`, `left_eye`, `right_eye`,
@@ -83,17 +91,36 @@ existing labels and do not feed into or refine MediaPipe. The enclosing
 `FaceFeatures` also supports `to_dict()` and `str(...)` for dictionary/JSON output.
 
 Colour normalization is enabled by default for the returned cutout, not feature
-samples; pass `normalize_colour=False` to skip it. Original RGB is retained only
-as the uncorrected colour reference; MediaPipe does not require original pixels.
+samples; pass `normalize_colour=False` to skip it. Original RGB supplies the
+uncorrected colour reference and later image-quality assessment; MediaPipe does not require it.
 This is bounded scene-neutral
 white balance, not calibrated skin colour or cross-photo exposure matching.
-No/multiple faces, invalid points, low detail, clipping, poor foreground support,
-strong expressions and extreme/missing pose produce review outcomes rather than automatic approval.
-Region/iris features can independently require review.
+No/ambiguous detections or invalid dense points are extraction failures. Grouping
+also excludes missing facial data, degenerate bounds or faces entirely outside
+the image. Low detail/exposure, partial clipping, weak alpha support and expressions
+are warnings only. Region/iris features can independently require review.
+
+Orientation never discards images or raises a per-image pose error: unavailable
+or invalid transforms produce `category="unknown"` with
+`reason="missing_or_invalid_pose"`. Otherwise bins include `front`, `left_oblique`,
+`right_oblique`, `left_profile`, `right_profile`, `up`, `down` and combined views
+such as `left_profile_up`. Angles are approximate model-coordinate conventions,
+not certified anatomical side or camera elevation; roll is retained, not penalized.
+Positive uniform transform scale is removed before rotation validation.
+
+Excluded candidates remain in their view group with `.selected=False` and an
+`.exclusion_reason`. Only their **copies** go into the explicit `review_directory`:
+source-photo bytes are copied unchanged; decoded video frames and in-memory inputs
+are saved as PNG. Originals are never moved/deleted, existing review files are
+never overwritten, and unavailable copies expose `.review_copy_error` rather than
+silently disappearing. Selected images create no review files.
 
 For a lazy feature batch, pass `processor.process_images(paths)` into
 `extractor.extract_features_batch(...)` while both contexts are open. Models are
-reused; preparation and extraction failures become per-item `FaceFeatures` errors.
+reused; preparation and extraction failures become per-item `FaceExtractionResult`
+records. Pass the resulting iterator to `group_face_images(..., review_directory=...)`
+before closing the contexts. Grouping retains candidate pixels in memory, so bound
+large video batches with `max_frames` or process smaller collections.
 `processor.extract_video_frames(path)` yields `Frame`
 records with RGB, source, decode index and timestamp; pass these records directly
 to `process_image()` or `process_images()`. Sampling defaults to one frame per
@@ -109,7 +136,8 @@ needs `dense-landmarks`. CUDA inference requires the existing CUDA-enabled OpenC
 do not replace it with a CPU-only wheel. Frame extraction also needs PyAV
 from the existing `video` extra.
 Use each instance serially, not concurrent calls sharing mutable model state.
-No alpha sidecars, JSON or previews are retained automatically.
+No alpha sidecars, JSON or previews are retained automatically; grouping writes
+only the explicitly requested excluded-image review copies.
 
 ## Inputs and outputs
 
@@ -160,7 +188,25 @@ Matting setup requires the optional `matting-tools` extra; see [runtime setup](d
 
 ## Configuration
 
-### Extraction and curation: `config\imageprocessing.json`
+### New single-person grouping: `config\face_grouping.json`
+
+`group_face_images()` loads this file unless given an explicit `FaceGroupingPolicy`.
+Use `load_grouping_policy(path)` for another file. These warning thresholds do
+not exclude usable extractions; view boundaries label orientation, not acceptability.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `min_face_size` | `256` | Native face-box short side in pixels |
+| `min_laplacian_variance` | `40.0` | Focus warning threshold after bounded downsampling |
+| `max_dark_fraction` / `max_bright_fraction` | `0.5` / `0.5` | Allowed fractions of pixels below 16 / at least 240 |
+| `min_landmark_alpha` | `240` | Minimum 0-255 opacity for quality-support counting |
+| `min_supported_landmarks` | `150` | Required supported points among the 468 base-face predictions |
+| `max_neutral_expression` | `0.5` | Expression/jaw score warning threshold |
+| `frontal_yaw_degrees` | `20.0` | Maximum absolute frontal-bin yaw |
+| `profile_yaw_degrees` | `55.0` | Minimum absolute profile-bin yaw; intervening views are oblique |
+| `vertical_pitch_degrees` | `20.0` | Absolute pitch above this adds up/down classification |
+
+### Existing CLI extraction and curation: `config\imageprocessing.json`
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -172,10 +218,10 @@ Matting setup requires the optional `matting-tools` extra; see [runtime setup](d
 | `max_dark_fraction` | `0.5` | Maximum dark-pixel fraction in the face quality test |
 | `max_bright_fraction` | `0.5` | Maximum bright-pixel fraction in the face quality test |
 | `min_landmark_alpha` | `240` | Minimum 0-255 head opacity for a dense landmark to count as supported |
-| `min_supported_landmarks` | `150` | Minimum supported base-face points before the simple API flags review; excludes iris points |
-| `max_neutral_expression` | `0.5` | Maximum expression/jaw-open score before the simple API flags non-neutral expression |
-| `max_pitch_roll_degrees` | `25.0` | Maximum absolute predicted pitch or roll before the simple API flags extreme pose |
-| `max_yaw_degrees` | `70.0` | Maximum absolute predicted yaw before the simple API flags extreme pose |
+| `min_supported_landmarks` | `150` | Retained compatibility key; new API reads its separate grouping policy |
+| `max_neutral_expression` | `0.5` | Retained compatibility key; new API reads its separate grouping policy |
+| `max_pitch_roll_degrees` | `25.0` | Retained compatibility key; does not limit new view grouping |
+| `max_yaw_degrees` | `70.0` | Retained compatibility key; does not limit new view grouping |
 | `identity_cosine_threshold` | `0.5` | Minimum pairwise SFace cosine for complete-link grouping |
 | `identity_ambiguity_margin` | `0.05` | Near-tie margin used to flag ambiguous identity assignments |
 | `portrait_side_margin` | `0.6` | Extra crop margin per side, relative to face-box width |

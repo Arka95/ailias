@@ -8,7 +8,9 @@ from PIL import Image, ImageDraw
 from ailias.imageprocessing.appearance_features import (
     IRIS_EYES, extract_bisenet_features, iris_colours, photo_features,
 )
-from ailias.imageprocessing.face_features import FaceFeatures, FaceFeaturesBiseNet, FaceRegionFeatures
+from ailias.imageprocessing.face_features import (
+    FaceExtractionResult, FaceFeatures, FaceFeaturesBiseNet, FaceRegionFeatures,
+)
 
 
 def eye_image():
@@ -87,14 +89,18 @@ class AppearanceFeatureTests(unittest.TestCase):
         for value in (regions.skin, regions):
             with self.subTest(output=type(value).__name__):
                 self.assertEqual(json.loads(str(value)), value.to_dict())
-        for status in ("ready", "review", "error"):
-            result = FaceFeatures(status=status, source=Path("fixture.png"), bisenet=regions,
-                                  error_type="RuntimeError" if status == "error" else None)
+        features = FaceFeatures(bisenet=regions)
+        self.assertEqual(json.loads(str(features)), features.to_dict())
+        self.assertEqual(features.to_dict()["bisenet"]["skin"], regions.skin.to_dict())
+        for error_type in (None, "RuntimeError"):
+            result = FaceExtractionResult(features=features, source=Path("fixture.png"),
+                                          image=Image.fromarray(rgb), error_type=error_type)
             payload = result.to_dict()
             self.assertEqual(json.loads(str(result)), payload)
             self.assertEqual(payload["source"], "fixture.png")
-            self.assertEqual(payload["bisenet"]["skin"], regions.skin.to_dict())
-            self.assertEqual(payload["status"], status)
+            self.assertEqual(payload["features"]["bisenet"]["skin"], regions.skin.to_dict())
+            self.assertEqual(payload["error_type"], error_type)
+            self.assertEqual(payload["image_size"], [128, 64])
         self.assertEqual(json.loads(str(FaceFeatures()))["bisenet"], None)
 
     def test_bisenet_region_measurements_reject_invalid_pixels_and_label_grids(self):

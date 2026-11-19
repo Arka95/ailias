@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from typing import Literal
 
+from PIL import Image
+
 
 @dataclass(frozen=True)
 class FaceRegionFeatures:
@@ -71,39 +73,63 @@ class FaceFeaturesBiseNet:
 
 @dataclass(frozen=True)
 class FaceFeatures:
-    """Collect per-face predictions, measured photo features and review evidence as attributes.
-    Preserve source identity and optional errors without owning images or inference resources.
+    """Keep facial measurements and raw model predictions separate from collection decisions.
+    Leave source metadata, inference failures, orientation and selection to their own result records.
     """
 
-    status: Literal["ready", "review", "error"] = "review"
     features: dict | None = None
     bisenet: FaceFeaturesBiseNet | None = None
     landmarks: dict | None = None
     blendshapes: dict = field(default_factory=dict)
     facial_transform: list[list[float]] | None = None
-    quality: dict = field(default_factory=lambda: {"reasons": []})
-    source: Path | str | None = None
-    frame_index: int | None = None
-    timestamp_seconds: float | None = None
     features_colour_source: str = "original_rgb"
-    metric_depth_measured: bool = False
-    execution: dict = field(default_factory=dict)
-    error_type: str | None = None
-    reason: str | None = None
 
     def to_dict(self) -> dict:
-        """Return nested Python data with source paths represented as strings.
+        """Return facial measurements as nested ordinary Python data.
         Serialize structured BiSeNet regions using their own evidence-preserving contract.
         """
         result = asdict(self)
-        if self.source is not None:
-            result["source"] = str(self.source)
         if self.bisenet is not None:
             result["bisenet"] = self.bisenet.to_dict()
         return result
 
     def __str__(self) -> str:
         """Serialize the complete result as strict JSON without creating sidecars.
-        Keep single-image, review and batch-error outputs under the same JSON contract.
+        Exclude image pixels, processing metadata and collection decisions from this contract.
+        """
+        return json.dumps(self.to_dict(), sort_keys=True, allow_nan=False)
+
+
+@dataclass(frozen=True)
+class FaceExtractionResult:
+    """Associate facial data with its image, source metadata and any extraction failure.
+    Keep pixels available for grouping/review copies without putting them inside FaceFeatures.
+    """
+
+    features: FaceFeatures | None = None
+    image: Image.Image | None = field(default=None, repr=False)
+    head_image: Image.Image | None = field(default=None, repr=False)
+    source: Path | str | None = None
+    frame_index: int | None = None
+    timestamp_seconds: float | None = None
+    execution: dict = field(default_factory=dict)
+    error_type: str | None = None
+    reason: str | None = None
+
+    def to_dict(self) -> dict:
+        """Serialize provenance, facial data and failures without embedding image pixels.
+        Retain source size so stored metadata remains useful without live Pillow objects.
+        """
+        return {
+            "features": self.features.to_dict() if self.features is not None else None,
+            "source": str(self.source) if self.source is not None else None,
+            "frame_index": self.frame_index, "timestamp_seconds": self.timestamp_seconds,
+            "image_size": list(self.image.size) if self.image is not None else None,
+            "execution": dict(self.execution), "error_type": self.error_type, "reason": self.reason,
+        }
+
+    def __str__(self) -> str:
+        """Return metadata and facial data as strict JSON without writing artifacts.
+        Omit in-memory image pixels rather than silently stringifying Pillow objects.
         """
         return json.dumps(self.to_dict(), sort_keys=True, allow_nan=False)

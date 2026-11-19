@@ -349,4 +349,8 @@ class ImageProcessor:
             except (OSError, ValueError, RuntimeError) as error:
                 yield {"status": "error", "error_type": type(error).__name__, "reason": str(error),
                        "source": source.source if isinstance(source, Frame) else (
-                           source if isinstance(source, (str, Path)) else None)}
+                           source if isinstance(source, (str, Path)) else None),
+                       "frame_index": source.index if isinstance(source, Frame) else None,
+                       "timestamp_seconds": source.timestamp_seconds if isinstance(source, Frame) else None,
+                       "original_image": source.image if isinstance(source, Frame) else (
+                           source if isinstance(source, Image.Image) else None)}
