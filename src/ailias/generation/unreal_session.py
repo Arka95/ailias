@@ -243,10 +243,17 @@ class UnrealSession:
             current = self.status()
             if current["status"] not in {"idle", "completed", "failed", "starting", "stopped"}:
                 raise ValueError("Unreal is still running a job; wait for its completion before stopping")
-            return self._wait_for_exit(current, timeout, shutdown=True)
+            result = self._wait_for_exit(current, timeout, shutdown=True)
+        return self._finalize_retention(result)
 
     def wait(self):
-        return self._wait_for_exit(self.status(), None)
+        return self._finalize_retention(self._wait_for_exit(self.status(), None))
+
+    def _finalize_retention(self, result):
+        from ailias.generation.unreal_retention import finalize_deferred_native
+
+        retention = finalize_deferred_native(self)
+        return {**result, "retention": retention} if retention is not None else result
 
     def _wait_for_exit(self, current, timeout, *, shutdown=False):
         if current["status"] == "stopped":

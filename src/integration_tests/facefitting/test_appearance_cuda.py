@@ -12,8 +12,8 @@ import numpy as np
 @unittest.skipUnless(os.environ.get("AILIAS_CUDA_FITTING_TESTS") == "1", "Explicit CUDA opt-in required")
 class AppearanceCudaTests(unittest.TestCase):
     def test_constant_photo_reaches_visible_uv_surface_in_correct_source_coordinates(self):
-        from ailias.facefitting.appearance.uv_rasterization import uv_surface_map
-        from ailias.facefitting.appearance.cuda_texture_projection import bake
+        from ailias.head_reconstruction.appearance.uv_rasterization import uv_surface_map
+        from ailias.head_reconstruction.appearance.cuda_texture_projection import bake
 
         vertices = np.array([[-.2, -.2, 0], [.2, -.2, 0], [-.2, .2, 0]])
         triangles = np.array([[0, 2, 1]])

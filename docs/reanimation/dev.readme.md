@@ -7,11 +7,12 @@
 | Component | Responsibility / channel |
 |---|---|
 | `cli.py`, `settings.py` | Argument/policy validation and derived camera/placement geometry |
-| `pipeline.py` | Alias lock, immutable jobs, owned editor/encoder processes and publication |
+| `pipeline.py` | Alias lock, immutable jobs, native/encoder requests and publication |
 | `unreal_worker.py` | Request JSON -> native audio solve, stage/sequence, MRQ frames and receipt |
 | `media.py` | WAV/frame checks, explicit FFmpeg commands and full media decoding |
 
-Host-to-editor communication uses a request-file path in the child environment.
+Host-to-editor communication uses the project-owned session's request mailbox;
+explicit one-shot launches pass the request path in the child environment.
 The editor emits packages, PNGs, logs and JSON receipts. The host checks both
 native completion and actual files before encoding. FFmpeg subprocesses encode
 and completely decode video/audio before a verified MP4 is retained.
@@ -22,12 +23,31 @@ and completely decode video/audio before a verified MP4 is retained.
 | Audio-only | Save Performance; do not imply a rendered human |
 | Staging | New map/sequence; configured placement without changing facial Control Rig keys |
 | MRQ | Asynchronous callbacks retained inside the owned editor process |
-| Exit | Startup-script owner controls shutdown; nonzero exit remains failure |
+| Completion | Job receipt ends the operation, not the shared editor; native process failure remains failure |
 | Encoding | NVENC/AAC by default; no silent encoder fallback |
 | Finalization | Retain verified video, boundary frames and evidence; remove redundant scratch |
 
 No TTS adapter, voice-model selection, Yapit import or cloud identity request
 is involved. Model/audio/placement/resolution remain independent.
+
+## Timing
+
+`ReelPipeline` owns request preparation, native execution, native-package
+verification, frame validation, encoding, full media verification, source
+verification and finalization as separate journaled steps. `create_reel()`
+retains its existing Python API.
+
+The native receipt contains `stages.audio_lipsync`,
+`stages.place_character_and_export_animation` and `stages.render_video`.
+Audio-only and neutral-review jobs omit the stages they do not execute.
+The render timer ends in the completion callback after delegate cleanup, not
+when asynchronous rendering is launched. Failed rendering or delegate cleanup
+records a failed stage before publishing the terminal receipt.
+
+The host `stages.native_execution` contains those native child durations plus
+mailbox/receipt overhead. Do not add host and native durations together.
+Manifest `seconds` includes host cleanup and retention; `worker_seconds` is the
+native instrumented interval, not complete host wall time.
 
 ## Camera and lifecycle
 
@@ -40,9 +60,10 @@ Native export may add a static reference-pose root transform. The adapter only
 normalizes that selected actor's static root channels to configured placement;
 animated or ambiguous roots fail rather than losing motion.
 
-MRQ callbacks use Python keep-alive. The worker releases that flag and lets the
-engine startup-script owner shut down; directly racing editor quit against
-render completion previously caused native shutdown failures.
+MRQ callbacks retain request-owned objects until completion, then remove only
+that job's delegates/resources. The persistent bootstrap keeps the editor alive;
+only its owner controls shutdown. Explicit one-shot execution preserves its
+separate startup-script lifetime.
 
 ## Configuration
 
@@ -62,26 +83,17 @@ They cover audio format/duration, aliases, independent placement, equivalent
 `--voice`/`--audio`, exact frames, media failures and cleanup. No UE, model,
 network, hardware or TTS service is needed.
 
-## Integration evidence
-
-| Retained evidence | Scope |
-|---|---|
-| Sample-character rig audit/migration records | Compatible native Blueprint, Face/head and post-process loading |
-| Sample full-resolution reel | 743 frames, 1080x1920/30 fps, clean native exit, H.264/AAC and complete decode |
-| Personal-draft reel | 743 frames, 540x960/30 fps, same narration and technical verification; likeness remains below expectations |
-| Failed receipts/logs | Retained alongside diagnostics; not reclassified as successful videos |
-
-Records live under `data\arka\reanimation`; the personal native package lineage
-is referenced by `data\arka\facefitting\reviews\personal-runtime-character.json`.
-Technical decoding/timing checks do not certify phoneme alignment, acting or identity.
-Detailed implementation research is in [implementation.md](implementation.md).
+Technical decoding checks do not certify phoneme alignment, acting or identity.
+See [implementation contracts](implementation.md).
 
 ## Operational limits
 
 Jobs are synchronous and serialized per alias, not a queue service.
 Crashes can leave partial native assets/running manifests; inspect and create a
 fresh revision rather than reusing the namespace. Source WAV hashes are checked
-again after animation. Existing projects/assets are not silently upgraded or pruned.
+again after animation. Existing projects/assets are not silently upgraded.
+Managed obsolete packages follow dependency-aware stopped-project retention,
+not per-render deletion; external/unregistered assets are protected.
 
 A separate later render currently starts another solve instead of resuming a
 saved audio-only Performance. Arm/torso gestures and wardrobe APIs remain outside

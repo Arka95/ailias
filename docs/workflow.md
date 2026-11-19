@@ -7,7 +7,7 @@ For an uncurated photo directory, first use the optional
 groups, crops and masks. That module does not automatically attest this
 workflow's capture conditions.
 
-The separate [experimental generation commands](generation/README.md) now run
+The separate [experimental generation commands](generation/README.md) run
 COLMAP and Blender on reviewed portraits and offer a prerequisite-gated Unreal
 adapter. They do not bypass the manual workflow below or attest capture/likeness.
 
@@ -76,8 +76,8 @@ information gain, camera distance or regional reconstruction confidence.
 ## 3. Reconstruct and review
 
 Use ailias's experimental COLMAP adapter or benchmark another suitable backend.
-The native candidate sets fail reliable overlap or produce fragments.
-The separate [GNM fitter](facefitting/README.md) now produces a coherent neutral
+Insufficient overlap can block the native route or produce fragments.
+The separate [GNM fitter](head_reconstruction/README.md) produces a coherent neutral
 head, not a calibrated scan, texture or likeness approval. Do not equate tool
 success with facial accuracy. Preserve mesh, texture, recovered cameras, measured reprojection errors
 and tool settings/runtime/VRAM measurements.
@@ -146,7 +146,8 @@ python -m ailias status first-face
 The `comparison` artifact is a three-row reference/render contact sheet.
 `baseline_recorded=true` means manual receipts and artifacts are present, **not**
 that likeness, animation, geometry quality or a production MetaHuman is verified.
-`production_ready` stays false in this increment.
+`production_ready` remains false: this workflow records evidence, not production
+certification.
 
 ## Resume, revisions and recovery
 
@@ -156,10 +157,11 @@ stages; previous records and content-addressed artifacts remain in history.
 Re-run validation before attaching stages after policy changes. `status` hashes
 all tracked artifacts; it reports corruption rather than claiming completion.
 
-Failed manual handoffs leave the last committed stage intact. Partial managed
-handoff copies may remain unreferenced; they have no automatic garbage collection.
-Experimental generation separately finalizes its own transient resources, and
-imageprocessing provides reference-aware maintenance. One writer lock per
+Failed manual handoffs leave the last committed stage intact. Partial or unknown
+handoff files are not assumed safe to delete. Managed producing jobs finalize
+their scratch and retain referenced major products; imageprocessing also provides
+curation-aware maintenance. See [cleanup contracts](dev.readme.md#resource-cleanup).
+One writer lock per
 session prevents concurrent updates. After an interrupted process, inspect the PID
 in `data\SESSION\.lock` and remove **only that lock** once its writer is confirmed
 stopped. Never remove another active session's lock. Back up `data` explicitly;

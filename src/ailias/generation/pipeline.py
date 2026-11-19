@@ -16,8 +16,8 @@ from ailias.generation.inputs import prepare_inputs
 from ailias.generation.matching import matching_summary
 from ailias.generation.mesh import ply_header, textured_ply_to_obj
 from ailias.generation.settings import GenerationPolicy
-from ailias.imageprocessing.pipeline import component, new_id
-from ailias.resources import finalize_resources
+from ailias.common.identifiers import validate_identifier as component, generate_run_id as new_id
+from ailias.resource_management import finalize_job_resources
 from ailias.storage import Store, atomic_json
 
 
@@ -50,7 +50,7 @@ def inspect_job(store: Store, job: str):
 
 
 def finalize_job(store: Store, report: dict, path: Path):
-    finalize_resources(store, report, path, retain_metadata=False)
+    finalize_job_resources(store, report, path, retain_metadata=False)
     atomic_json(path, report)
 
 

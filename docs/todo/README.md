@@ -1,29 +1,26 @@
-[Back to REPO_ROOT](../../README.md) | [Decisions](../analysis.md)
+[Back to REPO_ROOT](../../README.md) | [Design decisions](../analysis.md)
 
-# Implementation backlog
+# Quality and extension criteria
 
-Open engineering work, ordered by dependency and product impact.
-Technical completion and visual quality are separate acceptance conditions.
+Requirements below define acceptance for visual-quality work and optional
+extensions. Saved-asset validity and visual acceptance are separate gates.
 
-| Priority | Work | Existing foundation | Completion evidence |
-|---|---|---|---|
-| P0 | Native facial-feature refinement | Preserved Blender geometry, reference photos and conformed Character | Code-driven regional fitting, matched-camera before/after metrics and visible resemblance improvement |
-| P0 | Native appearance matching | Native picker/grooms and verified SM6 skin bake; actual same-editor full speaking draft, saved-albedo checks and cold reload pass | Checkerboard is fixed, but complexion still appears lighter than the reference; require native-control tuning and matched-light saved/reloaded comparison, not synthetic photo fill |
-| P0 | Hair, brows, moustache and beard | Photo evidence and approximate unbound Blender scalp groom | Automated compatible selection/binding, correct root alignment and deformation/LOD checks |
-| P1 | Finish native lifecycle migration and verification consolidation | Main fresh-head/features/review/reel paths now reuse an owned editor; same-PID native MRQ check, project exclusion and async completion pass. [Implemented milestone](../reanimation/pipeline-optimization-investigation.md#implemented-milestone) | Migrate remaining legacy/calibration commandlets if needed; consolidate existing immediate cold checks only after equivalence proof; preserve independent final publication verification |
-| P1 | Dependency-aware iteration and measured fitting optimization | Zero-mode reference reuse implemented/tested without removing candidates; actual native warm timings and resident memory recorded; explicit native/reel policies retained | Opt-in compatible Performance reuse, measured model/solver profiling and bounded cold/warm comparison; no rig/refit/skin rebuild for lighting-only changes. Full-search speedup is not yet benchmarked |
-| P1 | Matched-view multi-signal validation | Landmark/sampled-surface metrics and visual comparison | Automated camera-consistent overlays, regional/silhouette checks and bounded accept/reject criteria |
-| P1 | Refinement/rollback loop | Immutable revisions, source hashes and integrity checks | Iteration cap, measurable nonregression and recoverable prior candidate |
-| P2 | Calibrate mask/colour confidence | Semantic head alpha, bounded harmonization and relative-light evidence | Edge/colour reference fixtures, uncertainty reporting and reliable abstention |
-| P2 | Anatomical dimensions | Supplied corresponding geometry comparisons | Defined anatomical endpoints, calibrated scale and independent measurement validation |
-| P2 | Resume audio-only animation | Saved Performance and rig rendering | Render an existing verified Performance without repeating the solve |
-| P2 | Expression/performance validation | Full audio-driven render and technical media gates | Blink, lip seal, brows, jaw/smile and speech-motion inspection |
-| P3 | Optional apparel | Existing compatible character wardrobe | Independent garment asset/style/colour controls, fit/deformation tests and backdrop compatibility |
-| P3 | Capture/recovery UX | Source history, curation, manual handoffs and baselines | Region-driven recapture guidance, explicit recovery/rollback and no data loss |
+| Priority | Area | Required acceptance evidence |
+|---|---|---|
+| P0 | Facial geometry, including nose | Matched-camera regional measurements, visible resemblance improvement and no regression of protected features |
+| P0 | Native complexion | Saved/reloaded comparison under matched lighting; no synthetic photo fill used to conceal material or colour errors |
+| P0 | Brows and eyelashes | Visible placement, density and colour checks in neutral and animated views; requested native settings persist |
+| P0 | Hair, moustache and beard | Compatible selection/binding, correct root alignment and deformation/LOD checks |
+| P1 | Multi-signal validation | Camera-consistent overlays, regional/silhouette checks and bounded accept/reject criteria |
+| P1 | Refinement and rollback | Explicit iteration cap, measurable nonregression and recoverable prior candidate |
+| P1 | Remaining native lifecycle migration | Preserve project exclusion, request ownership, asynchronous completion and independent publication checks |
+| P1 | Fitting optimization | Equivalent candidate/evidence evaluation; profile real bottlenecks without reducing correctness gates |
+| P2 | Mask and colour confidence | Reference fixtures, uncertainty reporting and reliable abstention |
+| P2 | Anatomical dimensions | Defined endpoints, calibrated scale and independent measurement validation |
+| P2 | Audio-performance reuse | Explicitly render an existing verified Performance without silently reusing or repeating a solve |
+| P2 | Expression quality | Inspect blink, lip seal, brows, jaw/smile and speech-motion alignment |
+| P3 | Apparel controls | Independent garment asset/style/colour selection, fit/deformation and backdrop checks |
+| P3 | Capture and recovery | Region-driven recapture guidance and explicit recovery without data loss |
 
-Core Data, native Character conform, face rigging, runtime assembly and real
-video encoding already exist locally; reinstalling/repeating those is not a
-substitute for the missing resemblance/appearance work.
-
-Current code/quality boundaries: [facefitting](../facefitting/README.md),
-[reanimation](../reanimation/README.md) and the [root comparison](../../README.md#current-state---below-expectations).
+Implementation contracts: [head reconstruction](../head_reconstruction/README.md),
+[MetaHuman](../metahuman/README.md) and [reanimation](../reanimation/README.md).

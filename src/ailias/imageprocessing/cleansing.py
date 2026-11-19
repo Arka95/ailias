@@ -11,12 +11,14 @@ from PIL import Image
 from ailias.imageprocessing.assets import store_png
 from ailias.imageprocessing.curation import load_filter
 from ailias.imageprocessing.features import contact_sheet
-from ailias.imageprocessing.pipeline import component, load_run, new_id, read_image
+from ailias.common.identifiers import validate_identifier as component, generate_run_id as new_id
+from ailias.imageprocessing.pipeline import load_run
+from ailias.imageprocessing.image_io import read_oriented_image as read_image
 from ailias.imageprocessing.settings import ProcessingPolicy
 from ailias.imageprocessing.observations import align_head, assess_lighting, face_lighting
 from ailias.imageprocessing.subjects import associate_subject, view_rank
 from ailias.imageprocessing.views import estimate_view
-from ailias.resources import cleanup_owned_files
+from ailias.resource_management import finalize_job_resources
 from ailias.settings import PROJECT_ROOT
 from ailias.storage import atomic_json, digest
 
@@ -339,11 +341,11 @@ def cleanse_run(store, run, policy, backend, group=None, progress=None):
         if result.get("preview"):
             retained.append(result["preview"]["path"])
         retained.extend(page["artifact"]["path"] for page in result.get("preview_pages", []))
-        for asset in created:
-            if asset not in retained:
-                store.resolve(asset).unlink(missing_ok=True)
-        result["cleanup"] = cleanup_owned_files(store, str(relative), retained)
-        atomic_json(manifest, result)
+        finalize_job_resources(
+            store, result, manifest, [store.resolve(path) for path in retained],
+            retain_metadata=False, created_assets=created,
+            automatic_retention=False,
+        )
     if result["status"] == "complete":
         atomic_json(store.resolve(str(Path("imageprocessing") / "cleansing" / f"{run}.json")),
                     store.reference_artifact(manifest))

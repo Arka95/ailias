@@ -8,7 +8,8 @@ from pathlib import Path
 
 from ailias.geometry.metrics import compare_geometry
 from ailias.imageprocessing.features import similarity
-from ailias.imageprocessing.pipeline import load_run, new_id
+from ailias.common.identifiers import generate_run_id as new_id
+from ailias.imageprocessing.pipeline import load_run
 from ailias.resources import cleanup_owned_files
 from ailias.storage import Store, atomic_json
 

@@ -2,8 +2,7 @@
 
 # Multi-view selection and incomplete facial evidence
 
-Primary sources checked November 16, 2026. Research informs the choices below;
-it does not imply these papers' pretrained models or reconstruction accuracy
+Research informs the choices below; it does not imply these papers' pretrained models or reconstruction accuracy
 have been incorporated into ailias.
 
 ## Evidence and decisions
@@ -13,7 +12,7 @@ have been incorporated into ailias.
 | Deng et al., [Accurate 3D Face Reconstruction: From Single Image to Image Set](https://arxiv.org/abs/1903.08527), CVPR Workshops 2019 | Multi-image shape aggregation can exploit complementary information rather than treating every photo as interchangeable | Separate seed-subject association from view categories; keep complementary directions and explicit observation provenance | Implemented selection is a heuristic, not their learned aggregation network |
 | Sanyal et al., [RingNet](https://arxiv.org/abs/1905.06817), CVPR 2019 | Identity shape should be distinguished from image-dependent pose/expression | Frozen seed anchors, cross-group identity evidence, independent pose bins; never use a pose cluster as a confirmed identity | No RingNet/FLAME weights, expression neutralization or template fitting is implemented |
 | [OpenCV PnP](https://docs.opencv.org/4.13.0/d5/d1f/calib3d_solvePnP.html) | Pose estimation needs corresponding 3D/2D points and camera intrinsics | SQPnP with five stored landmarks, three focal hypotheses, positive-depth checks and normalized reprojection/focal-sensitivity confidence | Unknown intrinsics and a generic face make angles approximate; five points cannot describe detailed facial shape |
-| [MediaPipe canonical face](https://github.com/google-ai-edge/mediapipe/blob/v0.10.21/mediapipe/modules/face_geometry/data/canonical_face_model.obj) and [Face Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker) | Canonical geometry supplies semantic correspondences; the full task supports dense landmarks, expressions and transformations | Five numerical proxy points remain in native selection. The separate facefitting module now runs the dense task in source coordinates | MediaPipe CPU is installed/executed for head fitting; its predicted relative depth is not a metric scan and does not change native SfM constraints |
+| [MediaPipe canonical face](https://github.com/google-ai-edge/mediapipe/blob/v0.10.21/mediapipe/modules/face_geometry/data/canonical_face_model.obj) and [Face Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker) | Canonical geometry supplies semantic correspondences; the full task supports dense landmarks, expressions and transformations | Five numerical proxy points remain in native selection; head reconstruction consumes source-coordinate dense evidence | Predicted relative depth is not a metric scan and does not change native SfM constraints |
 | Tran et al., [Extreme 3D Face Reconstruction: Seeing Through Occlusions](https://openaccess.thecvf.com/content_cvpr_2018/papers/Tran_Extreme_3D_Face_CVPR_2018_paper.pdf), CVPR 2018 | Visibility and symmetry can provide approximate support for self-occluded regions | Proposed confidence-tagged symmetry fallback only where actual observations are absent | Not implemented; real asymmetry must not be overwritten and mirrored detail is not measured evidence |
 | Selvaraju et al., [OFER](https://openaccess.thecvf.com/content/CVPR2025/html/Selvaraju_OFER_Occluded_Face_Expression_Reconstruction_CVPR_2025_paper.html), CVPR 2025 | Occluded geometry is ambiguous; multiple plausible completions can exist | Proposed shape-prior completion must label inferred areas and preserve uncertainty | No OFER/diffusion model adopted; a plausible completion cannot certify the owner's hidden anatomy |
 | Feng et al., [DECA](https://deca.is.tue.mpg.de/), SIGGRAPH 2021 | Shape, person-specific detail, expression, albedo and illumination are distinct estimation targets | Proposed shared identity shape with per-photo expression/light rather than baking expression or shadows into anatomy/skin | Architectural reference only; no DECA model installed |
@@ -47,12 +46,11 @@ requested seed group:
    oblique 0.12, each profile 0.07, above/below 0.04 each, unknown 0.04. Missing
    buckets redistribute capacity; frontal-first is a preference, not fabricated
    coverage. Within bins, prefer no quality warnings, reliable pose, face size
-   and detail. Maximum input count is now 64.
+   and detail. Standard maximum input count is 64.
 6. Preserve a bounded set of still-eligible, previously registered photo anchors
    from one hash-verified camera artifact with matching run/group/curation.
    This protects some known geometric tracking evidence; it does not guarantee
-   that the widened view graph is connected. The correction is implemented in
-   the working tree but has not had a native reconstruction replay.
+   that the selected view graph is connected.
 
 Strict generation still rejects quality-warning portraits. The explicit PoC
 profile can use human-kept exposure/blur/small-face warnings at reduced observation
@@ -68,8 +66,8 @@ Selection weights are not silently presented as native SfM objective weights.
 
 ## Mesh detail and missing regions
 
-The PoC now uses a dense-image side of 1,200 and Poisson depth 10 rather than
-800/8. Raw fused `observed-surface.ply` is retained with the camera/sparse evidence,
+The PoC uses a dense-image side of 1,200 and Poisson depth 10.
+Raw fused `observed-surface.ply` is retained with the camera/sparse evidence,
 including on subsequent surface-quality failure. Texture/camera provenance stays
 intact and transient stereo maps/databases still finalize.
 Retention currently happens after successful native meshing, before the
@@ -81,7 +79,7 @@ add missing anatomy. A high face count from Poisson interpolation is not proof
 of high facial information. A coherent detailed head still needs a template
 fitter with dense semantic correspondences, per-view visibility/expression
 handling and region-specific evidence/uncertainty.
-The separate [GNM fitter](../facefitting/dev.readme.md) now implements the shared
+The separate [GNM fitter](../head_reconstruction/dev.readme.md) implements the shared
 shape/camera/expression baseline; calibrated regional uncertainty remains open.
 
 Recommended completion order for that future fitter:
@@ -110,35 +108,12 @@ morphing or additional profile storage was added to this selection change.
 Until a backend can meaningfully consume such controls, no new parameters are
 required and nothing is inferred from appearance.
 
-## Actual selection audit
+## Selection validation
 
-For run `20261116T111557Z-809037c5`, seed `face-001`, permissive profile:
-
-| Measure | Result |
-|---|---|
-| Human-kept portraits | 182, unchanged |
-| Candidates after hard exclusions | 179 |
-| Seed/associated hypothesis | 42 seed + 128 supported cross-group candidates |
-| Uncertain associations | 9, retained in a separate review contact sheet |
-| Chosen inputs | 64 from 19 original groups, versus 31 from one group previously |
-| Approximate chosen bins | 38 front, 10 left-oblique, 10 right-oblique, 1 left-profile, 1 right-profile, 1 above-camera, 0 below-camera, 3 unknown |
-
-Bins are estimates, not human-verified poses or proof of identity. The contact
-sheets expose them for correction. Retrying unchanged selection reuses the same
-hardlinked input view/masks; source photos are not copied.
-
-The initial widened reconstruction, job `20261116T130010Z-e60844a8`, verified
-only two image pairs with a largest connected component of two, and blocked
-before mapping. It removed 17,350,656 transient bytes with zero cleanup errors.
-No denser head or multi-view template fit was produced. Later anchor-preserving
-selection retains the same bin totals above, but native replay remains pending.
-
-After head-only cleansing job `20261116T134753Z-c7f222a0`, 165 candidates are
-ready and 14 require review; 3 multi-face crops were excluded before inference.
-The refreshed audit selects 64 across 18 groups, with the same view-bin totals
-and three eligible registration anchors. All 64 native hardlinks and binary
-head-alpha masks were checked against their canonical products. This supersedes
-the whole-person cleansing audit, not the unresolved native reconstruction result.
+Pose bins are estimates, not verified identities or measured camera angles.
+Inspect contact sheets and verify source, curation, hardlink and mask identities.
+Retrying unchanged input preparation can reuse identical hardlinked views;
+reconstruction still performs fresh native work.
 
 For compact explanations by owner module, see [image observations](../imageprocessing/dev.readme.md#research-decisions-in-plain-language),
 [generation](dev.readme.md#research-decisions-in-plain-language) and

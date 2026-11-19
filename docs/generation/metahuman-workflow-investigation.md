@@ -1,174 +1,88 @@
-[Back to REPO_ROOT](../../README.md) | [Generation internals](dev.readme.md)
+[Back to REPO_ROOT](../../README.md) | [Native asset guide](../metahuman/README.md)
 
-# Photo references to MetaHuman: verified route and gates
-
-| Field | Value |
-|---|---|
-| Owner | Arka |
-| Status | Native baseline conform, owner-authorized face rig/textures, saved runtime assembly and same-audio draft animation verified; photographic transfer, binding and final likeness open |
-| Last updated | 2026-11-17 |
-| Scope | Photo-conditioned head, UE 5.8 head fitting, appearance and runtime performance |
-| Reviewer | Owner likeness review pending |
+# Photo references to MetaHuman: routes and gates
 
 ## 1. Problem Statement
 
-**Gap A:** The first coherent GNM head is a fitting baseline, not evidence that
-this is the best likeness pipeline. Its 468 mapped face landmarks do not measure
-all 17,821 vertices, ears, skin detail or hidden anatomy
-(`facefitting\geometry\head_model.py:HeadModel.audit`, `facefitting\evidence\landmark_detection.py:observe`).
-**Gap B:** CPU numerical derivatives consumed about 90% of a 372.859s run
-([measured evidence](../facefitting/dev.readme.md#evidence)).
-**Gap C:** The legacy Unreal conform code targets an already-solved Identity.
-The new `facefitting\unreal\static_mesh_import.py` imports a hair-free custom-head candidate,
-but does not create/conform a MetaHuman Character. The separate
-`facefitting\unreal\head_conforming.py` adapter now creates local head-only Character drafts.
-
-Local metadata verifies UE **5.8.4**, including the Character plugin and its
-editor subsystem header. A subsequent real NullRHI commandlet loaded the
-head-conforming Python APIs in an owned project. It did not create assets,
-import a head, conform or request cloud work.
-`data\arka\unreal\AiliasReview\capability-probe.json` retains the exposed
-types/signatures; the companion log confirms missing Core Data.
-At that initial probe, **MetaHuman Creator Core Data** was absent [10]: the
-plugin's Optional/TextureSynthesis and Optional/BodyTextures directories were
-missing. This limited Creator/skin functionality; it was not evidence that
-plain mesh import is impossible. The doctor now reports this separately.
-A later real import saved eight packages and verified upright head bounds:
-appearance `20261116T163340Z-14973ca7`, handoff
-`99504db87d434eceb922b52cf96b02f7`. This confirms static mesh/texture import,
-not by itself a MetaHuman solve. Subsequent job
-`73508d43f43540eaafa792c527abc083` completed a native head-only fit, committed
-face/body state and saved a Character that survived a separate editor reload.
-Missing optional content disabled skin editing but did not block this solve.
-The native +Y-facing target and matching perspective camera were essential:
-the first +X attempt returned true but had distorted geometry. Final surface/
-eyelid refinement, likeness review and photographic skin transfer remain open.
-On November 17, the owner installed Core Data and explicitly authorized cloud
-rigging/source textures on the existing baseline-backed Character
-`79893d83e1cb4c58a6574db06c6a828e`. All 79 sampled landmarks stayed unchanged
-(RMS 0); a compiled, saved optimized assembly then rendered the unchanged
-narration in reel `13a06df92b224d3b8ba938bdf7f8ddc2` with full video/audio decode.
-This is technical draft evidence, not a finished likeness.
-See [current runtime evidence and limitations](../facefitting/README.md#animated-native-draft).
-No other owning team/on-call is involved in this local single-owner workflow.
-Accuracy, explicit cloud controls, source preservation and human approval remain
-load-bearing gates; speed will not substitute for them.
+A fitted head, an editable Character and an assembled runtime actor are different
+representations. Dense projected landmarks do not independently measure hidden
+anatomy; successful conform/rigging does not establish likeness.
+Validate the photograph-to-mesh and mesh-to-native boundaries separately.
 
 ## 2. Implementation
 
-### Compare real workflows, not just model names
+### Route selection
 
-| Route | Verified precedent | Decision |
+| Route | Useful property | Constraint |
 |---|---|---|
-| Photos -> fitted head -> MetaHuman | KeenTools documents a 4-8-photo FaceBuilder workflow with MetaHuman UV texture transfer [1] | A strong commercial comparator, not benchmarked locally. Do not claim our fitter matches its likeness or texture quality |
-| Photos -> photogrammetric scan -> MetaHuman | Epic accepts scanned/sculpted mesh inputs [2]; our current COLMAP runs fail reliable overlap | Prefer a scan for controlled consistent captures; do not keep relaxing gates on this heterogeneous photo collection |
-| Learned identity reconstruction | MICA's authors provide photo-based FLAME reconstruction [3] | Research comparator, not installed: its published model/software terms are non-commercial scientific/educational/artistic use [4]. Not a drop-in permissive project dependency |
-| Shared head prior fitted to many views | Current GNM implementation and preserved jobs | Continue as the measurable local baseline, not a proven best method. Improve surface/appearance evidence before calling it a scan |
+| Shared head prior fitted to photos | Coherent shape with per-view camera/expression | Prior-supported hidden anatomy; not a calibrated scan |
+| Consistent photogrammetry -> mesh | Multi-view surface observations | Needs rigid subject/overlap; fragments are not a complete head |
+| Arbitrary mesh -> From Custom Mesh | Head-only native solve accepts non-native topology [1] | Check actual shape drift, camera/axes and saved state |
+| Mesh -> solved Identity -> Character | Alternative tracked-frame handoff [2] | Identity promoted frames are not the numerical fitter's view set |
+| Compatible template -> From Template | Native topology/UV-constrained handoff | Arbitrary GNM topology is not established compatibility |
+| Commercial photo fitting | Authored geometry and explicit native texture transfer [3] | Separate tool/runtime/licensing evaluation |
+| Learned identity comparator | Independent predicted geometry, such as MICA [4] | Model terms and native conversion remain separate |
 
-### UE 5.8 route
+Use the existing head-only Custom Mesh route for arbitrary fitted geometry.
+Do not claim it is the best likeness method without comparable measurements.
+Identity is an alternative, not a mandatory extra solve after every conform.
 
-**Preferred first experiment:** native **From Custom Mesh**, using its head-only
-mode. It accepts non-MetaHuman topology, auto-solves and permits facial-curve
-correction/refinement [5]. GNM topology must not be passed to From Template as
-though it were native MetaHuman topology.
+### Boundaries and persistence
 
-**Fallback/comparator:** From Mesh -> solved Identity -> From Identity [2,6].
-Epic requires visible eye/lid separation and recommends distinguishable sclera
-materials; a useful frontal neutral view is essential. Additional Identity
-frames should add missing markers, not duplicate frontal constraints [2].
-Our multi-photo fitting uses all supported observations; that is separate from
-Identity's promoted-frame rules.
+`head_reconstruction` owns observations, shared shape and export.
+`metahuman` owns static import, native conform and Character edits.
+`pipelines` composes them; `generation` supplies process/session adapters.
+Static import alone creates neither an editable Character nor a rig.
 
-For an Identity handoff, do not enable measured scale or force generic GNM eye/
-teeth anatomy into MetaHuman defaults as if personalized. Epic exposes separate
-eye, teeth and metric-scale options [6]. Preserve source, solve and output
-revisions so conform-induced shape drift can be checked.
+Native targets/cameras and static preview use different declared coordinate
+mappings. Core Data readiness is reported separately from mesh import.
+Cloud rig/texture requests require explicit selection.
+Commit native state and verify actual saved packages in an independent process.
+See [coordinate contracts](../facefitting/dev.readme.md#coordinate-and-persistence-contracts).
 
-### Relevant features and optimization order
+Geometry, skin/iris, scalp/facial hair and runtime assembly need distinct checks.
+Do not treat hair silhouette as bare skull or native picker values as calibrated
+skin colour. Animation must inspect blink, lip seal, smile/jaw and deformation.
 
-| Priority | Measure or inspect | Current state |
-|---|---|---|
-| 1: identity geometry | Face outline/width/height, jaw/chin, cheek/nose profile, eye spacing, eyelid and lip boundaries | Dense 2D fitting exists; silhouette, surface and independent depth validation do not |
-| 2: neutral and deformation | Separate smile/blink/jaw pose from identity; check eyelid closure, lip seal and mouth corners after rigging | Per-photo expression fitting exists; animation checks remain open |
-| 3: trustworthy appearance | Skin colour under lighting, UV texture transfer, eyebrows, facial hair, scars | Photo-derived UV colour and approximate hair now exist; residual lighting/seams remain, and MetaHuman appearance transfer is unfinished |
-| 4: uncertain anatomy | Ears, rear head, throat/neck, teeth and eyeballs | Prior-driven; do not invent measured accuracy or use demographic defaults as evidence |
-| 5: UE runtime | Assemble UE Optimized at an appropriate quality; then profile LODSync, grooms and texture cost [7,8] | Not implemented/benchmarked locally; keep high-quality close-up review separate from runtime optimization |
+### Capacity and backpressure
 
-The CUDA adapter batches all eligible views and differentiates the existing fit
-objective on the selected GPU. It does not improve geometric evidence merely by
-being faster. The benchmark must compare the same frozen inputs, split and
-accuracy gates against the CPU result before further UE automation.
-The fresh GPU run now passes the existing software gates: 42.187s outer wall
-versus 372.859s CPU (8.838x faster); balanced held-out error is 0.02470406 versus
-0.02508408 CPU. Both retained jobs pass integrity checks. This removes the
-optimization prerequisite, not the project/API or likeness gates
-([full evidence](../facefitting/dev.readme.md#evidence)).
-
-No new database, queue or service is proposed: the existing single-session writer
-lock and local artifacts remain. At 64 photos, the observation fan-out is
-64 x 478 = 30,592 predicted points; only supported mapped points constrain fitting.
-One completed 372.859s job corresponds to **0.00268 jobs/s**, not an interactive
-service RPS target. Queue requests are not implemented. Backpressure is explicit
-writer exclusion; competing CPU/GPU jobs must not be spawned without bounds.
-The single GPU and local disk are single points of failure: fail explicitly,
-retain diagnostics and start an immutable new revision rather than fake success.
-
-```mermaid
-erDiagram
-    PHOTO_REFERENCE ||--o{ HEAD_OBSERVATION : produces
-    FIT_JOB ||--o{ HEAD_OBSERVATION : records
-    FIT_JOB ||--o{ SHAPE_CANDIDATE : compares
-    FIT_JOB ||--o{ ARTIFACT_REFERENCE : retains
-```
-
-Backed by `observations.py:observe`, `pipeline.py:run_fit`, `save_fit` and
-`storage.py:Store.reference_artifact`. These are JSON/NPZ entities, not SQL tables.
-Only existing entities are shown; a future Unreal result is deliberately absent.
+A planning set of 64 images with 478 predictions per image contains
+`64 * 478 = 30,592` predicted points, not independent 3D measurements.
+Jacobian batching controls memory without discarding views.
+Alias and project locks bound cooperating writers; native compile/render and
+the single local GPU/disk remain bottlenecks and failure boundaries.
+No distributed queue or replicated storage is introduced.
 
 ## 3. Success Criteria
 
-| Check | Baseline / target |
+| Gate | Required evidence |
 |---|---|
-| Effective optimization | Measured full GPU run faster than 372.859s CPU baseline; disclose first-use/import time and different optimizer |
-| Equivalent evidence | Same input hashes, usable source IDs and held-out identity split; fresh dense inference, not cached generation replay |
-| Quality preserved | Existing 1% view-balanced gain and 5% frontal guard; compare GPU held-out error against CPU, not speed alone |
-| Actual GPU work | CUDA device, gradient device, runtime/build, batch size and memory metadata; no fallback or utilization-based correctness claim |
-| UE handoff | Installed-version API/properties verified; real saved assets, matched-camera before/after comparison and explicit state for any unsolved step |
-| Finished MetaHuman | Human-approved likeness plus blink, lip-seal, jaw/smile and neck-seam checks; a receipt or head mesh alone is insufficient |
-
-The optimal end-to-end route is **not established** until comparable visual and
-geometric evidence exists. Vendor demonstrations establish feasibility, not
-accuracy on this photo collection. Epic's overview and detailed Identity pages
-also differ on whether solving is local/cloud [2,9]; do not infer network
-behaviour from labels or silently enable a cloud operation.
+| Equivalent fitting | Same sources, model, split and objective before optimization comparisons |
+| Geometry | Matched-view regional checks and explicit unobserved anatomy |
+| Native handoff | Correct axes/camera, committed saved state and measured source-to-native drift |
+| Runtime | Compatible compiled actor/rig and appropriate groom/LOD checks |
+| Appearance | Native-UV correctness, observed coverage and matched-light review |
+| Final likeness | Actual visual acceptance; no single score, API return or movie substitutes |
 
 ## 4. Task Breakdown
 
-| ID | Deliverable | Dependency / state |
-|---|---|---|
-| MH-1 | Complete compatible CUDA runtime, full-photo speed/accuracy benchmark and provenance | Done; 162 isolated units and two explicit CUDA tests passed; both jobs verified |
-| MH-2 | Validate custom-mesh head-only API and compare with Identity handoff in an owned UE project | Static import, baseline-backed Character conform, full rig and runtime assembly verified; Core Data installed. Identity route not used for this head |
-| MH-3 | Add regional/silhouette checks and post-conform drift evidence | After MH-2; avoid treating hair silhouette as bare skull |
-| MH-4 | Add appearance transfer and rig/LOD validation with a close-up reference baseline | Full face rig, compiled runtime actor and audio render verified; photographic skin/hair transfer, LOD quality and owner appearance approval remain open |
+| Area | Acceptance procedure |
+|---|---|
+| Source fitting | Synthetic contracts plus explicitly requested real evidence evaluation |
+| Native handoff | Inspect source geometry, conform result and independent reload separately |
+| Regional diagnostics | Compare front/oblique/profile under a common camera/expression policy |
+| Appearance/runtime | Save/reload properties, inspect actual rendered skin/grooms and deformation |
 
-These are delivery themes, not measured duration estimates; split the unproven UE
-and appearance work into 1-2 week items after the first real project benchmark.
+Detailed functional contracts:
+[head reconstruction](../head_reconstruction/dev.readme.md),
+[MetaHuman](../metahuman/dev.readme.md) and
+[quality criteria](../todo/README.md).
 
 ## 5. Reference Links
 
-1. [KeenTools photo-to-MetaHuman workflow](https://keentools.io/integrations/fbb-mh)
-2. [Epic: From Mesh](https://dev.epicgames.com/documentation/metahuman/from-mesh?application_version=5.8)
-3. [MICA authors' implementation](https://github.com/Zielon/MICA)
-4. [MICA model/software license](https://github.com/Zielon/MICA/blob/master/LICENSE)
-5. [Epic: UE 5.8 From Custom Mesh, including Head Only](https://dev.epicgames.com/documentation/metahuman/metahuman-creator-from-custom-mesh-tool-in-unreal-engine?application_version=5.8)
-6. [Epic: From Identity options](https://dev.epicgames.com/documentation/metahuman/metahuman-creator-from-identity-tool-in-unreal-engine)
-7. [Epic: Assembly](https://dev.epicgames.com/documentation/metahuman/assembly?application_version=5.8)
-8. [Epic: LODSync](https://dev.epicgames.com/documentation/en-us/metahuman/lodsync-component-for-unreal-engine)
-9. [Epic: Mesh to MetaHuman overview](https://dev.epicgames.com/documentation/metahuman/mesh-to-metahuman?application_version=5.8)
-10. [Epic: install MetaHuman Creator Core Data](https://dev.epicgames.com/documentation/metahuman/getting-started-with-metahuman-creator-in-unreal-engine?application_version=5.8)
-
-Local source of truth: `src\ailias\facefitting`, `config\facefitting.json`,
-`src\ailias\generation\unreal.py`; installed
-`UE_5.8\Engine\Build\Build.version` and
-`MetaHumanCharacterEditorSubsystem.h`. API exposure is not a successful solve;
-no geometry/rig result or quality comparison against commercial tools is available.
+1. [Epic: From Custom Mesh](https://dev.epicgames.com/documentation/metahuman/metahuman-creator-from-custom-mesh-tool-in-unreal-engine?application_version=5.8).
+2. [Epic: From Mesh](https://dev.epicgames.com/documentation/metahuman/from-mesh?application_version=5.8).
+3. [KeenTools photo-to-MetaHuman](https://keentools.io/integrations/fbb-mh).
+4. [MICA implementation and terms](https://github.com/Zielon/MICA).
+5. [Epic: assembly](https://dev.epicgames.com/documentation/metahuman/assembly?application_version=5.8).
+6. [Epic: Core Data installation](https://dev.epicgames.com/documentation/metahuman/getting-started-with-metahuman-creator-in-unreal-engine?application_version=5.8).

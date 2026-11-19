@@ -4,142 +4,166 @@
 
 ## Setup and tests
 
-Use Python 3.12+ in `C:\projectWorkspace\.venv`. The setup script reuses the
-shared environment; do not replace its CUDA/OpenCV/Torch stack.
+Use Python 3.12+ in the shared `C:\projectWorkspace\.venv` environment.
+Dependencies and optional extras are declared in `pyproject.toml`.
+Do not replace an existing CUDA/OpenCV/Torch stack to install an optional extra.
 
 ```powershell
-.\scripts\setup-gpu.ps1
-& C:\projectWorkspace\.venv\Scripts\python.exe -m unittest discover -s src\ailias -t src -v
+python -m pip install -e ".[dev]"
+python -m ruff check src\ailias --exclude tests
+python -m unittest discover -s src\ailias -t src -q
 ```
 
-Units use temporary fixtures and fake inference/native workers. Model execution,
-GPU checks and editor integration are explicit opt-in operations outside unit
-discovery. No project linter/formatter is configured.
+Unit tests use temporary inputs and fake model/native adapters. Real model
+execution, GPU checks and editor integration are explicit operations under
+`src\integration_tests`, outside ordinary discovery. Run focused module tests
+when changing one domain; use the complete suite for cross-module contracts.
 
 ## Architecture
 
-The [root diagram](../README.md#module-architecture) maps product responsibilities.
-This diagram shows process and persistence boundaries.
+The [module diagram](../README.md#module-architecture) shows data flow.
+The host makes synchronous Python calls into domain modules. Blender, COLMAP
+and FFmpeg use owned subprocesses with file inputs and bounded logs. Migrated
+Unreal operations submit request files to one project-owned editor; asynchronous
+renders complete through native callbacks and job-specific receipts. Independent
+saved-asset checks use a separate editor process.
 
-```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 1000}}}%%
-flowchart TB
-    subgraph MAIN[" "]
-        direction TB
-        CLI["CLI<br/>Arguments, JSON output and exit codes"]:::svc --> PIPE["Module pipelines"]:::svc
-        PIPE --> STORE["Store<br/>Alias lock, hashes and atomic JSON"]:::svc
-        STORE --> DATA["data / ALIAS<br/>Manifests and retained artifacts"]:::store
-        PIPE --> ML["Local model adapters<br/>OpenCV, MediaPipe, PyTorch / SciPy"]:::ext
-        PIPE -->|Arguments and request files| WORK["Owned native worker processes"]:::svc
-        WORK --> COL["COLMAP"]:::ext
-        WORK --> BL["Blender"]:::ext
-        WORK --> UE["Unreal Editor"]:::ext
-        WORK --> FF["FFmpeg"]:::ext
-        WORK -->|Receipts, files and exit status| CHECK["Artifact / media validation"]:::svc
-        CHECK --> STORE
-    end
-    MAIN ~~~ SUM
-    SUM["Figure - Runtime architecture. How to read: top to bottom; blue application logic, green retained resources, purple external runtimes. Summary: synchronous local jobs exchange files; only verified outputs become retained artifacts. Backed by: cli.py, storage.py, generation/tools.py, resources.py and reanimation/pipeline.py."]:::caption
-    style MAIN fill:none,stroke:none
-    classDef svc fill:#cfe3ff,stroke:#2b6cb0,color:#0b2545
-    classDef ext fill:#e6dcff,stroke:#6b46c1,color:#2d1b52
-    classDef store fill:#d6f5df,stroke:#2f855a,color:#12351f
-    classDef caption fill:#f7f7f7,stroke:#999,color:#222,font-size:16px
-```
-
-**Backed by:** `src\ailias\cli.py:execute`, `storage.py:Store`,
-`generation\tools.py:NativeTools`, `resources.py` and `reanimation\pipeline.py`.
-
-| Component | Responsibility / communication |
+| Component | Responsibility and communication |
 |---|---|
-| CLI | Synchronous Python calls into module pipelines; JSON results on stdout, diagnostics on stderr |
-| Module pipelines | Validate inputs, create unique jobs, invoke local adapters and persist results |
-| Store | Per-alias writer exclusion, atomic manifests, source references and content hashes |
-| Local model adapters | In-process inference/numerics; appearance workers separate incompatible native imports |
-| Native workers | Owned child processes using arguments, environment request paths, JSON receipts and artifact files |
-| Validators | Check saved native packages or media, not just worker return values |
-| Retained data | File-based state; no application database, service or distributed queue |
+| `cli.py`, module CLIs | Validate arguments, call Python APIs and emit JSON results |
+| `pipelines` | Compose cross-domain operations using `common.execution`; persist stage boundaries |
+| `imageprocessing` | Decode, group, mask and measure images through task-scoped model adapters |
+| `head_reconstruction` | Fit shared shape/per-photo cameras, export meshes and prepare photo colour |
+| `metahuman` | Import/conform native geometry, apply feature profiles and verify saved assets |
+| `generation` | Alternative photogrammetry plus shared native-tool and Unreal-session adapters |
+| `reanimation` | Solve supplied audio on an existing rig, render frames and validate encoded media |
+| `storage.py`, `workflow.py` | Alias locks, atomic JSON, artifact identity and manual handoff state |
+| `resource_management` | Finalize owned scratch; plan and apply reference-aware retention |
+| `common` | Domain-independent execution, JSON traversal, identifiers, source lookup and checksums |
 
-COLMAP's transient SQLite database is job scratch, not application storage.
-Artifacts are immutable by recorded identity, not filesystem permissions.
+`facefitting` retains public CLI routing. `resources.py` and `maintenance.py`
+retain compatibility entry points; deletion policy belongs to
+`resource_management`, not those facades. Internal package names do not change
+the public commands or existing `data\ALIAS\facefitting` paths.
 
-## Module ownership
+The Python files directly under `src\ailias` are installed application modules,
+not agent scripts. `intake.py` and `workflow.py` implement manual capture and
+handoff operations; `settings.py` and `storage.py` own shared configuration and
+persistence. Package/CLI entry points and compatibility facades stay importable.
+Disposable agent scripts, execution records and diagnostic outputs belong in
+the Git-ignored `.agent` directory, not the repository root or installed package.
 
-| Area | Ownership | Guide |
-|---|---|---|
-| `settings.py`, `intake.py` | Capture thresholds, review and angular coverage | [Workflow](workflow.md) |
-| `storage.py`, `workflow.py` | Durable sessions, ordered handoffs, history and baseline records | [Workflow](workflow.md) |
-| `resources.py`, `maintenance.py` | Owned-file finalization and dependency-safe cleanup | [Cleanup](#resource-cleanup) |
-| `imageprocessing` | Photo grouping, head derivatives and curation | [Internals](imageprocessing/dev.readme.md) |
-| `facefitting` | Shared head shape, appearance preparation and native conform | [Internals](facefitting/dev.readme.md) |
-| `generation` | Alternative photogrammetry/native cleanup | [Internals](generation/dev.readme.md) |
-| `geometry` | Supplied-measurement comparison | [Internals](geometry/dev.readme.md) |
-| `reanimation` | Existing rig plus audio to verified video | [Internals](reanimation/dev.readme.md) |
+Storage is local files, not a distributed database or queue. COLMAP's SQLite
+database is job scratch. The alias lock excludes cooperating alias writers;
+the Unreal project lock separately excludes migrated native writers across aliases.
+Unknown external writers are not made safe by either lock.
 
 ## Configuration
 
-Global precedence: `--data-root` -> selected JSON `data_root` -> default relative
-data directory. `--config FILE` selects that JSON; relative data paths resolve
-against the configuration file. Module policies have their own CLI selectors;
-their complete key tables live in module usage guides.
+Precedence is `--data-root` -> selected JSON `data_root` -> default data directory.
+`--config FILE` selects the core JSON; relative paths resolve against that file.
+Module guides define their own policy selectors, keys and defaults.
 
-### Core: `config\settings.json`
-
-| Key | Default | Meaning |
+| Key in `config\settings.json` | Default | Meaning |
 |---|---|---|
-| `data_root` | `..\data` | Session/artifact directory relative to this configuration |
+| `data_root` | `..\data` | Data directory relative to this configuration |
 | `min_photos`, `max_photos` | `8`, `15` | Capture-set count bounds |
 | `min_short_side` | `1024` | Minimum image short side, pixels |
-| `min_edge_energy` | `18` | Minimum lightweight focus/edge-energy score |
-| `max_dark_fraction` | `0.6` | Maximum dark-pixel fraction |
-| `max_bright_fraction` | `0.6` | Maximum bright-pixel fraction |
+| `min_edge_energy` | `18` | Minimum lightweight edge-energy score |
+| `max_dark_fraction`, `max_bright_fraction` | `0.6`, `0.6` | Exposure rejection fractions |
 | `angle_tolerance` | `10` | Allowed deviation in degrees from required capture views |
 
-The capture policy is independent of imageprocessing's face-region thresholds.
+Capture gates are separate from face-region imageprocessing thresholds.
 Neither establishes anatomical accuracy.
 
-## State and failure handling
+## Execution and ownership
 
-| Event | Behavior |
+`PipelineStep` names an operation; `ExecutionChain` runs ordered steps and
+stops on failure. `StageJournal` records individual stage outcomes in the job
+manifest. Domain modules keep their own numerical/native APIs rather than
+inheriting a universal pipeline base class.
+
+Resource-owning operations release handles and finalize files in `finally`
+blocks. Pure transformations have no artificial cleanup method. A job does
+not own the shared Unreal editor and must not stop it on completion.
+Nested photo-pipeline jobs release scratch immediately; `defer_retention()`
+delays alias-wide major-output retention until the outer pipeline boundary.
+Image scan/cleansing preserve their separate curation-aware retention behavior.
+Their explicit maintenance command delegates image-asset deletion to the same
+resource manager, including changed-content, live-reference and link guards.
+
+### Stage measurements
+
+`StageJournal` supports synchronous `execute()` and asynchronous `begin()` /
+`finish()` boundaries. Manifest stage entries record UTC timestamps, monotonic
+elapsed seconds, outcome and the containing `parent` stage, when any.
+Parent durations include their children: never add both to obtain wall time.
+The job-level `seconds` includes resource finalization and retention; persistence
+and orchestration overhead can exceed the sum of nonoverlapping stages.
+
+Progress observers receive operation/outcome/duration/error-type metadata, not
+stored exception messages or causes. Observer failures do not change job
+outcomes. Detailed failures remain in the job manifest; persistence failure
+during an existing stage failure cannot replace that primary exception.
+
+The shared journal has no eager host-storage dependency. Native reanimation
+jobs receive its content-addressed source and verify its hash before loading it
+inside Unreal's Python runtime.
+
+| Event | Contract |
 |---|---|
-| Intake changes | Invalidate downstream manual stages |
-| Replaced handoff | Invalidate that stage and successors; preserve prior history |
-| Missing/changed dependency | Fail integrity checks rather than silently rebase hashes |
-| Native worker success without files | Fail; receipts alone do not prove saved assets |
-| Editor failure after writes | Report possible partial packages; no external-project deletion |
-| Hard termination | May leave a running job/lock; inspect evidence rather than reusing its namespace |
+| Changed intake or manual handoff | Invalidate downstream manual stages; retain history |
+| Missing or changed source | Fail integrity checks instead of rebasing stored hashes |
+| Native success without saved files | Fail publication; a receipt alone is insufficient |
+| Native host timeout | Do not assume cancellation; preserve files while a writer may remain active |
+| Editor failure after writes | Report possible partial packages; do not delete external project assets |
+| Hard termination | May leave interrupted jobs; inspect ownership before recovery |
 
 ## Resource cleanup
-
-Producing jobs finalize their own unreferenced scratch on success/failure.
-Originals, shared model/tool caches, referenced results and preserved baselines
-are not scratch. Native packages are never automatically swept.
 
 ```powershell
 python -m ailias cleanup --alias subject
 python -m ailias cleanup --alias subject --apply
+python -m ailias cleanup --alias subject --scratch-only
 python -m ailias cleanup --alias subject --prune-job 'facefitting\appearance\OBSOLETE_REVISION'
 ```
 
-The default is a JSON dry run. `--apply` rechecks hashes, dependency metadata,
-writer exclusion and symlink/junction boundaries before deleting exact files.
-Whole-job pruning requires explicit IDs and refuses referenced, edited, active
-or unregistered outputs. Receipts live under `maintenance\cleanups`.
+Default cleanup is a dry run. Apply mode revalidates the plan before removing
+exact owned files. Successful producing jobs invoke major-output retention;
+image scan/cleansing retain their explicit curation-aware maintenance path.
 
-Reanimation normally keeps verified video and boundary PNGs; `--keep-frames`
-retains the sequence. Source/model downloads and atomic writes remove their
-own temporary files. Hard kills can prevent finalizers; cleanup is idempotent.
+| Resource | Retention rule |
+|---|---|
+| Major products | Keep newest successful products, active jobs and transitive dependencies |
+| Damaged newest product | Preserve the last intact successful product |
+| Canonical selections/reviews | Follow verified references when deriving live dependencies |
+| Originals, tools and models | Not job scratch; not removed by major-output retention |
+| Changed, linked or unregistered files | Preserve rather than infer ownership |
+| Job intermediates | Remove unreferenced owned scratch; retain manifests and bounded diagnostics |
+| Obsolete manifests | Archive lineage and leave pruning records with surviving references |
+| Unreal packages | Inspect dependencies in-editor; remove eligible exact files only after the editor stops |
+
+Native inspection uses the Asset Registry without loading obsolete assets.
+A running editor receives a deferred retention plan; cleanup never shuts it
+down to reclaim space. Owned-editor exit invokes deferred cleanup after releasing
+the session lock. Before offline deletion, the adapter checks the complete
+package inventory/hashes, dependency closure, dirty packages, links and other
+potential project users. Changed or uncertain state defers deletion.
+
+Retention receipts live under `maintenance\retention`; explicit scratch/whole-job
+cleanup uses `maintenance\cleanups`. Before and after native work, retention
+revalidates job/canonical metadata, retained roots, live dependencies and hashes.
+Cleanup failures are recorded without replacing the original job failure.
+Reanimation keeps verified video and boundary PNGs unless `--keep-frames` is set.
 
 ## Documentation and media
 
-Usage guides own commands, I/O and configuration meanings; dev guides own
-internals, contracts and tests. Current quality is shown in the root comparison;
-run-by-run records belong in job manifests/research, not README narratives.
+Usage guides own procedures, inputs, outputs and configuration meanings.
+Development guides own implementation contracts and tests. Execution histories,
+timing records and investigation notes belong in ignored agent records or job
+manifests, not manuals.
 
-Root thumbnails are reduced copies of existing pipeline products, not new
-model generation. [Media provenance](images/pipeline/provenance.json) records
-source hashes and display transforms. Keep cross-stage illustrations distinct
-from matched-camera validation or a single reproducible pipeline run.
-Portraits embedded in READMEs must fit within 256x256 pixels; link larger
-diagnostics instead. Mermaid source is maintained inline; no local Mermaid
-renderer is currently configured.
+README thumbnails are reduced existing products, not new model generation.
+[Media provenance](images/pipeline/provenance.json) records source hashes and
+display transforms. Portrait thumbnails must fit within 256x256 pixels.
+Distinguish format illustrations from matched-camera validation.

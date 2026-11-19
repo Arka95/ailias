@@ -2,13 +2,6 @@
 
 # Hair-free fitting versus final likeness
 
-| Field | Value |
-|---|---|
-| Owner | ailias workspace |
-| Status | Research-backed policy; one diagnostic completed and selected as working baseline |
-| Last updated | 2026-11-17 |
-| Scope | Existing-photo head fitting and reversible Blender review; no personal-face Unreal conform |
-
 ## 1. Problem Statement
 
 **A clear view of facial skin helps reconstruction; a bald final character is
@@ -75,15 +68,13 @@ quality limits; retain source assets and failed receipts rather than hiding them
 - Report whether the current diagnostic changed geometry or only presentation.
 - Require a separate visual check of the final reference-matched hair.
 
-No percentage improvement from removing hair has been measured here.
-
 ## 4. Task Breakdown
 
-| Work | State |
+| Work | Acceptance |
 |---|---|
-| Distinguish capture visibility, skin fitting and final appearance using primary sources | Research complete |
-| Produce one new hair-free Blender diagnostic from the intact approved head | Completed as `20261117T0525Z-hairfree-camera`; owner selected it as the working starting baseline, not final likeness certification |
-| Evaluate hair restoration after facial shape/appearance acceptance | Deferred; not a reason to deform skin around hair |
+| Distinguish capture, skin fitting and appearance | State which evidence is observed, hidden or inferred |
+| Produce a reversible hair-free diagnostic | Preserve mesh/camera/source identities and inspect a matched view |
+| Restore final hair | Validate style, binding and deformation separately from skin geometry |
 
 ## 5. Reference Links
 

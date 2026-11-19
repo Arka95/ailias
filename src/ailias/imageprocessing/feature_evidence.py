@@ -11,7 +11,7 @@ import numpy as np
 
 from ailias.imageprocessing.appearance_features import photo_features
 from ailias.imageprocessing.curation import PROFILE
-from ailias.imageprocessing.pipeline import read_image
+from ailias.imageprocessing.image_io import read_oriented_image as read_image
 from ailias.storage import atomic_json
 
 

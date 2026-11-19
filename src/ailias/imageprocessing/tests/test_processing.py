@@ -22,9 +22,15 @@ from ailias.resources import cleanup_owned_files
 def face(x=100, embedding=None):
     return Face(
         box=[x, 130, 120, 160],
-        landmarks=[[x + 30, 180], [x + 90, 180], [x + 60, 210],
-                   [x + 40, 240], [x + 80, 240]],
-        score=0.99, embedding=embedding or [1.0, 0.0],
+        landmarks=[
+            [x + 30, 180],
+            [x + 90, 180],
+            [x + 60, 210],
+            [x + 40, 240],
+            [x + 80, 240],
+        ],
+        score=0.99,
+        embedding=embedding or [1.0, 0.0],
     )
 
 
@@ -41,7 +47,7 @@ class FakeBackend:
 
     def segment(self, image):
         values = np.zeros((image.height, image.width), dtype=np.uint8)
-        values[80:image.height - 10, 30:image.width - 30] = 255
+        values[80 : image.height - 10, 30 : image.width - 30] = 255
         return Image.fromarray(values)
 
 
@@ -61,7 +67,9 @@ class ProcessingTests(unittest.TestCase):
         self.image.save(self.source)
 
     def run_scan(self, backend=None, **options):
-        return scan(self.store, self.input, self.policy, backend or FakeBackend(), **options)
+        return scan(
+            self.store, self.input, self.policy, backend or FakeBackend(), **options
+        )
 
     def test_scan_exports_original_pixels_portrait_and_visible_body(self):
         original = self.source.read_bytes()
@@ -73,17 +81,26 @@ class ProcessingTests(unittest.TestCase):
         record = next(iter(report["faces"].values()))
         bounds = record["portrait_bounds"]
         with Image.open(self.store.resolve(record["products"]["portrait"])) as portrait:
-            self.assertEqual(portrait.size, (bounds[2] - bounds[0], bounds[3] - bounds[1]))
-            self.assertTrue(np.array_equal(np.asarray(portrait), np.asarray(self.image.crop(bounds))))
+            self.assertEqual(
+                portrait.size, (bounds[2] - bounds[0], bounds[3] - bounds[1])
+            )
+            self.assertTrue(
+                np.array_equal(
+                    np.asarray(portrait), np.asarray(self.image.crop(bounds))
+                )
+            )
             self.assertNotIn("exif", portrait.info)
         with Image.open(self.store.resolve(record["products"]["body"])) as body:
             self.assertEqual(body.mode, "RGBA")
         self.assertEqual(self.source.read_bytes(), original)
         self.assertTrue(Path(result["overview"]).is_file())
-        self.assertTrue(self.store.resolve(report["groups"][0]["contact_sheets"][0]).is_file())
+        self.assertTrue(
+            self.store.resolve(report["groups"][0]["contact_sheets"][0]).is_file()
+        )
 
     def test_detected_face_comparison_separates_identity_from_projected_geometry(self):
         from ailias.geometry.comparison import compare_detected_faces
+
         result = self.run_scan(body=False)
         report = load_run(self.store, result["run"])
         face_id = next(iter(report["faces"]))
@@ -113,20 +130,30 @@ class ProcessingTests(unittest.TestCase):
         for source in report["sources"].values():
             self.assertTrue(self.store.verify(source["artifact"]))
 
-    def test_failed_job_cleans_its_unreferenced_copies_without_touching_other_jobs_or_models(self):
+    def test_failed_job_cleans_its_unreferenced_copies_without_touching_other_jobs_or_models(
+        self,
+    ):
         from ailias.imageprocessing.cuda import CudaUnavailable
-        model = self.store.resolve(str(Path("imageprocessing") / "models" / "keep.onnx"))
+
+        model = self.store.resolve(
+            str(Path("imageprocessing") / "models" / "keep.onnx")
+        )
         model.parent.mkdir(parents=True)
         model.write_bytes(b"not owned by scan")
         previous = self.run_scan(body=False)
         backend = FakeBackend()
-        backend.detect = lambda image: (_ for _ in ()).throw(CudaUnavailable("simulated failure"))
+        backend.detect = lambda image: (_ for _ in ()).throw(
+            CudaUnavailable("simulated failure")
+        )
         with self.assertRaises(CudaUnavailable):
             self.run_scan(backend, body=False)
         self.assertTrue(Path(previous["overview"]).is_file())
         self.assertEqual(model.read_bytes(), b"not owned by scan")
         runs = self.store.resolve(str(Path("imageprocessing") / "runs"))
-        manifests = [json.loads(path.read_text(encoding="utf-8")) for path in runs.glob("*\\manifest.json")]
+        manifests = [
+            json.loads(path.read_text(encoding="utf-8"))
+            for path in runs.glob("*\\manifest.json")
+        ]
         self.assertTrue(any(record["status"] == "failed" for record in manifests))
 
     def test_cleanup_refuses_alias_root_and_keeps_referenced_results(self):
@@ -135,15 +162,24 @@ class ProcessingTests(unittest.TestCase):
         root.mkdir(parents=True)
         (root / "keep.png").write_bytes(b"retained")
         (root / "unused.tmp").write_bytes(b"temporary")
-        other = self.store.resolve(str(Path("imageprocessing") / "runs" / "other" / "keep.png"))
+        other = self.store.resolve(
+            str(Path("imageprocessing") / "runs" / "other" / "keep.png")
+        )
         other.parent.mkdir(parents=True)
         other.write_bytes(b"other job")
-        result = cleanup_owned_files(self.store, str(directory), [str(directory / "keep.png")])
+        result = cleanup_owned_files(
+            self.store, str(directory), [str(directory / "keep.png")]
+        )
         self.assertEqual(result["removed_files"], 1)
         self.assertTrue((root / "keep.png").is_file())
         self.assertTrue(other.is_file())
-        for directory in (".", r"..\other", "imageprocessing",
-                          r"imageprocessing\runs", r"imageprocessing\models"):
+        for directory in (
+            ".",
+            r"..\other",
+            "imageprocessing",
+            r"imageprocessing\runs",
+            r"imageprocessing\models",
+        ):
             with self.subTest(directory=directory), self.assertRaises(ValueError):
                 cleanup_owned_files(self.store, directory, [])
 
@@ -152,15 +188,33 @@ class ProcessingTests(unittest.TestCase):
         nested.mkdir()
         self.image.transpose(Image.Transpose.FLIP_LEFT_RIGHT).save(nested / "other.png")
         self.assertEqual(self.run_scan(body=False)["summary"]["unique_sources"], 1)
-        self.assertEqual(self.run_scan(recursive=True, body=False)["summary"]["unique_sources"], 2)
+        self.assertEqual(
+            self.run_scan(recursive=True, body=False)["summary"]["unique_sources"], 2
+        )
         contained = Store(self.input, "output")
-        first = scan(contained, self.input, self.policy, FakeBackend(), recursive=True, body=False)
-        second = scan(contained, self.input, self.policy, FakeBackend(), recursive=True, body=False)
+        first = scan(
+            contained,
+            self.input,
+            self.policy,
+            FakeBackend(),
+            recursive=True,
+            body=False,
+        )
+        second = scan(
+            contained,
+            self.input,
+            self.policy,
+            FakeBackend(),
+            recursive=True,
+            body=False,
+        )
         self.assertEqual(first["summary"]["unique_sources"], 2)
         self.assertEqual(second["summary"]["unique_sources"], 2)
 
     def test_small_face_is_retained_for_review_but_not_selectable(self):
-        result = scan(self.store, self.input, ProcessingPolicy(), FakeBackend(), body=False)
+        result = scan(
+            self.store, self.input, ProcessingPolicy(), FakeBackend(), body=False
+        )
         report = load_run(self.store, result["run"])
         record = next(iter(report["faces"].values()))
         self.assertIn("face_too_small", record["quality"]["reasons"])
@@ -168,17 +222,25 @@ class ProcessingTests(unittest.TestCase):
             select_group(self.store, result["run"], "face-001")
 
     def test_multiple_people_in_portrait_are_flagged(self):
-        result = self.run_scan(FakeBackend([face(80), face(150, [0.0, 1.0])]), body=False)
+        result = self.run_scan(
+            FakeBackend([face(80), face(150, [0.0, 1.0])]), body=False
+        )
         report = load_run(self.store, result["run"])
-        self.assertTrue(all("portrait_contains_other_face" in item["quality"]["reasons"]
-                            for item in report["faces"].values()))
+        self.assertTrue(
+            all(
+                "portrait_contains_other_face" in item["quality"]["reasons"]
+                for item in report["faces"].values()
+            )
+        )
         self.assertEqual(result["summary"]["groups"], 2)
 
     def test_touching_people_do_not_get_misattributed_body(self):
         mask = Image.new("L", (800, 500), 255)
         bodies = subject_bodies(mask, [face(100), face(500)])
-        self.assertEqual([body["status"] for body in bodies],
-                         ["ambiguous_touching_subjects", "ambiguous_touching_subjects"])
+        self.assertEqual(
+            [body["status"] for body in bodies],
+            ["ambiguous_touching_subjects", "ambiguous_touching_subjects"],
+        )
 
     def test_select_is_a_new_snapshot_and_does_not_change_manual_pipeline_state(self):
         self.store.initialize()
@@ -214,9 +276,13 @@ class ProcessingTests(unittest.TestCase):
         second = self.run_scan(backend)
         second_report = load_run(self.store, second["run"])
         self.assertEqual(backend.calls, 2)
-        self.assertEqual(files, {path: path.stat().st_mtime_ns for path in assets.rglob("*.png")})
-        self.assertEqual(next(iter(first_report["faces"].values()))["products"],
-                         next(iter(second_report["faces"].values()))["products"])
+        self.assertEqual(
+            files, {path: path.stat().st_mtime_ns for path in assets.rglob("*.png")}
+        )
+        self.assertEqual(
+            next(iter(first_report["faces"].values()))["products"],
+            next(iter(second_report["faces"].values()))["products"],
+        )
         for result in (first, second):
             self.assertFalse((Path(result["manifest"]).parent / "originals").exists())
         original = next(iter(second_report["sources"].values()))["artifact"]
@@ -225,12 +291,17 @@ class ProcessingTests(unittest.TestCase):
     def test_selection_intake_reuses_assets_and_checks_their_integrity(self):
         from ailias.intake import ingest
         from ailias.settings import Policy
+
         self.store.initialize()
         result = self.run_scan(body=False)
         selected = select_group(self.store, result["run"], "face-001")
-        self.assertEqual(ingest(self.store, Path(selected["manifest"]), Policy())["total"], 1)
+        self.assertEqual(
+            ingest(self.store, Path(selected["manifest"]), Policy())["total"], 1
+        )
         artifact = next(iter(self.store.load()["photos"].values()))["artifact"]
-        self.assertEqual(str(self.store.artifact_path(artifact)), selected["portraits"][0])
+        self.assertEqual(
+            str(self.store.artifact_path(artifact)), selected["portraits"][0]
+        )
         self.assertFalse((self.store.root / "raw").exists())
         self.store.artifact_path(artifact).write_bytes(b"changed")
         with self.assertRaisesRegex(ValueError, "changed"):
@@ -239,18 +310,23 @@ class ProcessingTests(unittest.TestCase):
     def test_cleanup_migrates_legacy_copies_and_preserves_selected_runs(self):
         from ailias.imageprocessing.cleanup import cleanup_alias
         from ailias.storage import atomic_json
+
         keep = self.run_scan()
         manifest = Path(keep["manifest"])
         report = load_run(self.store, keep["run"])
         relative = manifest.parent.relative_to(self.store.root)
         source = next(iter(report["sources"].values()))
-        source["artifact"] = self.store.copy_artifact(self.source, str(relative / "originals"))
+        source["artifact"] = self.store.copy_artifact(
+            self.source, str(relative / "originals")
+        )
         old_source = self.store.artifact_path(source["artifact"])
         old_products = []
         for record in report["faces"].values():
             for role, value in list(record["products"].items()):
                 canonical = self.store.resolve(value)
-                copy = self.store.copy_artifact(canonical, str(relative / "groups" / role))
+                copy = self.store.copy_artifact(
+                    canonical, str(relative / "groups" / role)
+                )
                 record["products"][role] = copy["path"]
                 old_products.append(self.store.artifact_path(copy))
                 canonical.unlink()
@@ -268,15 +344,22 @@ class ProcessingTests(unittest.TestCase):
         self.assertTrue(Path(protected["manifest"]).is_file())
         self.assertTrue(Path(keep["overview"]).is_file())
         updated = load_run(self.store, keep["run"])
-        self.assertTrue(self.store.verify(next(iter(updated["sources"].values()))["artifact"]))
-        self.assertTrue(all(self.store.resolve(value).is_file()
-                            for record in updated["faces"].values()
-                            for value in record["products"].values()))
+        self.assertTrue(
+            self.store.verify(next(iter(updated["sources"].values()))["artifact"])
+        )
+        self.assertTrue(
+            all(
+                self.store.resolve(value).is_file()
+                for record in updated["faces"].values()
+                for value in record["products"].values()
+            )
+        )
         self.assertEqual(cleanup_alias(self.store)["removed_files"], 0)
 
     def test_cleanup_retains_the_only_copy_if_external_original_is_missing(self):
         from ailias.imageprocessing.cleanup import cleanup_alias
         from ailias.storage import atomic_json
+
         result = self.run_scan(body=False)
         report = load_run(self.store, result["run"])
         manifest = Path(result["manifest"])
@@ -291,8 +374,28 @@ class ProcessingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             cleanup_alias(self.store, prune_superseded=True)
 
-    def test_cleanup_does_not_migrate_a_pruned_manifest_when_directory_removal_fails(self):
+    def test_cleanup_preserves_modified_assets_and_removes_only_unchanged_unreferenced_assets(
+        self,
+    ):
         from ailias.imageprocessing.cleanup import cleanup_alias
+
+        assets = self.store.resolve("imageprocessing\\assets\\portraits")
+        assets.mkdir(parents=True)
+        original = b"generated content"
+        unchanged = assets / (hashlib.sha256(original).hexdigest() + ".png")
+        unchanged.write_bytes(original)
+        modified = assets / (hashlib.sha256(b"previous content").hexdigest() + ".png")
+        modified.write_bytes(b"owner modified content")
+        result = cleanup_alias(self.store)
+        self.assertTrue(modified.exists())
+        self.assertFalse(unchanged.exists())
+        self.assertEqual(result["removed_files"], 1)
+
+    def test_cleanup_does_not_migrate_a_pruned_manifest_when_directory_removal_fails(
+        self,
+    ):
+        from ailias.imageprocessing.cleanup import cleanup_alias
+
         obsolete = self.run_scan(body=False)
         keep = self.run_scan(body=False)
         directory = Path(obsolete["manifest"]).parent
@@ -319,7 +422,9 @@ class ProcessingTests(unittest.TestCase):
                 raise OSError("simulated manifest failure")
             return save(path, value)
 
-        with patch("ailias.imageprocessing.pipeline.atomic_json", side_effect=failing_selection):
+        with patch(
+            "ailias.imageprocessing.pipeline.atomic_json", side_effect=failing_selection
+        ):
             with self.assertRaises(OSError):
                 select_group(self.store, result["run"], "face-001")
         selections = self.store.resolve(str(Path("imageprocessing") / "selections"))
@@ -358,6 +463,7 @@ class ProcessingTests(unittest.TestCase):
 
     def test_heic_decoding_uses_the_primary_full_resolution_image(self):
         from pillow_heif import register_heif_opener
+
         register_heif_opener(thumbnails=False)
         source = self.root / "sample.heic"
         Image.new("RGB", (64, 48), "green").save(source, format="HEIF")
@@ -366,8 +472,9 @@ class ProcessingTests(unittest.TestCase):
         self.assertEqual(metadata["oriented_size"], [64, 48])
 
     def test_crop_bounds_preserve_native_resolution_and_clamp_at_edges(self):
-        self.assertEqual(portrait_box([0, 0, 100, 100], (400, 500), self.policy),
-                         (0, 0, 160, 200))
+        self.assertEqual(
+            portrait_box([0, 0, 100, 100], (400, 500), self.policy), (0, 0, 160, 200)
+        )
 
     def test_fresh_scan_does_not_replay_cached_inference(self):
         backend = FakeBackend()
@@ -381,7 +488,12 @@ class ProcessingTests(unittest.TestCase):
         path.write_bytes(b"previous")
         with patch("urllib.request.urlopen", return_value=io.BytesIO(b"wrong")):
             with self.assertRaisesRegex(ValueError, "SHA256"):
-                download("https://example.test/model", path, 100, hashlib.sha256(b"expected").hexdigest())
+                download(
+                    "https://example.test/model",
+                    path,
+                    100,
+                    hashlib.sha256(b"expected").hexdigest(),
+                )
         self.assertEqual(path.read_bytes(), b"previous")
         self.assertFalse(list(self.root.glob("*.download")))
 
@@ -395,14 +507,23 @@ class ProcessingTests(unittest.TestCase):
 class GroupingTests(unittest.TestCase):
     def record(self, name, angle, size, source=None):
         import math
+
         angle = math.radians(angle)
-        return {"id": name, "source_id": source or name, "score": 0.99,
-                "quality": {"native_short_side": size}, "eligible": True,
-                "embedding": [math.cos(angle), math.sin(angle)]}
+        return {
+            "id": name,
+            "source_id": source or name,
+            "score": 0.99,
+            "quality": {"native_short_side": size},
+            "eligible": True,
+            "embedding": [math.cos(angle), math.sin(angle)],
+        }
 
     def test_complete_link_prevents_identity_bridge_merges(self):
-        records = [self.record("a", 0, 300), self.record("b", 30, 290),
-                   self.record("c", 60, 280)]
+        records = [
+            self.record("a", 0, 300),
+            self.record("b", 30, 290),
+            self.record("c", 60, 280),
+        ]
         groups = group_faces(records, ProcessingPolicy(identity_cosine_threshold=0.8))
         self.assertEqual(groups[0]["members"], ["a", "b"])
         self.assertEqual(groups[1]["members"], ["c"])
@@ -412,8 +533,11 @@ class GroupingTests(unittest.TestCase):
         self.assertEqual(len(group_faces(records, ProcessingPolicy())), 2)
 
     def test_ambiguous_match_is_flagged_after_clustering_and_not_export_eligible(self):
-        records = [self.record("a", -30, 300), self.record("b", 30, 290),
-                   self.record("c", 0, 280)]
+        records = [
+            self.record("a", -30, 300),
+            self.record("b", 30, 290),
+            self.record("c", 0, 280),
+        ]
         groups = group_faces(records, ProcessingPolicy(identity_cosine_threshold=0.8))
         self.assertEqual(len(groups), 2)
         self.assertTrue(records[-1]["identity_ambiguous"])
@@ -421,7 +545,9 @@ class GroupingTests(unittest.TestCase):
 
     def test_ambiguous_faces_cannot_cascade_into_singleton_alias_explosion(self):
         records = [self.record("a", -30, 400), self.record("b", 30, 390)]
-        records.extend(self.record(f"mid-{index:02d}", 0, 300 - index) for index in range(20))
+        records.extend(
+            self.record(f"mid-{index:02d}", 0, 300 - index) for index in range(20)
+        )
         groups = group_faces(records, ProcessingPolicy(identity_cosine_threshold=0.8))
         self.assertEqual(len(groups), 2)
         self.assertEqual(sum(len(group["members"]) for group in groups), len(records))

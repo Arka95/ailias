@@ -13,6 +13,7 @@
 | `pipeline.py` | Unique jobs, viability gates, stage commits and finalization |
 | `tools.py` | Owned executables, scoped DLL paths, timeouts and bounded logs |
 | `unreal_session.py`, `unreal_session_worker.py` | Project-owned persistent editor, single JSON mailbox, PID/creation-time ownership, OS writer lock and asynchronous completion |
+| `unreal_retention.py`, `unreal_retention_worker.py` | Registry-only dependency inspection, deferred retention and stopped-project exact-file deletion |
 | `blender_worker.py` | Minimal coordinate-preserving cleanup, exports and GPU diagnostics |
 | `unreal.py`, `unreal_worker.py` | Prerequisite checks, static import and legacy solved-Identity adapter |
 
@@ -84,7 +85,7 @@ Partial external-project packages are reported, not automatically deleted.
 | Preserve scale uncertainty | `SIMPLE_PINHOLE` intrinsics/SfM scale are estimated, not metric calibration |
 
 The coherent shared-identity GNM implementation is in
-[facefitting](../facefitting/dev.readme.md), not a missing COLMAP feature.
+[head reconstruction](../head_reconstruction/dev.readme.md), not a COLMAP feature.
 Detailed research/ablations remain in [selection research](selection-research.md).
 
 ## Tests
@@ -112,23 +113,14 @@ rigs or assembles a head. It leaves the working editor available, reports the
 actual PID/timings and does not certify skin/likeness. Omitting `--blueprint`
 checks only the dispatcher, not asynchronous rendering.
 
-## Validation
-
-| Area | Existing evidence / limit |
-|---|---|
-| Tools | Pinned COLMAP 4.2.1 CUDA and Blender 4.5.15 distributions verified locally |
-| Synthetic native pipeline | Eight cameras, recovered surface, textured output and three nonflat Blender renders |
-| Real-photo strict path | Insufficient connected matching/registration; no complete sparse head |
-| Permissive real-photo path | 6,164 textured faces in 13 disconnected fragments; not a usable full head |
-| Head-cleansed replay | Three verified pairs among 64 photos; no sparse model |
-| Unreal | Static import and separate facefitting-native conform/runtime demonstrated; not proof of this legacy Identity adapter's end-to-end assembly |
-
-Run manifests/ablations preserve exact versions, policies, logs and retained
-artifacts. A synthetic pass validates integration, not real facial reconstruction.
-
 ## Cleanup
 
 Finalizers discard databases, undistorted images, depth/normal caches and
 uncommitted partial exports. Keep committed mesh/atlas/cameras/fused observations,
 bounded logs and manifests. Hardlinked canonical views remain reusable.
+Native cleanup inspects registry dependencies without loading obsolete assets.
+While the project-owned editor is open, eligible deletions remain queued.
+After it exits, revalidate the complete package inventory/hashes, dependency
+roots, dirty state, links and possible project users before exact-file pruning.
+Failure or changed state defers cleanup rather than guessing.
 See [global dependency/ownership safeguards](../dev.readme.md#resource-cleanup).

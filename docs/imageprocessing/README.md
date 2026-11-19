@@ -5,9 +5,9 @@
 Extract reviewable face groups, portraits and head-only foreground from photos.
 Original files remain unchanged; identity grouping and quality gates are heuristics.
 Reusable photo-feature extraction belongs here; native asset/control translation
-belongs downstream. Regional geometry/colour/iris evidence is implemented;
-separate beard/lash extraction and automatic native likeness fitting remain open.
-See the [research and remaining scope](photo-to-metahuman-research.md).
+belongs downstream. Regional geometry/colour/iris evidence does not include
+separate beard/lash segmentation or automatic native likeness fitting.
+See the [research and limitations](photo-to-metahuman-research.md).
 
 ## Inputs and outputs
 

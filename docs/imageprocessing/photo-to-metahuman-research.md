@@ -2,14 +2,6 @@
 
 # Photo-to-MetaHuman: face-first routes and feature extraction
 
-| Field | Value |
-|---|---|
-| Owner | ailias |
-| Status | Research complete; regional evidence/comparison implemented, alternative reconstructors not benchmarked |
-| Last updated | 2026-11-17 |
-| Services in scope | imageprocessing, facefitting, generation, native Unreal handoff |
-| Reviewers | *(fill alias)* |
-
 **Recommendation:** first measure where identity is lost between photographs,
 the preserved fitted head and the saved native Character. Refine the existing
 native face against that evidence before another groom/animation pass. Compare
@@ -20,44 +12,19 @@ not required to construct this pipeline.
 
 ## 1. Problem Statement
 
-### What exists, and why it has not produced a convincing face
+### Representation boundaries
 
 | Boundary | Verified behavior | Gap |
 |---|---|---|
 | Photo preparation | Detection, identity grouping, masks/alignment plus new regional geometry/colour/iris evidence profiles | **A:** separate beard/lash evidence and calibrated multi-view aggregation remain incomplete; [imageprocessing guide](README.md#reusable-feature-evidence) |
-| Numerical head fit | GNM, a statistical head-shape prior, is fitted jointly with per-photo cameras and expression; held-out views select identity complexity | **B:** conditional reprojection is not proof of correct 3D anatomy; [head fitting workflow](../../src/ailias/facefitting/workflows/head_fitting.py) |
-| Blender | Reviews/exports the fitted geometry; appearance projects photo colour and approximates scalp hair | Blender is not the identity estimator. Photo colour retains lighting; [appearance workflow](../../src/ailias/facefitting/workflows/appearance_generation.py) |
-| Native conform | Sends mesh vertices/triangles, tracked contours and a matched camera into Unreal's head-only solver | **C:** fitted geometry was used, but the resulting native identity was not validated as a likeness. `appearance_transferred=False`; [native conform worker](../../src/ailias/facefitting/unreal/head_conforming_worker.py) |
-| Native editing/build | Explicit groom, iris, bounded sculpt and texture edits plus optional assembly/reload are implemented | **D:** automatic anatomical targets, native-UV skin transfer and visually verified full appearance remain incomplete; [facefitting guide](../facefitting/README.md#native-feature-profile) |
+| Numerical head fit | GNM, a statistical head-shape prior, is fitted jointly with per-photo cameras and expression; held-out views select identity complexity | **B:** conditional reprojection is not proof of correct 3D anatomy; [head fitting workflow](../../src/ailias/head_reconstruction/pipeline.py) |
+| Blender | Reviews/exports fitted geometry; appearance projects photo colour and optionally approximates scalp hair | Blender is not the identity estimator. Photo colour retains lighting; [appearance workflow](../../src/ailias/head_reconstruction/appearance/pipeline.py) |
+| Native conform | Sends mesh vertices/triangles, tracked contours and a matched camera into Unreal's head-only solver | **C:** inspect native shape drift separately; conform alone does not transfer appearance; [native conform worker](../../src/ailias/metahuman/head_conforming_worker.py) |
+| Native editing/build | Explicit groom, iris, bounded sculpt and texture edits plus optional assembly/reload | **D:** automatic anatomical targets and calibrated appearance matching are separate concerns; [feature guide](../facefitting/README.md#native-feature-profile) |
 
-The pipeline separated geometry fitting from appearance/native integration.
-That separation is useful, but a successful conform/rig was incorrectly useful
-as a progress proxy for a recognizable face. **A valid rig is not a likeness
-certificate.** The current root comparison remains visibly below expectations.
-
-Retained evidence: fit `20261116T153125Z-44390de9` has 64 dense observations;
-appearance `20261116T163340Z-14973ca7` selected 16 texture views. The latest native
-review at the initial research milestone, `e571dac24e6c472681f6767220c6857a`,
-was rejected visually. Runtime revision
-`5e856ca875794ec6a74f816ba94b8a2c` is failed, despite retained runtime assets:
-the strict bound-beard-component check did not pass. These are separate outcomes,
-not an accepted end-to-end result. Evidence lives in the corresponding
-`data\arka\facefitting\runs`, `appearance`, `native-reviews` and `features` manifests.
-
-Subsequent diagnostic review `800e902f2fbd45ed8d5e00d275ef5059` remains
-geometrically rejected despite dark eyes and bound brows/lashes; its feature job
-failed final saving. The retained source fit improves held-out frontal landmark
-error over the generic prior by only about 0.9%, so another appearance/rig pass
-is deferred. See [actual trials and regional geometry diagnostics](../facefitting/dev.readme.md#appearance-and-native-boundaries).
-
-Preserve the selected baseline and original photos. This investigation does not
-authorize another GNM fit, saved Blender scene copy or the rejected cross-topology
-nearest-surface wrapping experiment. Correctness/reload/coverage gates remain
-load-bearing; speed improvements must remove wasted work, not weaken them.
-
-This is a local project, not a multi-team service. External vendor/research
-maintainers are reference sources, not project owners or assigned reviewers.
-No on-call rotation or additional team contact has been established.
+Preserve original sources and distinguish fitted geometry, native geometry,
+appearance and runtime validity. **A valid rig is not a likeness certificate.**
+Correctness, reload and coverage gates must survive optimizations.
 
 ## 2. Implementation
 
@@ -74,7 +41,7 @@ None of the alternatives below has been run locally during this investigation.
 | Template-compatible mesh -> From Template | Standard MetaHuman topology **or standard MetaHuman UV layout** | Not arbitrary GNM geometry. Mesh Fit and body-only Replace are different operations [E3] | Only after compatibility is actually established |
 | Compatible captured footage -> Identity | Supported device takes, ingested through Capture Manager/Live Link Hub | Another identity source; unrelated still photos are not automatically compatible footage [E4] | Future capture alternative, not a direct use of the current folder |
 | Existing DNA -> native character | Compatible DNA, MetaHuman's identity/rig data | Imports an already encoded identity; does not infer a face from photos [E5] | Useful interchange, not the missing estimator |
-| Photogrammetry -> mesh -> official handoff | Multi-view reconstructed surface | Potentially less shape-prior bias, but needs a consistent subject, texture and capture geometry. Local COLMAP trials produced fragments, not a full head; [generation evidence](../generation/dev.readme.md#validation) | Do not keep relaxing gates on mixed historical photos |
+| Photogrammetry -> mesh -> official handoff | Multi-view reconstructed surface | Potentially less shape-prior bias, but needs a consistent subject, texture and capture geometry; [generation gates](../generation/dev.readme.md#configuration-and-gates) | Do not relax gates to relabel fragments as complete anatomy |
 | Commercial DCC fitting -> mesh + native texture | Authored photo-fit head and separately exported MetaHuman-compatible texture | FaceBuilder documents 4-8 photos and an explicit MH-texture application step [V1]; paid tooling and current UE compatibility need evaluation | Credible authoring alternative, not adopted or installed |
 | Hosted photo-to-MetaHuman service | Vendor-generated Character/mesh | FaceNinja claims UE 5.8 support; requires account, internet and credits [V2]. Its small plugin download is not a small local model | Inventory only; no photos uploaded and no local-memory claim |
 | Monocular/audio performance capture | Motion on an existing identity | Animation and identity construction are different problems; the face-capture repository explicitly consumes existing DNA [R8] | Not a substitute for face generation |
@@ -107,12 +74,12 @@ anatomy or texture evidence.
 ### 2.3 What imageprocessing should extract separately
 
 **Ownership:** imageprocessing owns observations in photo coordinates;
-facefitting owns identity/camera/expression inference and photo-to-native
-translation. UE asset paths, sculpt indices and material controls must not leak
+head reconstruction owns identity/camera/expression inference; MetaHuman owns
+photo-to-native translation. UE asset paths, sculpt indices and material controls must not leak
 into the generic extraction contract.
 
-Dense extraction now lives in [dense.py:10-78](../../src/ailias/imageprocessing/dense.py#L10-L78);
-the old facefitting imports remain compatible. The new
+Dense extraction lives in [dense.py](../../src/ailias/imageprocessing/dense.py);
+domain compatibility imports reuse that implementation.
 `appearance_features.py` / `feature_evidence.py` modules produce versioned
 regional geometry/colour/iris evidence without a GNM dependency. `features`
 explicitly reuses dense observations; `inspect-image` runs fresh CPU detection.
@@ -166,8 +133,7 @@ A planning example is 12GiB - 2GiB reserve = 10GiB available to workloads;
 the reserve is an estimate, **not measured UE usage or a concurrency guarantee**.
 
 Preserve the existing working Torch/CUDA environment. Older CUDA/Python research
-stacks need isolated compatibility work, not a global downgrade. No new models
-were downloaded, loaded or benchmarked for this research.
+stacks need isolated compatibility work, not a global downgrade.
 
 ### 2.5 Evidence flow and proposed contract extensions
 
@@ -180,7 +146,7 @@ flowchart TB
     subgraph MAIN[" "]
         direction TB
         P["Original photographs and hashes"]:::store --> I["imageprocessing<br/>Prepare native RGB, masks and coordinates"]:::svc
-        I --> F["facefitting<br/>Estimate shared shape, cameras and expression"]:::svc
+        I --> F["head_reconstruction<br/>Estimate shared shape, cameras and expression"]:::svc
         F --> N["Native adapter / Unreal<br/>Conform, explicit edits and saved revisions"]:::ext
         N --> R["Review artifacts<br/>Native frames and reload receipts"]:::store
         I --> E["Feature evidence profile<br/>Regions, support limits, provenance and cohort"]:::store
@@ -188,7 +154,7 @@ flowchart TB
         E --> R
     end
     MAIN ~~~ SUM
-    SUM["Figure - Evidence ownership. How to read: top to bottom; blue local processing, green files, purple Unreal integration; dashed mapping remains incomplete. Summary: photo evidence and render diagnostics exist; automatic native likeness translation is still missing. Backed by: feature_evidence.py, feature_comparison.py, pipeline.py and unreal_conform_worker.py."]:::caption
+    SUM["Figure - Evidence ownership. Read top to bottom; blue is local processing, green files, purple Unreal integration. The dashed edge represents unimplemented automatic anatomical translation, not scripted appearance settings. Backed by: imageprocessing/feature_evidence.py, metahuman/feature_comparison.py, head_reconstruction/pipeline.py and metahuman/head_conforming_worker.py."]:::caption
     style MAIN fill:none,stroke:none
     classDef svc fill:#cfe3ff,stroke:#2b6cb0,color:#0b2545
     classDef store fill:#d6f5df,stroke:#2f855a,color:#12351f
@@ -206,12 +172,13 @@ reads and hash validation from imageprocessing, never a cloud-model upload.
 **Imageprocessing:** local Python/model calls produce native RGB, masks and
 coordinate transforms; files/manifests pass synchronously to consumers.
 
-**Facefitting:** numerical fitting reads those files and writes shared identity,
-per-view state and exchange meshes; launches owned Blender/UE workers via request
-files and process exit/receipt checks.
+**Head reconstruction:** numerical fitting reads those files and writes shared
+identity, per-view state and exchange meshes. Blender products use owned worker
+processes and artifact checks; cross-domain execution belongs to `pipelines`.
 
-**Native adapter / Unreal:** synchronous child-editor jobs consume explicit
-geometry/settings/assets; save isolated Character/runtime packages and receipts.
+**Native adapter / Unreal:** synchronous host requests consume explicit
+geometry/settings/assets through the owned editor session or independent process;
+save isolated Character/runtime packages and receipts.
 Proposed photo-evidence translation must validate anatomical correspondences
 before a native mutation.
 
@@ -244,23 +211,11 @@ or ER render validation is claimed.
 
 ### 2.6 Scale, bottlenecks and failure boundaries
 
-**Measured scope:** one current subject, 192 original photos in the retained
-full scan, 64 dense observations in the pinned fit, up to 16 selected texture
-views. File sizes/growth and future subject count need measurement; no hosted
-users, HTTP API, read/write traffic or cache-hit rate is being invented.
-
 **Sizing estimate:** one 64-photo extraction over 60 seconds is
 64 / 60 = 1.07 photo jobs/s average; 478 x 64 = 30,592 predicted points.
 Writing one observation JSON and one mask per photo implies
 2 x 64 / 60 = 2.13 artifact writes/s average. These are not measured peaks.
 Proposed concurrency is one GPU/editor job, not 64 concurrent requests.
-
-The retained timing audit measured native apply 85.015s and a subsequent build
-229.812s on one failed run: 314.827s total before independent verification.
-Sixteen input-integrity checks took 0.178s. Editor startup/build/compile are the
-priority bottleneck, not photo hashing. Apply and optional assembly now share
-one editor, with independent reload retained; **post-change speedup is unmeasured**.
-Evidence: `data\arka\facefitting\benchmarks\native-editor-overhead-20261117.json`.
 
 | Backpressure / single point of failure | Blast radius | Mitigation / tradeoff |
 |---|---|---|
@@ -280,23 +235,23 @@ storage choice here. COLMAP's transient SQLite is unrelated reconstruction scrat
 | Area | Keep | Proposed change / gate |
 |---|---|---|
 | `imageprocessing\dense.py`, `appearance_features.py`, `feature_evidence.py` | Shared detector and versioned source-coordinate regional evidence implemented | Separate beard/lash evidence and multi-view visibility calibration remain |
-| `facefitting\evidence\landmark_detection.py`, `facefitting\appearance\iris_color_matching.py`, `feature_comparison.py` | Compatibility imports and downstream bounded photo/render comparison | Native anatomical/UV mapping still required; an iris proposal is not an applied edit |
+| `head_reconstruction\evidence\landmark_detection.py`, `head_reconstruction\appearance\iris_color_matching.py`, `metahuman\feature_comparison.py` | Shared detector imports and bounded photo/render comparison | Native anatomical mapping still required; an iris proposal is not an applied edit |
 | `config\imageprocessing.json`, `cleansing.json` | Existing extraction/colour semantics | Any new feature policy must document pixels/units, sample sufficiency, cohort and abstention; no new keys implemented here |
 | `config\facefitting.json`, `appearance.json` | Explicit device, fit/texture budgets | Preserve pinned geometry; alternatives are research until separately evaluated |
-| `facefitting\unreal\character_features.py`, `character_features_worker.py`, `character_portrait.py` | Isolated revisions, strict saved-state verification, neutral reviews | Semantic mapping, native-UV transfer and coordinated appearance remain required |
+| `metahuman\character_features.py`, `character_features_worker.py`, `character_portrait.py` | Isolated revisions, strict saved-state verification, neutral reviews | Semantic mapping and calibrated coordinated appearance remain separate gates |
 | `generation` | Separate photogrammetry route | Do not relabel fragments as complete heads or mix its evidence with the prior fit |
 
 ## 3. Success Criteria
 
 | Criterion | Baseline | Acceptance target |
 |---|---|---|
-| Identity retained through handoff | Native resemblance rejected; source-versus-native drift not yet quantified | Matched front/oblique/profile overlays compare photos, preserved fit and native result; identify whether source shape, camera or native solve causes mismatch |
+| Identity retained through handoff | Valid native save alone is insufficient | Matched front/oblique/profile overlays compare photos, fit and native result; identify source-shape, camera or solve mismatch |
 | Face geometry | Conditional fit evidence exists, no native regional likeness pass | Report region-wise landmark/silhouette errors on held-out photos with common camera/expression policy; no fabricated physical-mm accuracy or single similarity percentage |
 | Alternative adoption | No alternatives locally benchmarked | One bounded comparator on the same permitted inputs/protocol improves evidence without regressing key regions; compatible saved/reloaded native result required |
 | Feature evidence | Regional profile/iris samples and native-render comparison implemented; beard/lash extraction remains unresolved | Per-feature provenance, source coordinates, cohort, visibility and uncertainty; unresolved beard/lashes remain explicitly unresolved |
 | Appearance handoff | Photo atlas not transferred by conform | Verified native UV/bake coverage, no source-illumination/albedo confusion; coordinated skin/eyes/brows/lashes/hair/beard review after geometry gate |
 | Runtime resources | Only installed file sizes and publisher VLM memory figures available | Measure owned-process peak VRAM/RAM and wall time before concurrent UE/model residency; no shared-stack regression |
-| Integrity / rig | Native assets technically exist; last beard-bound-component gate failed | Originals/baseline unchanged; fresh editor reload verifies saved edits and correct runtime representation; inspect baked stubble policy without blindly removing the gate |
+| Integrity / rig | Saved assets and bound/baked grooms need distinct checks | Originals/baseline unchanged; fresh editor reload verifies saved edits and correct runtime representation; inspect baked stubble policy without blindly removing the gate |
 
 NoW evaluates reconstructed geometry with alignment/surface error; that is a
 different claim from an image embedding or a successful animation [B1].
@@ -324,9 +279,8 @@ promises or a request to wait. Execute the smallest diagnostic first.
 
 - [Imageprocessing configuration and limits](README.md), [internals](dev.readme.md).
 - [Fit and native operation contracts](../facefitting/README.md), [fit evidence](../facefitting/dev.readme.md#evidence).
-- [Current comparison](../../README.md#current-state---below-expectations), [generation evidence](../generation/dev.readme.md#validation).
-- Source code/line anchors appear beside the relevant claims above. Run-local evidence is under Git-ignored `data\arka`; it is not redistributed with docs.
-- No dashboard, new PR, model benchmark or new appearance result was produced for this investigation. Missing artifacts are the task deliverables in section 4.
+- [Representation examples](../../README.md#data-representations), [generation gates](../generation/dev.readme.md#configuration-and-gates).
+- Source code anchors appear beside implementation claims. Job-local execution evidence is not redistributed with the manuals.
 
 ### Primary external references
 
@@ -357,7 +311,6 @@ promises or a request to wait. Execute the smallest diagnostic first.
 - Repositories R1-R9 and vendors V1-V2 are linked in the comparison tables.
 - [M1: MediaPipe][M1]; [M2: SmolVLM-256M][M2]; [M3: SmolVLM-500M][M3]; [M4: Florence-2][M4]; [B1: NoW][B1].
 
-External documentation/repository statements were checked November 17, 2026.
 GitHub CLI discovery was blocked by absent authentication; public repository and
 publisher documentation were read on the web instead. Compatibility and vendor
 claims are explicitly distinguished from local execution above.

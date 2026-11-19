@@ -3,12 +3,37 @@
 import json
 import os
 from pathlib import Path
+import hashlib
+import importlib.util
+import sys
 
 EXECUTOR = None
 QUEUE = None
 REQUEST = None
 RESULT = None
 KEEP_EDITOR_ALIVE = False
+JOURNAL = None
+
+
+def load_stage_journal(request, result):
+    reference = request.get("stage_journal")
+    if reference is None:
+        return None
+    path = Path(reference["path"])
+    checksum = hashlib.sha256(path.read_bytes()).hexdigest()
+    if checksum != reference["sha256"]:
+        raise ValueError("Native stage journal source changed")
+    name = "_ailias_execution_" + checksum
+    if name not in sys.modules:
+        specification = importlib.util.spec_from_file_location(name, path)
+        module = importlib.util.module_from_spec(specification)
+        sys.modules[name] = module
+        try:
+            specification.loader.exec_module(module)
+        except BaseException:
+            sys.modules.pop(name, None)
+            raise
+    return sys.modules[name].StageJournal(result)
 
 
 def publish(request, result):
@@ -20,7 +45,9 @@ def publish(request, result):
 
 def solve(request, unreal):
     destination = request["destination"]
-    if unreal.EditorAssetLibrary.list_assets(destination, recursive=True, include_folder=False):
+    if unreal.EditorAssetLibrary.list_assets(
+        destination, recursive=True, include_folder=False
+    ):
         raise ValueError("Reel destination is occupied; create a fresh job")
     task = unreal.AssetImportTask()
     task.filename = request["audio"]
@@ -34,16 +61,24 @@ def solve(request, unreal):
     waves = [asset for asset in waves if isinstance(asset, unreal.SoundWave)]
     if len(waves) != 1:
         raise ValueError("Narration did not import as exactly one SoundWave")
-    performance = tools.create_asset("Performance", destination, unreal.MetaHumanPerformance,
-                                     unreal.MetaHumanPerformanceFactoryNew())
+    performance = tools.create_asset(
+        "Performance",
+        destination,
+        unreal.MetaHumanPerformance,
+        unreal.MetaHumanPerformanceFactoryNew(),
+    )
     performance.set_editor_property("input_type", unreal.DataInputType.AUDIO)
     performance.set_editor_property("audio", waves[0])
     performance.set_editor_property("realtime_audio", False)
     performance.set_editor_property("generate_blinks", True)
     performance.set_editor_property("downmix_channels", False)
-    performance.set_editor_property("audio_driven_animation_output_controls",
-                                    unreal.AudioDrivenAnimationOutputControls.FULL_FACE)
-    performance.set_editor_property("head_movement_mode", unreal.PerformanceHeadMovementMode.CONTROL_RIG)
+    performance.set_editor_property(
+        "audio_driven_animation_output_controls",
+        unreal.AudioDrivenAnimationOutputControls.FULL_FACE,
+    )
+    performance.set_editor_property(
+        "head_movement_mode", unreal.PerformanceHeadMovementMode.CONTROL_RIG
+    )
     overrides = unreal.AudioDrivenAnimationSolveOverrides()
     overrides.mood = unreal.AudioDrivenAnimationMood.EXCITEMENT
     overrides.mood_intensity = request["policy"]["mood_intensity"]
@@ -55,18 +90,27 @@ def solve(request, unreal):
     count = performance.get_number_of_processed_frames()
     if count <= 0 or performance.is_processing():
         raise RuntimeError("Audio solver did not finish with actual processed frames")
-    if not unreal.EditorAssetLibrary.save_loaded_asset(performance, only_if_is_dirty=False):
+    if not unreal.EditorAssetLibrary.save_loaded_asset(
+        performance, only_if_is_dirty=False
+    ):
         raise RuntimeError("Audio performance package was not saved")
-    return performance, {"performance": performance.get_path_name(), "processed_frames": count,
-                         "sound": waves[0].get_path_name(), "mood": "EXCITEMENT",
-                         "solver_device": "CPU: installed Speech2Face uses NNERuntimeORTCpu",
-                         "head_movement": "CONTROL_RIG", "blinks": True}
+    return performance, {
+        "performance": performance.get_path_name(),
+        "processed_frames": count,
+        "sound": waves[0].get_path_name(),
+        "mood": "EXCITEMENT",
+        "solver_device": "CPU: installed Speech2Face uses NNERuntimeORTCpu",
+        "head_movement": "CONTROL_RIG",
+        "blinks": True,
+    }
 
 
 def rig_class(path, unreal):
     blueprint = unreal.load_asset(path)
     if not isinstance(blueprint, unreal.Blueprint):
-        raise ValueError("Input must be an assembled rigged MetaHuman Blueprint, not a Character draft/static mesh")
+        raise ValueError(
+            "Input must be an assembled rigged MetaHuman Blueprint, not a Character draft/static mesh"
+        )
     actor_class = blueprint.generated_class()
     if not actor_class:
         raise ValueError("MetaHuman Blueprint has no compiled generated class")
@@ -75,20 +119,31 @@ def rig_class(path, unreal):
 
 def linear_colour(rgb, unreal, exposure_compensation_ev=0):
     def convert(value):
-        return value/12.92 if value <= .04045 else ((value+.055)/1.055)**2.4
-    return unreal.LinearColor(*(convert(value)*2**(-exposure_compensation_ev) for value in rgb), 1)
+        return value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
+
+    return unreal.LinearColor(
+        *(convert(value) * 2 ** (-exposure_compensation_ev) for value in rgb), 1
+    )
 
 
 def normalize_subject_root(sequence, actor_class, unreal, location=(0, 0, 0), yaw=0):
-    subjects = [binding for binding in sequence.get_bindings()
-                if (template := binding.get_object_template()) is not None
-                and template.get_class() == actor_class]
+    subjects = [
+        binding
+        for binding in sequence.get_bindings()
+        if (template := binding.get_object_template()) is not None
+        and template.get_class() == actor_class
+    ]
     if len(subjects) != 1:
         raise ValueError("Export must contain exactly one bound MetaHuman actor")
-    tracks = [track for track in subjects[0].get_tracks()
-              if isinstance(track, unreal.MovieScene3DTransformTrack)]
+    tracks = [
+        track
+        for track in subjects[0].get_tracks()
+        if isinstance(track, unreal.MovieScene3DTransformTrack)
+    ]
     if len(tracks) != 1 or len(tracks[0].get_sections()) != 1:
-        raise ValueError("Exported MetaHuman must have one static root transform section")
+        raise ValueError(
+            "Exported MetaHuman must have one static root transform section"
+        )
     section = tracks[0].get_sections()[0]
     channels = section.get_channels_by_type(unreal.MovieSceneScriptingDoubleChannel)
     if len(channels) != 9 or any(channel.get_num_keys() for channel in channels):
@@ -106,30 +161,48 @@ def stage(request, performance, unreal):
     if not levels.new_level(destination + "/PortraitStage"):
         raise RuntimeError("Could not create an isolated portrait map")
     reference = actors.spawn_actor_from_class(
-        actor_class, unreal.Vector(*policy["character_location_cm"]),
-        unreal.Rotator(yaw=policy["character_yaw_degrees"]))
+        actor_class,
+        unreal.Vector(*policy["character_location_cm"]),
+        unreal.Rotator(yaw=policy["character_yaw_degrees"]),
+    )
     try:
         components = reference.get_components_by_class(unreal.SkeletalMeshComponent)
-        faces = [component for component in components if component.get_name().lower() == "face"]
+        faces = [
+            component
+            for component in components
+            if component.get_name().lower() == "face"
+        ]
         if len(faces) != 1 or not faces[0].get_skeletal_mesh_asset():
             raise ValueError("Rigged MetaHuman must expose one Face skeletal component")
         face = faces[0]
         if face.get_bone_index("head") < 0:
-            raise ValueError("MetaHuman face skeleton has no head bone for stable framing")
-        center = face.get_socket_location("head") + unreal.Vector(0, 0, policy["head_center_offset_cm"])
-        if not face.get_skeletal_mesh_asset().get_editor_property("post_process_anim_blueprint"):
+            raise ValueError(
+                "MetaHuman face skeleton has no head bone for stable framing"
+            )
+        center = face.get_socket_location("head") + unreal.Vector(
+            0, 0, policy["head_center_offset_cm"]
+        )
+        if not face.get_skeletal_mesh_asset().get_editor_property(
+            "post_process_anim_blueprint"
+        ):
             raise ValueError("Face has no RigLogic post-process animation blueprint")
     finally:
         actors.destroy_actor(reference)
     if performance is None:
         sequence = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
-            "NeutralReview", destination, unreal.LevelSequence, unreal.LevelSequenceFactoryNew())
+            "NeutralReview",
+            destination,
+            unreal.LevelSequence,
+            unreal.LevelSequenceFactoryNew(),
+        )
         if not isinstance(sequence, unreal.LevelSequence):
             raise RuntimeError("Neutral review sequence could not be created")
         sequence.set_display_rate(unreal.FrameRate(policy["fps"], 1))
         subject = actors.spawn_actor_from_class(
-            actor_class, unreal.Vector(*policy["character_location_cm"]),
-            unreal.Rotator(yaw=policy["character_yaw_degrees"]))
+            actor_class,
+            unreal.Vector(*policy["character_location_cm"]),
+            unreal.Rotator(yaw=policy["character_yaw_degrees"]),
+        )
         if subject is None:
             raise RuntimeError("Neutral review actor could not be instantiated")
         sequence.add_possessable(subject)
@@ -139,30 +212,49 @@ def stage(request, performance, unreal):
         settings.package_path = destination
         settings.asset_name = "PortraitReel"
         settings.target_meta_human_class = blueprint
-        for name in ("export_video_track", "export_depth_track", "export_image_plane",
-                     "export_identity", "export_camera", "export_transform_track"):
+        for name in (
+            "export_video_track",
+            "export_depth_track",
+            "export_image_plane",
+            "export_identity",
+            "export_camera",
+            "export_transform_track",
+        ):
             settings.set_editor_property(name, False)
         settings.export_audio_track = True
         settings.export_control_rig_track = True
         settings.enable_meta_human_head_movement = True
         settings.enable_control_rig_head_movement = True
         settings.keep_frame_range = False
-        sequence = unreal.MetaHumanPerformanceExportUtils.export_level_sequence(performance, settings)
+        sequence = unreal.MetaHumanPerformanceExportUtils.export_level_sequence(
+            performance, settings
+        )
         if not isinstance(sequence, unreal.LevelSequence):
-            raise RuntimeError("Native audio performance did not export a playable MetaHuman sequence")
-        normalize_subject_root(sequence, actor_class, unreal,
-                               policy["character_location_cm"], policy["character_yaw_degrees"])
+            raise RuntimeError(
+                "Native audio performance did not export a playable MetaHuman sequence"
+            )
+        normalize_subject_root(
+            sequence,
+            actor_class,
+            unreal,
+            policy["character_location_cm"],
+            policy["character_yaw_degrees"],
+        )
     rate = sequence.get_display_rate()
     # Export owns key timing. Converting the whole sequence by changing display rate would retime keys.
     frames = request["frame_count"]
     sequence.set_playback_start_seconds(0)
-    sequence.set_playback_end_seconds(frames/policy["fps"])
+    sequence.set_playback_end_seconds(frames / policy["fps"])
     front = unreal.Vector(*request["placement"]["front"])
     right = unreal.Vector(*request["placement"]["right"])
-    view_center = center + unreal.Vector(*request["placement"]["camera_target_shift_cm"])
-    location = view_center + front*request["framing"]["camera_distance_cm"]
+    view_center = center + unreal.Vector(
+        *request["placement"]["camera_target_shift_cm"]
+    )
+    location = view_center + front * request["framing"]["camera_distance_cm"]
     camera = actors.spawn_actor_from_class(unreal.CineCameraActor, location)
-    camera.set_actor_rotation(unreal.MathLibrary.find_look_at_rotation(location, view_center), False)
+    camera.set_actor_rotation(
+        unreal.MathLibrary.find_look_at_rotation(location, view_center), False
+    )
     component = camera.get_cine_camera_component()
     filmback = component.get_editor_property("filmback")
     filmback.sensor_width = request["framing"]["sensor_width_mm"]
@@ -175,7 +267,9 @@ def stage(request, performance, unreal):
         "auto_exposure_method": unreal.AutoExposureMethod.AEM_MANUAL,
         "auto_exposure_apply_physical_camera_exposure": False,
         "auto_exposure_bias": policy["exposure_compensation_ev"],
-        "bloom_intensity": 0, "vignette_intensity": 0, "lens_flare_intensity": 0,
+        "bloom_intensity": 0,
+        "vignette_intensity": 0,
+        "lens_flare_intensity": 0,
     }.items():
         post_process.set_editor_property("override_" + name, True)
         post_process.set_editor_property(name, value)
@@ -187,63 +281,114 @@ def stage(request, performance, unreal):
     binding = sequence.add_possessable(camera)
     cuts = sequence.add_track(unreal.MovieSceneCameraCutTrack)
     cut = cuts.add_section()
-    cut.set_range_seconds(0, frames/policy["fps"])
-    cut.set_camera_binding_id(unreal.MovieSceneSequenceExtensions.get_binding_id(sequence, binding))
-    background = actors.spawn_actor_from_class(unreal.StaticMeshActor, center-front*150)
-    background.static_mesh_component.set_static_mesh(unreal.load_asset("/Engine/BasicShapes/Plane"))
+    cut.set_range_seconds(0, frames / policy["fps"])
+    cut.set_camera_binding_id(
+        unreal.MovieSceneSequenceExtensions.get_binding_id(sequence, binding)
+    )
+    background = actors.spawn_actor_from_class(
+        unreal.StaticMeshActor, center - front * 150
+    )
+    background.static_mesh_component.set_static_mesh(
+        unreal.load_asset("/Engine/BasicShapes/Plane")
+    )
     background.set_actor_rotation(unreal.MathLibrary.make_rot_from_z(front), False)
     background.set_actor_scale3d(unreal.Vector(20, 20, 20))
     tools = unreal.AssetToolsHelpers.get_asset_tools()
-    material = tools.create_asset("ChromaBackdrop", destination, unreal.Material, unreal.MaterialFactoryNew())
+    material = tools.create_asset(
+        "ChromaBackdrop", destination, unreal.Material, unreal.MaterialFactoryNew()
+    )
     material.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
     expression = unreal.MaterialEditingLibrary.create_material_expression(
-        material, unreal.MaterialExpressionConstant3Vector)
-    expression.set_editor_property("constant", linear_colour(
-        policy["background_srgb"], unreal, policy["exposure_compensation_ev"]))
-    unreal.MaterialEditingLibrary.connect_material_property(expression, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+        material, unreal.MaterialExpressionConstant3Vector
+    )
+    expression.set_editor_property(
+        "constant",
+        linear_colour(
+            policy["background_srgb"], unreal, policy["exposure_compensation_ev"]
+        ),
+    )
+    unreal.MaterialEditingLibrary.connect_material_property(
+        expression, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR
+    )
     unreal.MaterialEditingLibrary.recompile_material(material)
     background.static_mesh_component.set_material(0, material)
-    for label, side, strength in (("SoftKey", -1, 1), ("SoftFill", 1, policy["fill_ratio"])):
-        light_location = center + front*100 + right*(side*80) + unreal.Vector(0, 0, 65)
+    for label, side, strength in (
+        ("SoftKey", -1, 1),
+        ("SoftFill", 1, policy["fill_ratio"]),
+    ):
+        light_location = (
+            center + front * 100 + right * (side * 80) + unreal.Vector(0, 0, 65)
+        )
         light = actors.spawn_actor_from_class(unreal.RectLight, light_location)
         light.set_actor_label(label)
-        light.set_actor_rotation(unreal.MathLibrary.find_look_at_rotation(light_location, center), False)
-        light.light_component.set_editor_property("intensity_units", unreal.LightUnits.LUMENS)
-        light.light_component.set_intensity(policy["key_lumens"]*strength)
-        light.light_component.set_editor_property("source_width", policy["light_size_cm"])
-        light.light_component.set_editor_property("source_height", policy["light_size_cm"])
+        light.set_actor_rotation(
+            unreal.MathLibrary.find_look_at_rotation(light_location, center), False
+        )
+        light.light_component.set_editor_property(
+            "intensity_units", unreal.LightUnits.LUMENS
+        )
+        light.light_component.set_intensity(policy["key_lumens"] * strength)
+        light.light_component.set_editor_property(
+            "source_width", policy["light_size_cm"]
+        )
+        light.light_component.set_editor_property(
+            "source_height", policy["light_size_cm"]
+        )
         light.light_component.set_editor_property("use_temperature", True)
         light.light_component.set_temperature(policy["temperature_kelvin"])
     unreal.EditorAssetLibrary.save_loaded_asset(material, only_if_is_dirty=False)
-    if not (unreal.EditorAssetLibrary.save_loaded_asset(sequence, only_if_is_dirty=False)
-            and levels.save_current_level()):
+    if not (
+        unreal.EditorAssetLibrary.save_loaded_asset(sequence, only_if_is_dirty=False)
+        and levels.save_current_level()
+    ):
         raise RuntimeError("Portrait stage or sequence did not save")
-    return sequence, {"sequence": sequence.get_path_name(), "map": destination + "/PortraitStage",
-                      "material": material.get_path_name(),
-                      "camera": {"location": [location.x, location.y, location.z],
-                                 "target": [view_center.x, view_center.y, view_center.z], **request["framing"]},
-                      "native_sequence_fps": rate.numerator/rate.denominator,
-                      "subject_root": {"location_cm": policy["character_location_cm"],
-                                       "yaw_degrees": policy["character_yaw_degrees"],
-                                       "screen_position": policy["subject_screen_position"],
-                                       "face_head_controls_preserved": True},
-                      "focus": "Depth of field disabled for sharp face and keyable edges",
-                      "body_gestures": "Not synthesized; audio generates face and head movement only"}
+    return sequence, {
+        "sequence": sequence.get_path_name(),
+        "map": destination + "/PortraitStage",
+        "material": material.get_path_name(),
+        "camera": {
+            "location": [location.x, location.y, location.z],
+            "target": [view_center.x, view_center.y, view_center.z],
+            **request["framing"],
+        },
+        "native_sequence_fps": rate.numerator / rate.denominator,
+        "subject_root": {
+            "location_cm": policy["character_location_cm"],
+            "yaw_degrees": policy["character_yaw_degrees"],
+            "screen_position": policy["subject_screen_position"],
+            "face_head_controls_preserved": True,
+        },
+        "focus": "Depth of field disabled for sharp face and keyable edges",
+        "body_gestures": "Not synthesized; audio generates face and head movement only",
+    }
 
 
 def finished(executor, success):
     import unreal
 
-    RESULT.update(status="frames_rendered" if success else "failed",
-                  stage="verify_frames_and_encode" if success else "native_render_failed",
-                  render_success=bool(success))
+    RESULT.update(
+        status="frames_rendered" if success else "failed",
+        stage="verify_frames_and_encode" if success else "native_render_failed",
+        render_success=bool(success),
+    )
+    failure = (
+        None if success else RuntimeError("Movie render did not complete successfully")
+    )
     try:
         if executor is not None:
             executor.on_executor_finished_delegate.remove_callable(finished)
     except Exception as error:
-        RESULT.update(status="failed", stage="native_render_cleanup_failed", render_success=False,
-                      cleanup_error_type=type(error).__name__)
+        failure = error
+        RESULT.update(
+            status="failed",
+            stage="native_render_cleanup_failed",
+            render_success=False,
+            cleanup_error_type=type(error).__name__,
+        )
     try:
+        if JOURNAL is not None:
+            JOURNAL.finish("render_video", failure)
+            RESULT["worker_seconds"] = JOURNAL.seconds
         publish(REQUEST, RESULT)
     finally:
         if not KEEP_EDITOR_ALIVE:
@@ -271,7 +416,9 @@ def render(request, sequence, result, unreal):
     output.flush_disk_writes_per_shot = True
     config.find_or_add_setting_by_class(unreal.MoviePipelineDeferredPassBase)
     config.find_or_add_setting_by_class(unreal.MoviePipelineImageSequenceOutput_PNG)
-    config.find_or_add_setting_by_class(unreal.MoviePipelineColorSetting).disable_tone_curve = True
+    config.find_or_add_setting_by_class(
+        unreal.MoviePipelineColorSetting
+    ).disable_tone_curve = True
     game = config.find_or_add_setting_by_class(unreal.MoviePipelineGameOverrideSetting)
     game.game_mode_override = unreal.MoviePipelineGameMode
     aa = config.find_or_add_setting_by_class(unreal.MoviePipelineAntiAliasingSetting)
@@ -290,39 +437,68 @@ def render(request, sequence, result, unreal):
 def main(request=None, *, keep_alive=False):
     import unreal
 
-    global KEEP_EDITOR_ALIVE
+    global KEEP_EDITOR_ALIVE, JOURNAL
     KEEP_EDITOR_ALIVE = keep_alive
+    JOURNAL = None
     if request is None:
         request = json.loads(Path(os.environ["AILIAS_REANIMATION_REQUEST"]).read_text())
     neutral = request.get("neutral_review") is True
-    result = {"status": "running", "stage": "portrait_stage" if neutral else "audio_solve",
-              "cloud_requested": False, "neutral_review": neutral,
-              "engine": unreal.SystemLibrary.get_engine_version(),
-              "render_device": "D3D12 GPU", "likeness_generation": False}
+    result = {
+        "status": "running",
+        "stage": "portrait_stage" if neutral else "audio_solve",
+        "cloud_requested": False,
+        "neutral_review": neutral,
+        "engine": unreal.SystemLibrary.get_engine_version(),
+        "render_device": "D3D12 GPU",
+        "likeness_generation": False,
+    }
     publish(request, result)
     try:
+        JOURNAL = load_stage_journal(request, result)
         if not result["engine"].startswith("5.8."):
             raise ValueError("Reanimation adapter targets the verified UE 5.8 API")
         if request.get("blueprint"):
             rig_class(request["blueprint"], unreal)
         performance = None
         if not neutral:
-            performance, evidence = solve(request, unreal)
+            operation = lambda: solve(request, unreal)
+            performance, evidence = (
+                JOURNAL.execute("audio_lipsync", operation) if JOURNAL else operation()
+            )
             result.update(evidence)
         if not request.get("blueprint"):
-            result.update(status="audio_solved_awaiting_rigged_metahuman", stage="rigged_input_required")
+            result.update(
+                status="audio_solved_awaiting_rigged_metahuman",
+                stage="rigged_input_required",
+            )
         else:
             result.update(stage="portrait_stage")
             publish(request, result)
-            sequence, evidence = stage(request, performance, unreal)
+            operation = lambda: stage(request, performance, unreal)
+            sequence, evidence = (
+                JOURNAL.execute("place_character_and_export_animation", operation)
+                if JOURNAL
+                else operation()
+            )
             result.update(evidence)
+            if JOURNAL is not None:
+                JOURNAL.begin("render_video")
             render(request, sequence, result, unreal)
             return
     except Exception as error:
-        result.update(status="failed", error_type=type(error).__name__, error=str(error),
-                      project_may_contain_partial_outputs=True)
+        if JOURNAL is not None:
+            for name in reversed(JOURNAL.running_stages):
+                JOURNAL.finish(name, error)
+        result.update(
+            status="failed",
+            error_type=type(error).__name__,
+            error=str(error),
+            project_may_contain_partial_outputs=True,
+        )
         if not keep_alive:
             unreal.EditorPythonScripting.set_keep_python_script_alive(False)
+    if JOURNAL is not None:
+        result["worker_seconds"] = JOURNAL.seconds
     publish(request, result)
 
 

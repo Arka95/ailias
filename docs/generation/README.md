@@ -17,8 +17,8 @@ It is not the complete-head prior fitter; use [facefitting](../facefitting/READM
 | Legacy Identity conform | Already-solved Identity plus Character | Native conform receipt/packages; optional explicit cloud requests |
 
 Jobs live in `data\ALIAS\generation\runs`; reusable native views live in
-`generation\inputs`. Real-photo trials currently yield blocked jobs or fragments,
-not a validated complete head.
+`generation\inputs`. Poor overlap can block reconstruction or produce disconnected
+fragments; successful execution does not establish a complete head.
 
 ## Usage
 
@@ -95,7 +95,7 @@ do not turn disconnected fragments into a complete head.
 ## Unreal: explicit installation and manual Identity solve
 
 This heading describes the **legacy adapter**, not a required manual step in
-the personal-head automation path. The current head-only Character route is in
+the photo-to-character workflow. The head-only Character route is in
 [facefitting](../facefitting/README.md).
 
 ```powershell
@@ -115,7 +115,7 @@ readiness is not a completed solve.
 ## Reusable Unreal editor
 
 The fresh-head workflow, native feature application, editable/assembled portrait
-reviews and reanimation now reuse one **owned offscreen UE 5.8 editor per project**.
+reviews and reanimation reuse one **owned offscreen UE 5.8 editor per project**.
 It starts lazily at the first native operation and remains available across CLI
 invocations. Independent geometry/feature verification still starts a fresh
 process; the working editor is not closed for it. Legacy import/conform and
@@ -148,8 +148,7 @@ busy even if its caller times out; it is never automatically replayed. A failed
 session must be inspected/stopped before reuse. Stop the owned session before
 switching its bootstrap code or reserving its memory for a different workload.
 
-Actual same-process probes, MRQ results and the native skin investigation are
-recorded in the [optimization investigation](../reanimation/pipeline-optimization-investigation.md#implemented-milestone).
+See [session implementation and failure contracts](dev.readme.md#architecture-and-contracts).
 
 ## Limits and cleanup
 
@@ -160,4 +159,6 @@ and repairs normals without filling anatomy, smoothing features or rescaling the
 Finalizers remove databases, undistortion/depth caches and owned partial outputs,
 retaining validated products and diagnostics. Native import may leave partial
 packages after failure; the tool reports them rather than deleting external project assets.
-See [validation](dev.readme.md#validation) and [cleanup safeguards](../dev.readme.md#resource-cleanup).
+Eligible managed packages are inspected without loading assets and removed only
+after the editor stops and the plan is revalidated. Cleanup does not stop it.
+See [cleanup safeguards](../dev.readme.md#resource-cleanup).

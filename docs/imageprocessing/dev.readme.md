@@ -66,7 +66,7 @@ Model download identities are pinned in the model adapters, separate from policy
 | `dense.py` | Task-scoped CPU MediaPipe predictions and reversible source coordinates; no GNM dependency |
 | `appearance_features.py` | Pure per-photo geometry ratios, semantic-region colour and pupil-excluding iris sampling |
 | `feature_evidence.py` | Validate input hashes/curation/transforms; retain versioned features and parser masks |
-| `facefitting\appearance\feature_comparison.py` | Downstream photo/render diagnostics and optional native eye-profile proposal; never edits a Character |
+| `metahuman\feature_comparison.py` | Downstream photo/render diagnostics and optional native eye-profile proposal; never edits a Character |
 
 `features` requires explicit observation reuse; `inspect-image` performs fresh
 dense inference on one image. Both parse actual native-resolution RGB, not the
@@ -79,13 +79,6 @@ stale curation/source changes, unknown/duplicate face IDs, mid-run invalidation,
 single-render inspection and native proposal dependencies. They use synthetic
 images/fake models; no model is loaded during units.
 
-Real CPU checks on November 17, 2026 extracted the frontal source as
-`4c9ac011a6fb45f496d1c18f0fc31573` and inspected the **existing rejected** native
-frame as `8ef12704e8574dc8b6df97d015957517`, under `imageprocessing\features`.
-No new render, geometry fit or native edit was made by these checks.
-The combined evidence, compatibility, fitting, native-policy and review unit
-selection passed **56 tests**; no UE integration or model benchmark was run.
-
 ## Research decisions in plain language
 
 | Decision | Reason / limit |
@@ -97,7 +90,7 @@ selection passed **56 tests**; no UE integration or model benchmark was run.
 | Bound colour changes and abstain | Scene neutrality/relative skin observations are not calibrated skin reflectance |
 | Store derived images once | Reduce storage without replaying inference or changing original pixels |
 
-Detailed model sources, experiments and validation records: [research](research.md).
+Model sources and method tradeoffs: [research](research.md).
 
 ## Validation
 
@@ -110,7 +103,4 @@ co-occurrence, curation, unchanged pixels, source integrity, reversible alignmen
 colour abstention, mask forwarding and cleanup. Fake backends replace models;
 no user photos, network or GPU probes run.
 
-Real-data validation has separately exercised CUDA extraction, head-only
-cleansing, full preview pagination and downstream RGB hardlinks/native masks.
-Those records do not certify every alpha edge, identity assignment or skin tone.
 Keep real model execution explicit and separate from unit discovery.

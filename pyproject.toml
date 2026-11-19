@@ -10,6 +10,7 @@ requires-python = ">=3.12"
 dependencies = ["Pillow>=12.3,<13"]
 
 [project.optional-dependencies]
+dev = ["ruff>=0.16,<0.17"]
 geometry = ["numpy>=2,<3"]
 imageprocessing = [
     "numpy>=2,<3",
@@ -29,3 +30,10 @@ ailias = "ailias.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 exclude = ["*.tests", "*.tests.*", "integration_tests", "integration_tests.*"]
+
+[tool.ruff]
+target-version = "py312"
+extend-exclude = ["data", "agenttests"]
+
+[tool.ruff.lint]
+select = ["F", "E9"]

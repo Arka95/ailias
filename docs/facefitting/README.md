@@ -1,15 +1,14 @@
 [Back to REPO_ROOT](../../README.md) | [Development](dev.readme.md)
 
-# Facefitting
+# Photo-to-character commands
 
 Fit one complete GNM head to multiple photographs, keeping identity separate
 from each view's camera and expression. Generate Blender geometry/appearance
 previews and hand a hair-free mesh to Unreal.
 
-**Not complete:** automatic photo-guided native resemblance fitting and
-photographic skin transfer. Scripted feature profiles now persist native groom,
-iris, bounded sculpt and texture-override edits; their visual quality remains a
-separate check.
+Scripted feature profiles persist native groom, iris, bounded sculpt and
+texture-override edits. These operations do not provide an automatic anatomical
+likeness optimizer or calibrated photographic skin transfer.
 
 ## Inputs and outputs
 
@@ -54,9 +53,9 @@ python -m ailias facefitting unreal-review subject FEATURE_JOB --editor $ue --pr
 Install optional `.[video]` support in the existing environment. Default
 `config\video-evidence.json` selects **one frame per second** for routine geometry
 work (`frame_mode=sampled`, `sample_fps=1`). Set `frame_mode=all` explicitly for
-full-rate expression/lip-sync evidence. Existing full-rate revisions are retained.
-Saved processing images use at most 1920 pixels on the long side (1920x1080 for
-these 16:9 inputs), preserve aspect ratio and never upscale. Detection uses at
+full-rate expression/lip-sync evidence.
+Saved processing images use at most 1920 pixels on the long side, preserve
+aspect ratio and never upscale. Detection uses at
 most 1280 pixels on the long side. Landmark coordinates and `source_size` use the
 saved image grid; `original_source_size` records the input dimensions. Original
 recordings and existing exports are unchanged. Images, timestamps/expressions and source-aligned audio live
@@ -81,7 +80,7 @@ weights and fits a new shared identity/cameras/expressions using the existing
 `config\facefitting.json` policy, imports a new mesh, creates a new native
 Character with the factory, conforms it and independently reloads it. It does
 not read a previous personal head, fit, native response, ray correspondence or
-appearance profile. Before Unreal import, the command now creates a fresh
+appearance profile. Before Unreal import, the command creates a fresh
 Blender clay scene, bakes photo colour onto the fitted GNM UVs, omits scalp hair
 by default, saves `blender\textured-head.blend` and
 exports the hair-free mesh that Unreal actually consumes. The Blender export
@@ -91,25 +90,36 @@ the run; the command does not fall back to the direct Python OBJ.
 No intermediate approval prompt or manual tuning is part of execution.
 
 `--review-config` selects `config\character-review.json` for native-preview
-lighting, independently of the reanimation/Taro preset. The initial corrected
-profile uses -3.5 EV instead of the inherited -5.5 EV; camera framing and light
-placement are unchanged.
+lighting, independently of `config\reanimation.json`. The review profile uses
+-3.5 EV; the speaking-video profile uses -5.5 EV.
 
 An appearance policy may set `native_hair_asset` to an explicit native
 Wardrobe Item. This overrides the approximate length-based style selector,
-but retains current-photo pigment estimates. `config\appearance-arka.json`
-selects the installed short swept-up groom and keeps `hair_strands: 0`.
-Thus Unreal has its configured hairstyle while Blender remains hair-free.
+but retains current-photo pigment estimates. Keep `hair_strands: 0` when
+Blender should remain hair-free; native groom selection is independent.
 This is a stock-style approximation, not reconstructed individual strands.
 The same appearance policy can include `assembly`, using the native feature
-profile's `pipeline` and `quality` settings. The personal policy explicitly
-selects `{"pipeline": "cinematic"}` for close-up groom fidelity; other policies
-retain the existing optimized/medium defaults. This does not change Blender
+profile's `pipeline` and `quality` settings. Select
+`{"pipeline": "cinematic"}` for cinematic assembly or use the
+optimized/medium defaults. This does not change Blender
 hair or the requested video resolution.
-For a speaking video, use the existing `unreal-features --assemble` and
-`reanimation run` commands with the resulting Blueprint and supplied WAV;
-native cloud rig/texture requests still require `--cloud-services`.
-The same lighting profile can be passed as `reanimation run --reel-config`.
+`video-create --assemble` also builds and independently reloads the runtime
+Blueprint. Supplying `--voice WAV --ffmpeg EXE` implies assembly and continues
+through placement, audio lipsync, native frame rendering, encoding and full
+video/audio verification:
+
+```powershell
+python -m ailias facefitting video-create subject --evidence C:\data\sampled-photos\manifest.json --editor $ue --project $project --voice C:\audio\narration.wav --ffmpeg C:\tools\ffmpeg.exe --reel-config config\reanimation.json
+```
+
+Native cloud rig/texture requests require explicit `--cloud-services`; the
+pipeline fails rather than enabling them implicitly. Without `--assemble` or
+`--voice`, the command retains its preview-only behavior. Appearance editing and
+assembly share one native revision rather than cloning the Character twice.
+The native feature receipt separates their phase timings.
+`--reel-config` controls narrated-video composition independently of
+`--review-config`. Existing `unreal-features --assemble` and `reanimation run`
+commands remain available for independent operations.
 
 `--photos-run RUN` adds every accepted original-photo portrait across that
 imageprocessing scan's groups; old eligibility and group-size thresholds do
@@ -138,14 +148,10 @@ it never selects or discards images. Both options are opt-in because a broad
 search and original-photo decoding are materially more expensive than a small
 sampled-image run.
 
-The completed original-photo/search run `252acd17` fitted 260 views and tested
-all 162 configurations without a failed trial. It selected 96 identity modes
-and the full 100/100/150 expression basis, then completed Blender and Unreal.
-Its actual renders were inspected; likeness remains unapproved, and texture
-seams, dark native lighting and approximate grooms remain visible.
-See [measured results and remaining bounds](dev.readme.md#fitting-restrictions-and-search).
+The broad search is explicit opt-in, not part of an appearance edit or render.
+See [search contracts](dev.readme.md#fitting-restrictions-and-search).
 
-The command now connects native skin UV export, fresh photo-colour baking and
+The photo-colour route connects native skin UV export, fresh photo-colour baking and
 Texture2D import to native skin, iris, eyebrow, scalp-hair, facial-hair and
 eyelash edits. `--appearance-config` uses `config\appearance.json` for the
 CUDA device, atlas resolution, photo cap and view count. Stock groom selection,
@@ -158,43 +164,19 @@ For Unreal's own complexion instead of a projected photo atlas, set
 `native_appearance` in the appearance policy to native `skin`, `freckles` and/or
 `accents` properties, with an explicit `native_hair_asset`. This route skips
 native photo-atlas baking/import and explicitly removes the face base-colour
-override. `config\appearance-arka.json` restores the previously tuned native
-complexion choices; it does not restore old geometry or certify a colour match.
+override. Native picker/texture settings do not change geometry or certify a
+photo-colour match.
 Blender appearance remains independent. Speaking renders must load
 `config\reanimation.json`; the brighter `character-review.json` is only a
 preview choice, not a replacement video preset.
 
-The earlier direct-native command completed through native save/reload
-and a new close-up image, but omitted Blender. Its delivery run
-`b58c0c440faa4df5900e613ad8faa7a1` completed in **540.265 s** from 82
-retained photos, with correctly oriented photo detail, actual native grooms,
-corrected portrait framing and zero surface displacement on independent reload.
-All 131 checked input/output artifact references still matched. This historical
-result predates the package reorganization and required Blender stage; it is
-not validation of the revised full pipeline. Its new image
-was actually opened for review; older reversed/wide previews are not substituted.
-The photo tint still includes source lighting, body appearance is an unchanged
-generic default and no visual likeness acceptance is implied. Actual actors expose scalp
-hair, brows, beard, moustache and lash groom assets.
 `fresh_video_completed` means unattended editable-Character
 creation plus a **new editor-native preview**, not an assembled animation rig
-or accepted likeness. Any failed stage exits **2**. Results and per-stage/wall timings are under
+or accepted likeness. Any failed stage exits **2**. Results and stage receipts are under
 `data\ALIAS\facefitting\fresh-video\REVISION\manifest.json`.
-Wall time starts from the retained sampled photos, not from video decoding.
 This path needs the existing facefitting, imageprocessing and explicitly
 selected CUDA runtime prerequisites; it does not install or replace GPU stacks.
-See [measured failures, fixes and limitations](video-identity-investigation.md).
-The revised working-tree unit cohort passes **265 tests**, including Blender
-failure/geometry handoff and photo-projection cleanup cases. Units use mocked
-native tools; they are not proof of a real full run or of likeness.
-
-The revised full public command subsequently passed as
-`17b9ff17ee584c24b6d8f5d42e981ec5` in **466.375 seconds**, including Blender.
-It saved a new `blender\textured-head.blend`, exported the actual Unreal input,
-created 14,000 approximate Blender strands and produced a new native Character
-and portrait. All 157 unique checked references match and native surface
-max/RMS reload drift is zero. Both actual new Blender/native images were opened.
-See [timings, outputs and visible limitations](dev.readme.md#verified-blender-to-unreal-run).
+See [workflow internals](dev.readme.md#execution).
 
 `appearance` requires `reviews\FIT_JOB-clay-approval.json` with decision
 `approved`, scope `neutral_clay_geometry`, and the matching mesh reference.
@@ -382,10 +364,10 @@ Coincident exported vertex aliases are not substituted for canonical IDs.
 Multiple possible canonical vertices abstain; absent anatomy remains unknown.
 This is not source-mesh nearest-surface wrapping or a new geometry fit.
 
-Maps are retained under `facefitting\native-control-maps`. The real retained
-inspection mapped **79/79 controls**, but only **20/79** have exact memberships
-in the supplied anatomical curves/points. That does not establish a complete
-MediaPipe-to-native correspondence or authorize automatic sculpt deltas.
+Maps are retained under `facefitting\native-control-maps`. A canonical vertex
+association does not establish anatomical membership or a complete
+MediaPipe-to-native correspondence. Missing memberships remain unknown and do
+not authorize automatic sculpt deltas.
 
 ### Native assembly verification
 
@@ -396,15 +378,12 @@ inspector requires bound groom components: baked-only stubble at optimized
 LODs is not yet supported by that verification gate, even when native wardrobe
 selection persisted. Such runs remain failed, not appearance-approved.
 
-## Current working baseline
+## Optional baseline
 
-There is no active personal Blender baseline. On November 18, 2026, the owner
-requested deletion of `hairfree-matched-camera.blend` from diagnostic revision
-`20261117T0525Z-hairfree-camera`, together with the active
-`data\arka\facefitting\working-baseline.json` selector. Both have been removed.
-Original photos, other historical revision inputs and saved native Characters
-were not deleted. New full runs must start from retained sampled photos and
-create new downstream assets, not restore the retired scene.
+When supplied, a baseline pins source geometry, camera and scene dependencies
+for compatible native refinement. Every reference must remain intact.
+`video-create` instead starts from the selected retained images and creates
+new downstream assets; it does not require or restore a previous baseline.
 
 ## Photo appearance preview
 
@@ -416,26 +395,21 @@ Generic eyes, texture seams, residual photographed lighting and inferred hidden
 anatomy remain. The preview renderer also scales inherited light energies to
 8%; its displayed skin tone is not a calibrated reference.
 
-## Animated native draft
+## Runtime handoff
 
-The existing baseline-backed Character has a full face rig and saved runtime
-assembly in the local review project. An actual 743-frame, 540x960, 30 fps reel
-passed media decoding and artifact checks. Its default/native appearance does
-not reproduce the photo-derived Blender appearance or a faithful personal likeness.
+Assemble a verified Character with `unreal-features --assemble`, then pass its
+compiled Blueprint to [reanimation](../reanimation/README.md) with narration.
+This does not require another head fit. Native package/rig/media checks do not
+certify photographic resemblance.
 
-`data\arka\facefitting\reviews\personal-runtime-character.json` records native
-package and rig/assembly/reel references. It is technical provenance, not a
-likeness certificate. Animation of an existing compatible actor belongs to
-[reanimation](../reanimation/README.md), not another head fit.
-
-## Native Character draft and hair later
+## Native coordinate and hair boundaries
 
 The conform adapter uses a matched perspective tracking view and native
 `(GNM X, Z, Y) * 100` target coordinates. Static import instead uses
 `(GNM Z, -X, Y) * 100`; these conventions must not be mixed.
 Nominal scaling is not physical calibration.
 
-The exported Alembic is not a validated bound groom: the retained native import
-reported twice the intended strand count, with axis/root alignment unresolved.
+An exported Alembic alone is not a validated bound groom. Check strand identity,
+axis conventions, root alignment, binding, deformation and LOD behavior.
 Adding a beard or copying a texture file alone does not establish a working
 deformable appearance. See [handoff internals and tests](dev.readme.md).

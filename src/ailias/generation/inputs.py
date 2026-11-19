@@ -16,7 +16,8 @@ from PIL import Image, ImageDraw
 from ailias.generation.settings import GenerationPolicy
 from ailias.imageprocessing.curation import load_filter
 from ailias.imageprocessing.features import contact_sheet
-from ailias.imageprocessing.pipeline import component, load_run
+from ailias.common.identifiers import validate_identifier as component
+from ailias.imageprocessing.pipeline import load_run
 from ailias.imageprocessing.settings import ProcessingPolicy
 from ailias.imageprocessing.subjects import associate_subject, select_views, view_rank
 from ailias.imageprocessing.views import estimate_view

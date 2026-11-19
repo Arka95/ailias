@@ -46,7 +46,7 @@ each requested reel still solves/renders fresh content under its existing checks
 Per-run overrides win without changing the policy file, source audio or model.
 
 `--reel-config config\character-review.json` selects the independent brighter
-character-review exposure profile without modifying the reanimation/Taro
+character-review exposure profile without modifying the reanimation
 preset. It is also used by `facefitting video-create --review-config`.
 Character construction/hairstyle changes remain in facefitting; assemble its
 saved Character with `unreal-features --assemble` before passing the resulting
@@ -105,8 +105,7 @@ aspect does not move the camera or lights.
 | Media verification | Complete video/audio decode and duration checks |
 | Visual quality | Lip sync, acting, facial resemblance and headroom require separate evaluation |
 
-Existing sample and personal-draft reels pass technical integration. The
-personal draft still fails likeness; rendering does not repair missing skin/hair.
+Rendering does not repair incorrect shape, skin, hair or facial resemblance.
 No arm/torso gestures or apparel-selection API is implemented.
 
 Rendering uses D3D12/Movie Render Queue; the installed Speech2Face solve is CPU.

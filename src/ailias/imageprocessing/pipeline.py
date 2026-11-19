@@ -4,18 +4,15 @@ Preserves source references and applies reviewed curation without confirming ide
 """
 
 import hashlib
-import io
 import json
-import re
-import uuid
-import warnings
 from collections import Counter
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from PIL import Image, ImageCms, ImageOps
+from PIL import Image, ImageOps
 
+from ailias.common.identifiers import generate_run_id as new_id, validate_identifier as component
 from ailias.imageprocessing.backend import Backend
 from ailias.imageprocessing.assets import encode_png, store_png, store_png_bytes
 from ailias.imageprocessing.curation import CurationError, load_filter
@@ -24,55 +21,12 @@ from ailias.imageprocessing.features import (
     overlaps_other, portrait_box, subject_bodies,
 )
 from ailias.imageprocessing.settings import ProcessingPolicy
+from ailias.imageprocessing.image_io import read_oriented_image as read_image
+from ailias.resource_management import finalize_job_resources
 from ailias.resources import cleanup_owned_files
 from ailias.storage import Store, atomic_json
 
 SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff", ".heic", ".heif", ".hif"}
-
-
-def new_id() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:8]
-
-
-def component(value: str) -> str:
-    if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,80}", value):
-        raise ValueError("Invalid run/group identifier")
-    return value
-
-
-def read_image(path: Path) -> tuple[Image.Image, dict]:
-    if path.suffix.lower() in {".heic", ".heif", ".hif"}:
-        try:
-            from pillow_heif import register_heif_opener
-        except ImportError as error:
-            raise ValueError("HEIC requires the imageprocessing optional dependencies") from error
-        register_heif_opener(thumbnails=False)
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", Image.DecompressionBombWarning)
-        with Image.open(path) as original:
-            image = ImageOps.exif_transpose(original)
-            image.load()
-            metadata = {
-                "decoded_size": list(original.size), "oriented_size": list(image.size),
-                "exif_orientation": original.getexif().get(274, 1),
-                "primary_frame_only": getattr(original, "n_frames", 1) > 1,
-                "color_conversion": "RGB8; no exposure or geometry correction",
-            }
-            icc = original.info.get("icc_profile")
-            if icc:
-                try:
-                    image = ImageCms.profileToProfile(
-                        image, ImageCms.ImageCmsProfile(io.BytesIO(icc)),
-                        ImageCms.createProfile("sRGB"), outputMode="RGB",
-                    )
-                    metadata["color_conversion"] = "ICC to sRGB8"
-                except (ImageCms.PyCMSError, OSError, ValueError):
-                    metadata["color_warning"] = "invalid_icc_profile; RGB conversion only"
-            image = image.convert("RGB")
-            image.info.clear()
-            return image, metadata
-
-
 def scan(store: Store, source: Path, policy: ProcessingPolicy, backend: Backend,
          recursive: bool = False, body: bool = True, limit: int | None = None,
          progress=None) -> dict:
@@ -99,15 +53,11 @@ def scan(store: Store, source: Path, policy: ProcessingPolicy, backend: Backend,
                 retained.append(report["overview"])
             if report["status"] == "running":
                 report["status"] = "failed"
-            report["cleanup"] = cleanup_owned_files(store, str(relative), retained)
-            for asset in created_assets:
-                if asset not in retained:
-                    path = store.resolve(asset)
-                    size = path.stat().st_size
-                    path.unlink()
-                    report["cleanup"]["removed_files"] += 1
-                    report["cleanup"]["removed_bytes"] += size
-            atomic_json(manifest, report)
+            finalize_job_resources(
+                store, report, manifest, [store.resolve(path) for path in retained],
+                retain_metadata=False, created_assets=created_assets,
+                automatic_retention=False,
+            )
             if report["status"] == "complete":
                 result["cleanup"] = report["cleanup"]
         else:

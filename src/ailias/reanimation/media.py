@@ -3,7 +3,6 @@
 import re
 import subprocess
 import wave
-from pathlib import Path
 
 from PIL import Image
 

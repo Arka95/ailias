@@ -5,6 +5,7 @@ import os
 import sys
 from contextlib import redirect_stdout
 from importlib.metadata import version
+from importlib import import_module
 from pathlib import Path
 
 from PIL import Image
@@ -40,7 +41,7 @@ def install_model(store):
             pass
     try:
         import onnx
-        import onnxruntime  # Prevent onnxsim from attempting its own runtime installation.
+        import_module("onnxruntime")  # Prevent onnxsim from installing a runtime.
         import onnxsim
     except ImportError as error:
         raise ValueError("Model setup needs the optional matting-tools extra; "

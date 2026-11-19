@@ -130,7 +130,7 @@ class ResourceTests(unittest.TestCase):
     def test_linked_candidate_parent_invalidates_a_plan_without_deleting_files(self):
         root, _, _, images = self.reel()
         plan = plan_cleanup(self.store)
-        with patch("ailias.maintenance.is_link", side_effect=lambda path: path == root / "frames"):
+        with patch("ailias.resource_management.scratch_cleanup.is_link", side_effect=lambda path: path == root / "frames"):
             with self.assertRaisesRegex(ValueError, "symlink or junction"):
                 apply_cleanup(self.store, plan)
         self.assertTrue(all(path.exists() for path in images))
@@ -179,6 +179,67 @@ class ResourceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             cleanup_resources(self.store, apply=True)
         self.assertTrue(scratch.exists())
+
+    def test_created_assets_cleanup_preserves_retained_shared_modified_and_unowned_files(self):
+        import hashlib
+        from ailias.resource_management import ResourceManager
+
+        created = []
+        for value in (b"unused", b"retained", b"shared", b"changed"):
+            relative = str(Path("imageprocessing") / "assets" / "portraits" /
+                           f"{hashlib.sha256(value).hexdigest()}.png")
+            self.write(relative, value)
+            created.append(relative)
+        self.store.resolve(created[-1]).write_bytes(b"owner modified")
+        _, manifest, report = self.job()
+        report["shared_image"] = created[2]
+        atomic_json(manifest, report)
+        unowned = self.write("originals\\photo.png")
+        result = ResourceManager(self.store).cleanup_created_assets(
+            [*created, str(unowned.relative_to(self.store.root))], [created[1]]
+        )
+        self.assertEqual(result["removed_files"], 1)
+        self.assertFalse(self.store.resolve(created[0]).exists())
+        self.assertTrue(all(self.store.resolve(path).exists() for path in created[1:]))
+        self.assertTrue(unowned.exists())
+
+    def test_child_scratch_finalizes_but_major_retention_waits_for_pipeline_boundary(self):
+        from ailias.resource_management import ResourceManager
+
+        manager = ResourceManager(self.store)
+        root, manifest, report = self.job(status="complete")
+        scratch = root / "temporary.bin"
+        scratch.write_bytes(b"scratch")
+        with patch("ailias.resource_management.retention.finalize_major_output") as major:
+            with manager.defer_retention():
+                with manager.defer_retention():
+                    manager.finalize_job(report, manifest)
+                self.assertFalse(scratch.exists())
+                major.assert_not_called()
+            manager.finalize_job(report, manifest)
+            major.assert_called_once()
+
+    def test_wrapped_native_timeout_preserves_files_while_editor_still_writes(self):
+        from ailias.resource_management import ResourceManager
+
+        root, manifest, report = self.job()
+        scratch = root / "in-progress.bin"
+        scratch.write_bytes(b"still being produced")
+        project = self.write("unreal\\Review\\Review.uproject", b"{}")
+        report.update(readiness={"project": str(project)},
+                      error={"type": "ToolError", "message": "native timeout"})
+        for state in ("busy", "pending", "starting"):
+            with self.subTest(state=state), \
+                    patch("ailias.generation.unreal_session.UnrealSession.status",
+                          return_value={"status": state}):
+                result = ResourceManager(self.store).finalize_job(report, manifest)
+                self.assertIn("deferred", result)
+                self.assertTrue(scratch.exists())
+        with patch("ailias.generation.unreal_session.UnrealSession.status",
+                   return_value={"status": "completed"}):
+            result = ResourceManager(self.store).finalize_job(report, manifest)
+        self.assertNotIn("deferred", result)
+        self.assertFalse(scratch.exists())
 
     def test_explicit_prune_refuses_approved_baselines_and_changed_outputs(self):
         root, manifest, report = self.job()
