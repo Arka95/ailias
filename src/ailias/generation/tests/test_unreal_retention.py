@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from contextlib import contextmanager
 from unittest.mock import Mock, patch
 
 from ailias.generation.unreal_retention import NativeRetention
@@ -106,6 +107,27 @@ class NativeRetentionTests(unittest.TestCase):
                         "/Game/Ailias/Current"
                     ]
                 self.assertEqual(self.plan()["delete"], [])
+
+    @patch("ailias.generation.unreal_retention.subprocess.run")
+    def test_intervening_writer_is_detected_after_acquiring_the_deletion_lock(
+        self, processes
+    ):
+        processes.return_value = Mock(stdout="")
+        plan = self.plan()
+
+        @contextmanager
+        def intervening_writer():
+            self.obsolete.write_bytes(b"modified immediately before lock acquisition")
+            yield
+
+        with patch.object(self.session, "lock", side_effect=intervening_writer):
+            with self.assertRaisesRegex(ValueError, "content changed"):
+                self.native.apply(plan)
+        self.assertEqual(
+            self.obsolete.read_bytes(),
+            b"modified immediately before lock acquisition",
+        )
+        self.assertTrue(self.current.exists())
 
     @patch("ailias.generation.unreal_retention.subprocess.run")
     def test_queued_snapshot_can_be_replanned_after_natural_shutdown(self, processes):

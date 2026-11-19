@@ -3,21 +3,26 @@
 # Reanimation
 
 Animate an **existing assembled, rigged MetaHuman Blueprint** from supplied
-narration. UE solves face/head motion and renders portrait PNGs; FFmpeg encodes
-H.264/AAC. This module does not construct a head, repair likeness or synthesize speech.
+narration. UE solves face/head motion and writes a ProRes movie directly;
+FFmpeg produces the final H.264/AAC video using the supplied narration.
+This module does not construct a head, repair likeness or synthesize speech.
 
 ## Inputs and outputs
 
 | Input | Requirement |
 |---|---|
 | Narration WAV | Nonsilent mono PCM16, 16-96 kHz, within configured duration |
-| UE project/editor | Compatible UE 5.8 project with Python, MetaHuman, Movie Render Pipeline and Sequencer scripting plugins |
+| UE project/editor | Compatible UE 5.8 project with Python, MetaHuman, Movie Render Pipeline, Apple ProRes Media and Sequencer scripting plugins |
 | Blueprint | Compiled actor, one Face skeletal component, head bone and RigLogic post-process |
 | FFmpeg | Explicit executable with the selected encoder |
 
 Jobs under `data\ALIAS\reanimation\runs` retain the manifest, exact worker,
-request/receipt, logs, native assets, verified MP4 and first/last PNGs.
+request/receipt, logs, native assets and verified MP4. Normal video jobs do not
+export PNGs; the intermediate movie is released after encoding.
 An unrigged Character or static mesh is not a substitute for the Blueprint.
+Enable Apple ProRes Media in the project's plugin settings and restart the
+owned editor once after changing plugin configuration. Normal jobs reuse that
+editor; they do not enable plugins or restart it automatically.
 
 ## Usage
 
@@ -62,7 +67,7 @@ obtain missing native rig/textures; an older head's rig is not substituted.
 | `--character-position X Y Z` | Override world placement in cm |
 | `--character-yaw DEGREES` | Override character yaw; camera follows its declared neutral front |
 | `--screen-position U V` | Override normalized head framing target; top-left `(0,0)` |
-| `--keep-frames` | Retain every rendered PNG instead of first/last only |
+| `--keep-frames` | Explicit diagnostic mode: render and retain a PNG sequence instead of the intermediate movie |
 
 ### `config\reanimation.json`
 
@@ -85,8 +90,8 @@ obtain missing native rig/textures; an older head's rig is not substituted.
 | `fill_ratio` | `0.65` | Fill intensity as a fraction of the key |
 | `light_size_cm` | `200` | Rectangular soft-light size |
 | `temperature_kelvin` | `5600` | Light colour temperature |
-| `temporal_samples` | `8` | Movie Render Queue temporal samples |
-| `warmup_frames` | `32` | Engine warmup budget |
+| `temporal_samples` | `1` | Speed-first sampling; raise explicitly for greater temporal quality at additional render cost |
+| `warmup_frames` | `8` | Engine warmup budget |
 | `encoder` | `h264_nvenc` | Explicit NVIDIA encoder; `libx264` selects CPU, never an automatic fallback |
 | `max_audio_seconds` | `120` | Input duration limit, at most 600 seconds |
 | `timeout_seconds` | `1800` | Native/encoding operation timeout |
@@ -100,7 +105,7 @@ aspect does not move the camera or lights.
 | Gate | Guarantee / boundary |
 |---|---|
 | Native save/render | Compatible actor and saved Performance; clean editor completion required |
-| Frames | Exact contiguous count, portrait size and readable PNGs |
+| Render output | Native completion and nonempty movie; diagnostic sequences require contiguous readable PNGs |
 | Encoding | Selected encoder, H.264 video and supplied narration as AAC |
 | Media verification | Complete video/audio decode and duration checks |
 | Visual quality | Lip sync, acting, facial resemblance and headroom require separate evaluation |
@@ -114,8 +119,9 @@ The default background is green, so wardrobe colour remains a separate concern.
 
 ## Cleanup
 
-Finalization removes partial videos and redundant interior PNGs while retaining
-diagnostic boundary frames, logs, native assets and verified media.
-`--keep-frames` opts out of frame reduction.
+Finalization removes the intermediate movie and partial videos while retaining
+logs, native assets and verified media. `--keep-frames` explicitly retains the
+diagnostic image sequence. Whole-alias history pruning runs through
+`python -m ailias cleanup --alias NAME --apply`, outside video generation.
 See [resource cleanup](../dev.readme.md#resource-cleanup) and
 [implementation research](implementation.md).

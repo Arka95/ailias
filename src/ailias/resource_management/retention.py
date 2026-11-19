@@ -3,7 +3,7 @@
 from contextlib import nullcontext
 from datetime import datetime, timezone
 import json
-import os
+from contextvars import ContextVar
 from pathlib import Path
 import uuid
 
@@ -18,7 +18,7 @@ from ailias.common.json_values import iter_artifact_references
 from ailias.resource_management.catalog import ACTIVE, SUCCESS, ArtifactCatalog
 from ailias.common.file_checksums import FileChecksums
 
-_running = False
+_running = ContextVar("major_retention_running", default=frozenset())
 
 
 def plan_major_cleanup(store, *, native=None, checksums=None):
@@ -41,7 +41,7 @@ def plan_major_cleanup(store, *, native=None, checksums=None):
             known.setdefault(path, set()).add(ref["sha256"])
     native_plan = None
     if native is not None:
-        native_plan = native.plan(keep, documents, known)
+        native_plan = native.plan(keep, documents, known, checksums=digest)
         keep.update(Path(path) for path in native_plan["kept_files"])
     candidates, obsolete, protected_changes = [], [], []
     for root, (manifest, report) in jobs.items():
@@ -205,7 +205,7 @@ def apply_major_cleanup(store, plan, *, native=None, checksums=None):
             result["removed_bytes"] += item["reclaimable_bytes"]
         except OSError:
             result["errors"] += 1
-    catalog, checksums = ArtifactCatalog(store), FileChecksums()
+    catalog = ArtifactCatalog(store, checksums)
     for item in plan["jobs"]:
         manifest = store.resolve(item["manifest"])
         original = json.loads(manifest.read_text(encoding="utf-8-sig"))
@@ -220,19 +220,17 @@ def apply_major_cleanup(store, plan, *, native=None, checksums=None):
             lineage = str(
                 (archive / "lineage" / item["manifest"]).relative_to(store.root)
             )
-        atomic_json(
-            manifest,
-            {
-                "revision": original.get("revision", manifest.parent.name),
-                "status": "pruned",
-                "artifacts": {
-                    f"retained_{index}": ref
-                    for index, ref in enumerate(retained.values())
-                },
-                "retention": {"policy": plan["policy"], "lineage": lineage},
+        pruned = {
+            "revision": original.get("revision", manifest.parent.name),
+            "status": "pruned",
+            "artifacts": {
+                f"retained_{index}": ref for index, ref in enumerate(retained.values())
             },
-        )
-        remove_empty_directories(manifest.parent)
+            "retention": {"policy": plan["policy"], "lineage": lineage},
+        }
+        if pruned != original:
+            atomic_json(manifest, pruned)
+            remove_empty_directories(manifest.parent)
     result["receipt"] = str((archive / "receipt.json").relative_to(store.root))
     atomic_json(archive / "receipt.json", result)
     return result
@@ -241,12 +239,7 @@ def apply_major_cleanup(store, plan, *, native=None, checksums=None):
 def cleanup_major_outputs(store, *, apply=False, native=None):
     if not store.root.is_dir() or is_link(store.root):
         raise ValueError("Cleanup requires an existing unlinked alias")
-    lock = store.root / ".lock"
-    context = (
-        nullcontext()
-        if lock.is_file() and lock.read_text().strip() == str(os.getpid())
-        else store.lock()
-    )
+    context = nullcontext() if getattr(store, "lock_owned", False) else store.lock()
     with context:
         checksums = FileChecksums()
         plan = plan_major_cleanup(store, native=native, checksums=checksums)
@@ -258,10 +251,9 @@ def cleanup_major_outputs(store, *, apply=False, native=None):
 
 
 def finalize_major_output(store, report, manifest):
-    global _running
-    if _running or report.get("status") not in SUCCESS:
+    if store.root in _running.get() or report.get("status") not in SUCCESS:
         return
-    _running = True
+    token = _running.set(_running.get() | {store.root})
     try:
         atomic_json(manifest, report)
         from ailias.generation.unreal_retention import available_native_retention
@@ -282,4 +274,4 @@ def finalize_major_output(store, report, manifest):
             "error_type": type(error).__name__,
         }
     finally:
-        _running = False
+        _running.reset(token)

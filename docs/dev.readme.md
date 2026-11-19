@@ -88,6 +88,9 @@ blocks. Pure transformations have no artificial cleanup method. A job does
 not own the shared Unreal editor and must not stop it on completion.
 Nested photo-pipeline jobs release scratch immediately; `defer_retention()`
 delays alias-wide major-output retention until the outer pipeline boundary.
+Video-producing pipelines release their own scratch but defer whole-alias
+history pruning to explicit maintenance. They do not render a separate neutral
+preview before producing the requested narrated video.
 Image scan/cleansing preserve their separate curation-aware retention behavior.
 Their explicit maintenance command delegates image-asset deletion to the same
 resource manager, including changed-content, live-reference and link guards.
@@ -129,7 +132,8 @@ python -m ailias cleanup --alias subject --prune-job 'facefitting\appearance\OBS
 ```
 
 Default cleanup is a dry run. Apply mode revalidates the plan before removing
-exact owned files. Successful producing jobs invoke major-output retention;
+exact owned files. Successful producing jobs normally invoke major-output retention;
+video-producing jobs defer it to this explicit command to keep completion local.
 image scan/cleansing retain their explicit curation-aware maintenance path.
 
 | Resource | Retention rule |
@@ -154,7 +158,8 @@ Retention receipts live under `maintenance\retention`; explicit scratch/whole-jo
 cleanup uses `maintenance\cleanups`. Before and after native work, retention
 revalidates job/canonical metadata, retained roots, live dependencies and hashes.
 Cleanup failures are recorded without replacing the original job failure.
-Reanimation keeps verified video and boundary PNGs unless `--keep-frames` is set.
+Reanimation keeps verified video, not image exports. `--keep-frames` explicitly
+selects diagnostic image-sequence output.
 
 ## Documentation and media
 

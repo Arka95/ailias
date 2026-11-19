@@ -21,7 +21,7 @@ acceptance conditions.
 | Offline MetaHuman Animator | Native full-face controls, blinks and head motion | Not whole-body acting or identity repair |
 | External WAV | Independent audio provider and unchanged source identity | No embedded TTS/model-selection dependency |
 | Native Python adapter | Automates the installed editor solve/export interfaces | Requires compatible editor/plugins and rig |
-| PNG sequence then FFmpeg | Inspectable frames, explicit soundtrack and complete decoding | Intermediate disk I/O; finalizers remove redundant frames |
+| Direct ProRes movie then FFmpeg | Avoid per-frame image files; preserve explicit soundtrack and complete decoding | Requires Apple ProRes Media; intermediate movie still needs final encoding |
 | Explicit D3D12 and encoder | Renderer/encoder choice is visible in policy | Installed Speech2Face inference is CPU; no silent encoder fallback |
 
 The host submits request JSON to the project-owned editor. Unreal imports a
@@ -79,8 +79,9 @@ there is no global GPU scheduler or unbounded queue. Local disk, editor and GPU
 failures prevent publication. Unique revisions, source hashes and retained
 failure receipts support recovery, not high availability.
 
-Keep the verified MP4, boundary PNGs and diagnostics; `--keep-frames` retains
-the whole sequence. Native retention follows stopped-project dependency checks.
+Keep the verified MP4 and diagnostics; `--keep-frames` explicitly selects and
+retains an image sequence. Native retention is separate maintenance and follows
+stopped-project dependency checks.
 
 ## 3. Success Criteria
 
@@ -88,7 +89,7 @@ the whole sequence. Native retention follows stopped-project dependency checks.
 |---|---|
 | Input | Nonsilent supported WAV and compiled compatible actor |
 | Native solve | Saved processed Performance with actual output frames |
-| Native render | Successful job completion and exact contiguous portrait frames |
+| Native render | Successful movie completion; final decoded video must match the requested frame range |
 | Encoding | Requested encoder, H.264/AAC and full audio/video decode |
 | Integrity | Unchanged source WAV and valid retained artifact hashes |
 | Visual review | Inspect lip sync, blink, expression, framing, skin and keying edges |
@@ -100,7 +101,7 @@ the whole sequence. Native retention follows stopped-project dependency checks.
 | Policy and input handling | Temporary WAV fixtures and argument/default tests |
 | Native solve/stage/render | Fake native contracts; explicitly selected real editor integration |
 | Encoding/publication | Exact-frame, decode/duration and failure-path tests |
-| Resource lifecycle | Boundary-frame retention, interrupted work and source protection |
+| Resource lifecycle | Intermediate-movie removal, optional diagnostic frames, interrupted work and source protection |
 | Visual acceptance | Review the actual requested output, not an earlier preview |
 
 See [test commands](dev.readme.md#tests). Audio-Performance reuse, apparel

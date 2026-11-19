@@ -8,12 +8,19 @@ from ailias.storage import Store
 
 
 def add_parser(commands):
-    parser = commands.add_parser("reanimation", help="Audio-driven portrait reels from existing rigged MetaHumans")
+    parser = commands.add_parser(
+        "reanimation",
+        help="Audio-driven portrait reels from existing rigged MetaHumans",
+    )
     actions = parser.add_subparsers(dest="reanimation_action", required=True)
     for name in ("doctor", "run", "status"):
         action = actions.add_parser(name)
-        action.add_argument("alias", nargs="?", help="Legacy positional alias; prefer --alias")
-        action.add_argument("--alias", dest="named_alias", help="ailias character/session name")
+        action.add_argument(
+            "alias", nargs="?", help="Legacy positional alias; prefer --alias"
+        )
+        action.add_argument(
+            "--alias", dest="named_alias", help="ailias character/session name"
+        )
         if name == "status":
             action.add_argument("job")
         else:
@@ -21,19 +28,49 @@ def add_parser(commands):
             action.add_argument("--project", type=Path, required=True)
             action.add_argument("--ffmpeg", type=Path)
         if name == "run":
-            action.add_argument("--voice", "--audio", dest="audio", type=Path, required=True,
-                                metavar="WAV", help="Supplied mono PCM16 narration WAV from any source; no voice generation")
-            action.add_argument("--blueprint", help="/Game path to an assembled rigged MetaHuman Blueprint; omit for audio solve only")
+            action.add_argument(
+                "--voice",
+                "--audio",
+                dest="audio",
+                type=Path,
+                required=True,
+                metavar="WAV",
+                help="Supplied mono PCM16 narration WAV from any source; no voice generation",
+            )
+            action.add_argument(
+                "--blueprint",
+                help="/Game path to an assembled rigged MetaHuman Blueprint; omit for audio solve only",
+            )
             action.add_argument("--reel-config", type=Path, default=DEFAULT_CONFIG)
-            action.add_argument("--resolution", metavar="WIDTHxHEIGHT",
-                                help="Per-run even 9:16 dimensions, e.g. 540x960; defaults to the reel policy (1080x1920)")
-            action.add_argument("--character-position", nargs=3, type=float, metavar=("X", "Y", "Z"),
-                                help="Character world position in centimeters")
-            action.add_argument("--character-yaw", type=float, help="Character yaw in degrees [-180,180]; camera follows its front")
-            action.add_argument("--screen-position", nargs=2, type=float, metavar=("U", "V"),
-                                help="Head framing target in normalized screen coordinates; top-left 0,0, center .5,.5")
-            action.add_argument("--keep-frames", action="store_true",
-                                help="Retain every source frame for debugging; default keeps only first/last frames")
+            action.add_argument(
+                "--resolution",
+                metavar="WIDTHxHEIGHT",
+                help="Per-run even 9:16 dimensions, e.g. 540x960; defaults to the reel policy (1080x1920)",
+            )
+            action.add_argument(
+                "--character-position",
+                nargs=3,
+                type=float,
+                metavar=("X", "Y", "Z"),
+                help="Character world position in centimeters",
+            )
+            action.add_argument(
+                "--character-yaw",
+                type=float,
+                help="Character yaw in degrees [-180,180]; camera follows its front",
+            )
+            action.add_argument(
+                "--screen-position",
+                nargs=2,
+                type=float,
+                metavar=("U", "V"),
+                help="Head framing target in normalized screen coordinates; top-left 0,0, center .5,.5",
+            )
+            action.add_argument(
+                "--keep-frames",
+                action="store_true",
+                help="Use and retain a PNG sequence for diagnostics; default exports a movie directly",
+            )
 
 
 def execute(args, data_root):
@@ -46,7 +83,7 @@ def execute(args, data_root):
         raise ValueError("Specify --alias NAME (or the legacy positional alias)")
     store = Store(data_root, alias)
     if args.reanimation_action == "doctor":
-        report = doctor(args.editor, args.project, args.ffmpeg)
+        report = doctor(args.editor, args.project, args.ffmpeg, direct_video=True)
         return report, 2 if report["blockers"] else 0
     if args.reanimation_action == "status":
         report = inspect_job(store, args.job)
@@ -57,18 +94,32 @@ def execute(args, data_root):
         try:
             width, height = map(int, args.resolution.lower().split("x"))
         except ValueError:
-            raise ValueError("Resolution must use WIDTHxHEIGHT, for example 540x960") from None
+            raise ValueError(
+                "Resolution must use WIDTHxHEIGHT, for example 540x960"
+            ) from None
         overrides.update(width=width, height=height)
-    for argument, field in (("character_position", "character_location_cm"),
-                            ("character_yaw", "character_yaw_degrees"),
-                            ("screen_position", "subject_screen_position")):
+    for argument, field in (
+        ("character_position", "character_location_cm"),
+        ("character_yaw", "character_yaw_degrees"),
+        ("screen_position", "subject_screen_position"),
+    ):
         value = getattr(args, argument)
         if value is not None:
             overrides[field] = value
     policy = replace(policy, **overrides)
     with store.lock():
         options = {"keep_frames": True} if args.keep_frames else {}
-        report = create_reel(store, args.audio, args.editor, args.project, policy,
-                             blueprint=args.blueprint, encoder=args.ffmpeg, **options)
+        report = create_reel(
+            store,
+            args.audio,
+            args.editor,
+            args.project,
+            policy,
+            blueprint=args.blueprint,
+            encoder=args.ffmpeg,
+            **options,
+        )
     return report, 0 if report["status"] in {
-        "audio_solved_awaiting_rigged_metahuman", "video_rendered_awaiting_visual_review"} else 2
+        "audio_solved_awaiting_rigged_metahuman",
+        "video_rendered_awaiting_visual_review",
+    } else 2

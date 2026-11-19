@@ -17,8 +17,8 @@
   "fill_ratio": 0.65,
   "light_size_cm": 200,
   "temperature_kelvin": 5600,
-  "temporal_samples": 8,
-  "warmup_frames": 32,
+  "temporal_samples": 1,
+  "warmup_frames": 8,
   "encoder": "h264_nvenc",
   "max_audio_seconds": 120,
   "timeout_seconds": 1800

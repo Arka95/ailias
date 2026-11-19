@@ -305,7 +305,7 @@ class PhotoToCharacterTests(unittest.TestCase):
                 "execute_unreal_worker": native,
                 "bake_photo_skin_texture": bake,
                 "apply_character_features": apply,
-                "reel_readiness": lambda *args: {"blockers": []},
+                "reel_readiness": lambda *args, **kwargs: {"blockers": []},
                 "create_reel": reanimate,
             }.items():
                 stack.enter_context(
@@ -416,7 +416,8 @@ class PhotoToCharacterTests(unittest.TestCase):
         self.assertEqual(
             saved["status"], "photo_video_completed_awaiting_visual_review"
         )
-        self.assertEqual(operations[-3:], ["assemble", "preview", "reanimation"])
+        self.assertEqual(operations[-2:], ["assemble", "reanimation"])
+        self.assertNotIn("preview", operations)
         self.assertTrue(saved["assembled"] and saved["video_verified"])
         self.assertTrue(self.store.verify(saved["artifacts"]["video"]))
         self.assertTrue(self.store.verify(saved["artifacts"]["reanimation_manifest"]))
@@ -438,7 +439,7 @@ class PhotoToCharacterTests(unittest.TestCase):
     def test_total_duration_includes_finalization(self):
         now = [100.0]
 
-        def finalize(*args):
+        def finalize(*args, **kwargs):
             now[0] += 7.0
 
         with (

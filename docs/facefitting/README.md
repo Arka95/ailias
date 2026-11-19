@@ -105,7 +105,7 @@ optimized/medium defaults. This does not change Blender
 hair or the requested video resolution.
 `video-create --assemble` also builds and independently reloads the runtime
 Blueprint. Supplying `--voice WAV --ffmpeg EXE` implies assembly and continues
-through placement, audio lipsync, native frame rendering, encoding and full
+through placement, audio lipsync, direct movie rendering, encoding and full
 video/audio verification:
 
 ```powershell
@@ -116,6 +116,9 @@ Native cloud rig/texture requests require explicit `--cloud-services`; the
 pipeline fails rather than enabling them implicitly. Without `--assemble` or
 `--voice`, the command retains its preview-only behavior. Appearance editing and
 assembly share one native revision rather than cloning the Character twice.
+Narrated-video requests skip the separate neutral preview and produce verified
+video without PNG exports. Whole-alias history pruning is explicit maintenance;
+each job still releases its own scratch.
 The native feature receipt separates their phase timings.
 `--reel-config` controls narrated-video composition independently of
 `--review-config`. Existing `unreal-features --assemble` and `reanimation run`

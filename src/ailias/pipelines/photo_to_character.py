@@ -93,7 +93,7 @@ class PhotoToCharacterPipeline:
                     "A narrated pipeline requires an explicit FFmpeg executable"
                 )
             inspect_audio(audio, self.reel_policy.max_audio_seconds)
-            probe = reel_readiness(editor, project, encoder)
+            probe = reel_readiness(editor, project, encoder, direct_video=True)
             if probe["blockers"]:
                 raise ValueError(
                     "Narrated pipeline is blocked: " + "; ".join(probe["blockers"])
@@ -616,6 +616,19 @@ class PhotoToCharacterPipeline:
                     character_package(self.project, blueprint)
                 )
             )
+        self.report.update(
+            fresh_editor_reload_verified=True,
+            assembled=bool(self.appearance_result.get("blueprint")),
+            limitations=self.report["appearance_mapping"]["limitations"]
+            + [
+                *(
+                    []
+                    if self.assemble
+                    else ["Editor-native preview is not an assembled animation rig"]
+                ),
+                "Successful automation and save/reload do not establish personal likeness",
+            ],
+        )
 
     def render_and_validate_native_preview(self):
         self.report["review_policy"] = (
@@ -654,17 +667,6 @@ class PhotoToCharacterPipeline:
         self.report.update(
             status="fresh_video_completed",
             current_stage="awaiting_visual_review",
-            fresh_editor_reload_verified=True,
-            assembled=bool(self.appearance_result.get("blueprint")),
-            limitations=self.report["appearance_mapping"]["limitations"]
-            + [
-                *(
-                    []
-                    if self.assemble
-                    else ["Editor-native preview is not an assembled animation rig"]
-                ),
-                "Successful automation and save/reload do not establish personal likeness",
-            ],
         )
 
     def create_narrated_video(self):
@@ -735,7 +737,12 @@ class PhotoToCharacterPipeline:
         try:
             self.journal.execute(
                 "finalize_resources",
-                lambda: finalize_job_resources(self.store, self.report, self.manifest),
+                lambda: finalize_job_resources(
+                    self.store,
+                    self.report,
+                    self.manifest,
+                    automatic_retention=self.audio is None,
+                ),
             )
         finally:
             self.report["current_stage"] = current_stage
@@ -761,10 +768,6 @@ class PhotoToCharacterPipeline:
                         PipelineStep(
                             "apply_native_appearance", self.apply_native_appearance
                         ),
-                        PipelineStep(
-                            "render_and_validate_native_preview",
-                            self.render_and_validate_native_preview,
-                        ),
                         *(
                             [
                                 PipelineStep(
@@ -772,7 +775,12 @@ class PhotoToCharacterPipeline:
                                 )
                             ]
                             if self.audio is not None
-                            else []
+                            else [
+                                PipelineStep(
+                                    "render_and_validate_native_preview",
+                                    self.render_and_validate_native_preview,
+                                )
+                            ]
                         ),
                     ]
                 ).run(self.journal)

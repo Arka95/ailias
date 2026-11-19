@@ -5,8 +5,13 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 
-from ailias.resource_management.retention import apply_major_cleanup, plan_major_cleanup
+from ailias.resource_management.retention import (
+    apply_major_cleanup,
+    plan_major_cleanup,
+    cleanup_major_outputs,
+)
 from ailias.storage import Store, atomic_json
 
 
@@ -137,6 +142,31 @@ class RetentionTests(unittest.TestCase):
         apply_major_cleanup(self.store, plan_major_cleanup(self.store))
         again = plan_major_cleanup(self.store)
         self.assertEqual(again["planned_files"], 0)
+
+    def test_repeat_cleanup_does_not_rewrite_unchanged_tombstones(self):
+        old, _ = self.job()
+        self.job()
+        apply_major_cleanup(self.store, plan_major_cleanup(self.store))
+        os.utime(old, ns=(1_000_000_000, 1_000_000_000))
+        before = old.stat().st_mtime_ns
+        apply_major_cleanup(self.store, plan_major_cleanup(self.store))
+        self.assertEqual(old.stat().st_mtime_ns, before)
+
+    def test_cleanup_reuses_only_the_calling_threads_owned_lock(self):
+        self.job()
+        with self.store.lock():
+            self.assertTrue(cleanup_major_outputs(self.store)["dry_run"])
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                result = pool.submit(cleanup_major_outputs, self.store)
+                with self.assertRaisesRegex(ValueError, "locked"):
+                    result.result(timeout=5)
+            self.assertTrue(self.store.lock_owned)
+            with self.assertRaisesRegex(ValueError, "locked"):
+                with self.store.lock():
+                    self.fail("An unrelated acquisition must not become reentrant")
+        self.assertFalse(self.store.lock_owned)
+        with self.store.lock():
+            self.assertTrue(self.store.lock_owned)
 
     def test_legacy_absolute_review_source_is_not_a_managed_artifact(self):
         _, old_mesh = self.job()

@@ -31,7 +31,7 @@ Existing `facefitting` data paths remain stable.
 | Prepare mesh and tracking | Create Blender appearance, export the actual native input and tracking view |
 | Create and verify Character | Import/conform a new native Character and verify saved geometry |
 | Apply native appearance | Apply a validated native or photo-colour appearance policy |
-| Render and validate preview | Produce a new editor-native image and check retained outputs |
+| Produce requested output | Preview-only: native image; narration: direct movie and fully verified MP4 |
 
 `StageJournal` persists stage outcomes and sends diagnostic events to stderr.
 Failure stops subsequent phases. The public function wrapper preserves the
@@ -46,7 +46,9 @@ source-coordinate geometry.
 
 The Blender stage is mandatory for this command. Missing scenes, failed renders
 or altered export geometry stop execution; there is no silent direct-OBJ fallback.
-Runtime assembly and narrated rendering are separate operations.
+Runtime assembly is optional in the appearance phase. Supplying narration
+requires assembly and proceeds directly to `ReelPipeline`, without generating
+an additional neutral preview.
 
 ## Fitting restrictions and search
 
@@ -108,7 +110,9 @@ agreement establishes persistence, not photo-to-native resemblance.
 
 The outer pipeline owns its job directory and calls `cleanup()` in `finally`.
 It uses `ResourceManager.defer_retention()` while child jobs run: each releases
-scratch, while alias-wide retention runs once at the outer boundary.
+scratch, while alias-wide retention runs once at the outer boundary for
+preview-only work. Narrated-video work defers whole-alias pruning to explicit
+maintenance instead of blocking video completion.
 Native adapters own request-scoped resources, not the project-owned editor.
 Unconfirmed native completion defers file finalization.
 See [cleanup safeguards](../dev.readme.md#resource-cleanup).

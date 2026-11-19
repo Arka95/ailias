@@ -8,13 +8,14 @@
 |---|---|
 | `cli.py`, `settings.py` | Argument/policy validation and derived camera/placement geometry |
 | `pipeline.py` | Alias lock, immutable jobs, native/encoder requests and publication |
-| `unreal_worker.py` | Request JSON -> native audio solve, stage/sequence, MRQ frames and receipt |
+| `unreal_worker.py` | Request JSON -> native audio solve, stage/sequence, direct MRQ movie and receipt |
 | `media.py` | WAV/frame checks, explicit FFmpeg commands and full media decoding |
 
 Host-to-editor communication uses the project-owned session's request mailbox;
 explicit one-shot launches pass the request path in the child environment.
-The editor emits packages, PNGs, logs and JSON receipts. The host checks both
-native completion and actual files before encoding. FFmpeg subprocesses encode
+The editor emits packages, a ProRes movie, logs and JSON receipts. PNG output is
+an explicit diagnostic mode. The host checks native completion and actual files
+before encoding. FFmpeg subprocesses encode
 and completely decode video/audio before a verified MP4 is retained.
 
 | Phase | Contract |
@@ -25,7 +26,7 @@ and completely decode video/audio before a verified MP4 is retained.
 | MRQ | Asynchronous callbacks retained inside the owned editor process |
 | Completion | Job receipt ends the operation, not the shared editor; native process failure remains failure |
 | Encoding | NVENC/AAC by default; no silent encoder fallback |
-| Finalization | Retain verified video, boundary frames and evidence; remove redundant scratch |
+| Finalization | Retain verified video and evidence; remove job scratch without scanning other jobs |
 
 No TTS adapter, voice-model selection, Yapit import or cloud identity request
 is involved. Model/audio/placement/resolution remain independent.
@@ -33,7 +34,7 @@ is involved. Model/audio/placement/resolution remain independent.
 ## Timing
 
 `ReelPipeline` owns request preparation, native execution, native-package
-verification, frame validation, encoding, full media verification, source
+verification, movie validation (or diagnostic frame validation), encoding, full media verification, source
 verification and finalization as separate journaled steps. `create_reel()`
 retains its existing Python API.
 
@@ -59,6 +60,12 @@ camera target. Depth of field is disabled.
 Native export may add a static reference-pose root transform. The adapter only
 normalizes that selected actor's static root channels to configured placement;
 animated or ambiguous roots fail rather than losing motion.
+
+Direct movie encoding must consume the complete native movie: it does not cap
+the input at the expected frame count or duration. Final media verification
+therefore detects excess frames as well as truncated renders. Narration is
+padded and bounded to the requested reel duration, then independently checked
+after encoding; the video stream itself is never truncated to hide excess frames.
 
 MRQ callbacks retain request-owned objects until completion, then remove only
 that job's delegates/resources. The persistent bootstrap keeps the editor alive;
@@ -94,6 +101,8 @@ fresh revision rather than reusing the namespace. Source WAV hashes are checked
 again after animation. Existing projects/assets are not silently upgraded.
 Managed obsolete packages follow dependency-aware stopped-project retention,
 not per-render deletion; external/unregistered assets are protected.
+Alias-wide retention is explicit maintenance for video-producing jobs, not
+blocking work on their completion path.
 
 A separate later render currently starts another solve instead of resuming a
 saved audio-only Performance. Arm/torso gestures and wardrobe APIs remain outside

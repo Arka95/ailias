@@ -130,8 +130,10 @@ class NativeRetention:
         )
         return json.loads(receipt.read_text(encoding="utf-8"))
 
-    def plan(self, keep, documents, known):
-        self.checksums = digest = FileChecksums()
+    def plan(self, keep, documents, known, *, checksums=None):
+        self.checksums = digest = (
+            checksums if checksums is not None else FileChecksums()
+        )
         inspection = self.inspection()
         graph = inspection["graph"]
         content = self.session.project.parent / "Content"
@@ -241,10 +243,9 @@ class NativeRetention:
                 "deferred_files": len(plan["delete"]),
                 "deferred_until": "editor_stopped",
             }
-        self.validate_snapshot(plan)
         content = self.session.project.parent / "Content" / "Ailias"
         with self.session.lock():
-            self.assert_offline()
+            self.validate_snapshot(plan)
             for item in plan["delete"]:
                 path = Path(item["path"])
                 package = item["package"]

@@ -10,10 +10,13 @@ import re
 import shutil
 import tempfile
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import get_ident
 
 STAGES = ("intake", "reconstruction", "cleanup", "metahuman", "baseline")
+_owned_locks = ContextVar("owned_store_locks", default=frozenset())
 
 
 def digest(path: Path) -> str:
@@ -38,12 +41,18 @@ def atomic_json(path: Path, value) -> None:
 class Store:
     def __init__(self, data_root: Path, session: str):
         if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}", session):
-            raise ValueError("Session must be 1-64 letters, digits, underscores or hyphens")
+            raise ValueError(
+                "Session must be 1-64 letters, digits, underscores or hyphens"
+            )
         base = data_root.resolve()
         self.root = base / session
         if not self.root.resolve().is_relative_to(base):
             raise ValueError("Session escapes data root")
         self.path = self.root / "session.json"
+
+    @property
+    def lock_owned(self):
+        return (self.root, os.getpid(), get_ident()) in _owned_locks.get()
 
     @contextmanager
     def lock(self):
@@ -52,12 +61,18 @@ class Store:
         try:
             descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError as error:
-            raise ValueError("Session is locked; retry after the other operation finishes") from error
+            raise ValueError(
+                "Session is locked; retry after the other operation finishes"
+            ) from error
+        token = _owned_locks.set(
+            _owned_locks.get() | {(self.root, os.getpid(), get_ident())}
+        )
         try:
             with os.fdopen(descriptor, "w") as stream:
                 stream.write(str(os.getpid()))
             yield
         finally:
+            _owned_locks.reset(token)
             path.unlink(missing_ok=True)
 
     def initialize(self) -> dict:
@@ -114,7 +129,10 @@ class Store:
         if not source.is_file() or source.stat().st_size == 0:
             raise ValueError("Artifact must be a non-empty file")
         if source.is_relative_to(self.root.resolve()):
-            return {"path": str(source.relative_to(self.root.resolve())), "sha256": digest(source)}
+            return {
+                "path": str(source.relative_to(self.root.resolve())),
+                "sha256": digest(source),
+            }
         return {"path": str(source), "sha256": digest(source), "storage": "external"}
 
     def artifact_path(self, artifact: dict) -> Path:
@@ -131,11 +149,15 @@ class Store:
 
 
 def invalidate(state: dict, stage: str, reason: str) -> None:
-    for name in STAGES[STAGES.index(stage):]:
+    for name in STAGES[STAGES.index(stage) :]:
         previous = state["stages"][name]
         if previous.get("status") != "pending":
-            state["history"].append({
-                "at": datetime.now(timezone.utc).isoformat(),
-                "stage": name, "reason": reason, "previous": previous,
-            })
+            state["history"].append(
+                {
+                    "at": datetime.now(timezone.utc).isoformat(),
+                    "stage": name,
+                    "reason": reason,
+                    "previous": previous,
+                }
+            )
         state["stages"][name] = {"status": "pending"}

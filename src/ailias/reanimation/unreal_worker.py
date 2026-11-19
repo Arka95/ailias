@@ -367,8 +367,10 @@ def finished(executor, success):
     import unreal
 
     RESULT.update(
-        status="frames_rendered" if success else "failed",
-        stage="verify_frames_and_encode" if success else "native_render_failed",
+        status=("movie_rendered" if REQUEST.get("movie") else "frames_rendered")
+        if success
+        else "failed",
+        stage="verify_media_and_encode" if success else "native_render_failed",
         render_success=bool(success),
     )
     failure = (
@@ -406,8 +408,11 @@ def render(request, sequence, result, unreal):
     config = job.get_configuration()
     output = config.find_or_add_setting_by_class(unreal.MoviePipelineOutputSetting)
     policy = request["policy"]
-    output.output_directory = unreal.DirectoryPath(request["frames"])
-    output.file_name_format = "frame.{frame_number_rel}"
+    movie = Path(request["movie"]) if request.get("movie") else None
+    output.output_directory = unreal.DirectoryPath(
+        str(movie.parent) if movie else request["frames"]
+    )
+    output.file_name_format = movie.stem if movie else "frame.{frame_number_rel}"
     output.zero_pad_frame_numbers = 6
     output.output_resolution = unreal.IntPoint(policy["width"], policy["height"])
     output.use_custom_frame_rate = True
@@ -415,7 +420,19 @@ def render(request, sequence, result, unreal):
     output.override_existing_output = False
     output.flush_disk_writes_per_shot = True
     config.find_or_add_setting_by_class(unreal.MoviePipelineDeferredPassBase)
-    config.find_or_add_setting_by_class(unreal.MoviePipelineImageSequenceOutput_PNG)
+    if movie:
+        if not hasattr(unreal, "MoviePipelineAppleProResOutput"):
+            raise ValueError(
+                "Direct video requires AppleProResMedia enabled in this editor"
+            )
+        writer = config.find_or_add_setting_by_class(
+            unreal.MoviePipelineAppleProResOutput
+        )
+        writer.codec = unreal.AppleProResEncoderCodec.PRO_RES_422HQ
+        if hasattr(writer, "include_audio"):
+            writer.include_audio = False
+    else:
+        config.find_or_add_setting_by_class(unreal.MoviePipelineImageSequenceOutput_PNG)
     config.find_or_add_setting_by_class(
         unreal.MoviePipelineColorSetting
     ).disable_tone_curve = True

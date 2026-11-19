@@ -34,7 +34,7 @@ REQUIRED_PLUGINS = (
 )
 
 
-def doctor(editor, project, encoder=None):
+def doctor(editor, project, encoder=None, *, direct_video=False):
     blockers = []
     if not editor.is_file():
         blockers.append("Unreal editor executable is missing")
@@ -50,6 +50,10 @@ def doctor(editor, project, encoder=None):
             for name in REQUIRED_PLUGINS
             if name not in enabled
         )
+        if direct_video and "AppleProResMedia" not in enabled:
+            blockers.append(
+                "Enable project plugin: AppleProResMedia, then restart the owned editor"
+            )
     if encoder is not None and not encoder.is_file():
         blockers.append("Explicit FFmpeg executable is missing")
     return {
@@ -136,7 +140,13 @@ class ReelPipeline:
             "validate_audio", lambda: inspect_audio(audio, policy.max_audio_seconds)
         )
         readiness = self.journal.execute(
-            "validate_prerequisites", lambda: doctor(editor, project, encoder)
+            "validate_prerequisites",
+            lambda: doctor(
+                editor,
+                project,
+                encoder,
+                direct_video=bool(blueprint and not keep_frames),
+            ),
         )
         if blueprint and encoder is None:
             readiness["blockers"].append(
@@ -167,6 +177,9 @@ class ReelPipeline:
             self.root / "native-receipt.json",
         )
         self.frames, self.output = self.root / "frames", self.root / "portrait-reel.mp4"
+        self.movie = (
+            self.root / "portrait-source.mov" if blueprint and not keep_frames else None
+        )
         self.frame_count = math.ceil(source_audio["duration_seconds"] * policy.fps)
         self.request = {
             "destination": f"/Game/Ailias/Reanimation/R{revision}",
@@ -179,15 +192,21 @@ class ReelPipeline:
             "frames": str(self.frames),
             "frame_count": self.frame_count,
         }
+        if self.movie is not None:
+            self.request["movie"] = str(self.movie)
+        self.report["render_output"] = "prores_movie" if self.movie else "png_sequence"
         self.native = tools or NativeTools(editor.parent, policy.timeout_seconds)
         self.native.paths["unreal"] = editor.resolve()
         self.expected_status = (
-            "frames_rendered" if blueprint else "audio_solved_awaiting_rigged_metahuman"
+            ("movie_rendered" if self.movie else "frames_rendered")
+            if blueprint
+            else "audio_solved_awaiting_rigged_metahuman"
         )
         self.journal.persist()
 
     def prepare_request(self):
-        self.frames.mkdir()
+        if self.movie is None:
+            self.frames.mkdir()
         directory = str(self.root.relative_to(self.store.root) / "worker")
         for name, module in (
             ("worker", "ailias.reanimation.unreal_worker"),
@@ -258,10 +277,14 @@ class ReelPipeline:
         for name, image in (("first_frame", images[0]), ("last_frame", images[-1])):
             self.report["artifacts"][name] = self.store.reference_artifact(image)
 
+    def validate_movie(self):
+        if not self.movie.is_file() or self.movie.stat().st_size == 0:
+            raise ValueError("Unreal did not produce the requested direct movie")
+
     def encode_video(self):
         command = encode_command(
             self.encoder,
-            self.frames,
+            self.movie if self.movie is not None else self.frames,
             self.audio,
             self.output,
             self.policy,
@@ -312,7 +335,18 @@ class ReelPipeline:
                 self.report["artifacts"][path.name] = self.store.reference_artifact(
                     path
                 )
-        finalize_job_resources(self.store, self.report, self.manifest, retained_frames)
+        self.report["retention"] = {
+            "policy": "explicit_maintenance",
+            "deferred": True,
+            "reason": "Alias-wide retention is not part of video generation",
+        }
+        finalize_job_resources(
+            self.store,
+            self.report,
+            self.manifest,
+            retained_frames,
+            automatic_retention=False,
+        )
 
     def run(self):
         failure = None
@@ -327,7 +361,9 @@ class ReelPipeline:
             if self.blueprint:
                 steps.extend(
                     [
-                        PipelineStep("validate_frames", self.validate_frames),
+                        PipelineStep("validate_movie", self.validate_movie)
+                        if self.movie is not None
+                        else PipelineStep("validate_frames", self.validate_frames),
                         PipelineStep("encode_video", self.encode_video),
                         PipelineStep("verify_encoded_video", self.verify_encoded_video),
                     ]

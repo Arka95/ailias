@@ -282,7 +282,12 @@ class ReelTests(unittest.TestCase):
         project = self.root / "Review.uproject"
         atomic_json(
             project,
-            {"Plugins": [{"Name": name, "Enabled": True} for name in REQUIRED_PLUGINS]},
+            {
+                "Plugins": [
+                    {"Name": name, "Enabled": True}
+                    for name in (*REQUIRED_PLUGINS, "AppleProResMedia")
+                ]
+            },
         )
         editor = self.root / "UnrealEditor-Cmd.exe"
         editor.write_bytes(b"fake")
@@ -315,8 +320,13 @@ class ReelTests(unittest.TestCase):
                 "sound": request["destination"] + "/Narration.Narration",
                 "processed_frames": 0 if outcome == "empty" else 3,
             }
-            if outcome == "rendered":
-                result.update(status="frames_rendered", render_success=True)
+            if outcome in {"rendered", "missing_movie"}:
+                result.update(
+                    status="movie_rendered"
+                    if request.get("movie")
+                    else "frames_rendered",
+                    render_success=True,
+                )
                 for name, suffix in (
                     ("sequence", ".uasset"),
                     ("map", ".umap"),
@@ -324,10 +334,15 @@ class ReelTests(unittest.TestCase):
                 ):
                     (package / (name + suffix)).write_bytes(b"native output")
                     result[name] = request["destination"] + "/" + name + "." + name
-                for number in range(request["frame_count"]):
-                    Image.new(
-                        "RGB", (request["policy"]["width"], request["policy"]["height"])
-                    ).save(Path(request["frames"]) / f"frame.{number:06d}.png")
+                if request.get("movie"):
+                    if outcome != "missing_movie":
+                        Path(request["movie"]).write_bytes(b"synthetic ProRes movie")
+                else:
+                    for number in range(request["frame_count"]):
+                        Image.new(
+                            "RGB",
+                            (request["policy"]["width"], request["policy"]["height"]),
+                        ).save(Path(request["frames"]) / f"frame.{number:06d}.png")
             atomic_json(Path(request["receipt"]), result)
             if outcome == "crash":
                 raise ValueError("native exit_3221225477")
@@ -534,7 +549,7 @@ class ReelTests(unittest.TestCase):
                 result["stages"][name]["status"] == "passed"
                 for name in (
                     "native_execution",
-                    "validate_frames",
+                    "validate_movie",
                     "encode_video",
                     "verify_encoded_video",
                     "verify_sources",
@@ -546,6 +561,66 @@ class ReelTests(unittest.TestCase):
             result["seconds"] + 0.001,
             sum(stage["seconds"] for stage in result["stages"].values()),
         )
+
+    def test_video_only_run_never_creates_images_or_runs_alias_wide_maintenance(self):
+        encoder = self.root / "ffmpeg.exe"
+        encoder.write_bytes(b"synthetic executable")
+
+        def encode(command, **kwargs):
+            self.assertEqual(Path(command[command.index("-i") + 1]).suffix, ".mov")
+            Path(command[-1]).write_bytes(b"synthetic video")
+            return SimpleNamespace(returncode=0)
+
+        with (
+            patch("ailias.reanimation.pipeline.subprocess.run", side_effect=encode),
+            patch(
+                "ailias.reanimation.pipeline.verify_video",
+                return_value={"audio_decoded": True},
+            ),
+            patch("ailias.reanimation.pipeline.inspect_frames") as images,
+            patch(
+                "ailias.resource_management.retention.finalize_major_output"
+            ) as maintenance,
+        ):
+            store, result = self.job("rendered", "/Game/Person/BP.BP", encoder=encoder)
+        self.assertTrue(result["video_verified"])
+        root = store.artifact_path(result["artifacts"]["video"]).parent
+        self.assertFalse((root / "frames").exists())
+        self.assertFalse((root / "portrait-source.mov").exists())
+        self.assertNotIn("first_frame", result["artifacts"])
+        self.assertFalse(inspect_job(store, result["revision"])["integrity_problems"])
+        images.assert_not_called()
+        maintenance.assert_not_called()
+
+    def test_missing_direct_movie_fails_before_encoding(self):
+        encoder = self.root / "ffmpeg.exe"
+        encoder.write_bytes(b"synthetic executable")
+        with patch("ailias.reanimation.pipeline.subprocess.run") as encode:
+            _, result = self.job("missing_movie", "/Game/Person/BP.BP", encoder=encoder)
+        self.assertEqual(result["status"], "failed")
+        self.assertFalse(result["video_verified"])
+        self.assertIn("direct movie", result["error"]["message"])
+        encode.assert_not_called()
+
+    def test_direct_movie_encoder_cannot_hide_extra_frames_by_truncating_the_input(
+        self,
+    ):
+        command = encode_command(
+            Path("ffmpeg.exe"),
+            self.root / "source.mov",
+            self.audio(),
+            self.root / "video.mp4",
+            ReelPolicy(),
+            3,
+        )
+        self.assertNotIn("-shortest", command)
+        self.assertEqual(
+            command[command.index("-af") + 1], "apad,atrim=duration=0.100000000"
+        )
+        self.assertNotIn("-frames:v", command)
+        self.assertNotIn("-t", command)
+        self.assertNotIn("-framerate", command)
+        self.assertEqual(command[command.index("-map") + 1], "0:v:0")
 
     def test_native_render_timer_stays_open_until_callback_including_delegate_cleanup(
         self,
