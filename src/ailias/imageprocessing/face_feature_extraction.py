@@ -4,14 +4,16 @@ Preparation and model-free image operations belong to the separate images module
 """
 
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass, field, replace
+from dataclasses import replace
 import math
 from pathlib import Path
 import platform
-from typing import Literal
 
 from PIL import Image
 
+from ailias.imageprocessing.face_features import (
+    FaceFeatures, FaceFeaturesBiseNet as FaceFeaturesBiseNet,
+)
 from ailias.imageprocessing.settings import (
     MEDIAPIPE_BASE_FACE_POINT_COUNT, MEDIAPIPE_LANDMARK_COUNT, ProcessingPolicy, load_policy,
 )
@@ -20,28 +22,6 @@ from ailias.imageprocessing.settings import (
 NEUTRAL_BACKGROUND = (127, 127, 127, 255)
 # Allow small numerical drift in a unit orthogonal rotation, not extra head-angle deviation.
 ROTATION_VALIDATION_TOLERANCE = 0.02
-
-
-@dataclass(frozen=True)
-class FaceFeatures:
-    """Collect per-face predictions, measured photo features and review evidence as attributes.
-    Preserve source identity and optional errors without owning images or inference resources.
-    """
-
-    status: Literal["ready", "review", "error"] = "review"
-    features: dict | None = None
-    landmarks: dict | None = None
-    blendshapes: dict = field(default_factory=dict)
-    facial_transform: list[list[float]] | None = None
-    quality: dict = field(default_factory=lambda: {"reasons": []})
-    source: Path | str | None = None
-    frame_index: int | None = None
-    timestamp_seconds: float | None = None
-    features_colour_source: str = "original_rgb"
-    metric_depth_measured: bool = False
-    execution: dict = field(default_factory=dict)
-    error_type: str | None = None
-    reason: str | None = None
 
 
 class FaceFeatureExtractor:
@@ -115,14 +95,18 @@ class FaceFeatureExtractor:
         """
         if self._closed:
             raise RuntimeError("Face feature extractor is closed")
+        from ailias.imageprocessing.appearance_features import extract_bisenet_features
+
         original_rgb, head, regions = self._validate_prepared_image(prepared_image)
         result = self._create_feature_result(prepared_image)
         if head.getchannel("A").getbbox() is None:
             result.quality["reasons"].append("no_head_foreground")
             return result
+        result = replace(result, bisenet=extract_bisenet_features(original_rgb, regions))
         detection = self.detect_face_landmarks(head)
         result.execution["mediapipe_executed"] = True
-        return replace(result, **self._extract_face_evidence(original_rgb, head, regions, detection))
+        return replace(
+            result, **self._extract_face_evidence(original_rgb, head, regions, detection, result.bisenet))
 
     @staticmethod
     def _validate_prepared_image(prepared_image: dict) -> tuple[Image.Image, Image.Image, Image.Image]:
@@ -157,6 +141,7 @@ class FaceFeatureExtractor:
 
     def _extract_face_evidence(
         self, original_rgb: Image.Image, head: Image.Image, regions: Image.Image, detection: dict,
+        bisenet: FaceFeaturesBiseNet,
     ) -> dict:
         """Combine MediaPipe points and existing BiSeNet labels into original-pixel feature evidence.
         Keep invalid-face review outcomes separate from coordinate mapping and quality assessment.
@@ -181,7 +166,7 @@ class FaceFeatureExtractor:
             },
             "blendshapes": blendshapes, "facial_transform": transform,
             "features": photo_features(np.asarray(original_rgb), landmarks["source_xy"], regions,
-                                       landmarks["on_head"]),
+                                       landmarks["on_head"], region_features=bisenet),
         }
 
     def _map_face_landmarks(self, normalized_points: list, head: Image.Image) -> dict:

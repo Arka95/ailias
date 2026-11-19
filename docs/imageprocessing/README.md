@@ -37,6 +37,9 @@ with FaceFeatureExtractor(
     face_features: FaceFeatures = extractor.extract_features(prepared)
 
 print(face_features.status, face_features.features)
+if face_features.bisenet is not None:
+    region_data = face_features.bisenet.to_dict()  # Nested dictionary.
+    region_json = str(face_features.bisenet)  # JSON string; no file writes.
 prepared["image"].save("head.png")  # Explicit export; neither stage writes automatically.
 ```
 
@@ -48,7 +51,7 @@ MediaPipe GPU delegate. Unsupported requested GPU execution fails; no CPU retry.
 | Stage | Result fields |
 |---|---|
 | Preparation | `image`: native-size RGBA head; `original_image`: untouched RGB on the same grid; `regions`: semantic labels; `colour`: white-balance outcome |
-| Feature extraction | `landmarks`, `blendshapes`, `facial_transform`, `features`: original-grid predictions, facial ratios, regional colours and iris evidence |
+| Feature extraction | `landmarks`, `blendshapes`, `facial_transform`, `features`: original-grid predictions, facial ratios and iris evidence; `bisenet`: structured natural-region appearance |
 | Both | Own `status`, `quality`, `execution` and source/frame metadata |
 
 Preparation `ready` means a nonempty head, **not face-quality approval**.
@@ -58,6 +61,19 @@ The extractor performs face-quality review separately. `mediapipe_model` and
 read `face_features.landmarks`, `.features`, `.quality` and `.source` as attributes.
 Nested measurement/quality payloads remain dictionaries. Batch results use the
 same class for `ready`, `review` and `error`; errors expose `.error_type` and `.reason`.
+
+`face_features.bisenet` is a `FaceFeaturesBiseNet` instance with named region
+objects: `skin`, `left_eyebrow`, `right_eyebrow`, `left_eye`, `right_eye`,
+`left_ear`, `right_ear`, `nose`, `mouth_interior`, `upper_lip`, `lower_lip`
+and `scalp_hair`. Combined `eyebrows`/`lips` summaries remain available.
+Each retains parser IDs, region/sample counts, pixel bounds, median linear-RGB
+colour when measurable, and review/provenance fields. Missing parts request
+review instead of inventing colours. Accessories, neck and clothing are excluded.
+Eye-region colour is not a separate iris or pupil measurement.
+
+These are derived pixel statistics, not retained raw CNN score maps. They reuse
+existing labels and do not feed into or refine MediaPipe. The enclosing
+`FaceFeatures` also supports `to_dict()` and `str(...)` for dictionary/JSON output.
 
 Colour normalization is enabled by default for the returned cutout, not feature
 samples; pass `normalize_colour=False` to skip it. Original RGB is retained only

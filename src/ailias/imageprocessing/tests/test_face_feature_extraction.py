@@ -9,7 +9,9 @@ from unittest.mock import Mock, patch
 import numpy as np
 from PIL import Image
 
-from ailias.imageprocessing.face_feature_extraction import FaceFeatureExtractor, FaceFeatures
+from ailias.imageprocessing.face_feature_extraction import (
+    FaceFeatureExtractor, FaceFeatures, FaceFeaturesBiseNet,
+)
 from ailias.imageprocessing.settings import ProcessingPolicy
 
 
@@ -79,6 +81,8 @@ class FaceFeatureExtractorTests(unittest.TestCase):
         normalized = np.asarray(result.landmarks["normalized_predicted"])
         np.testing.assert_allclose(result.landmarks["source_xy"], normalized[:, :2] * self.image.size)
         skin = result.features["regions"]["skin"]
+        self.assertIsInstance(result.bisenet, FaceFeaturesBiseNet)
+        self.assertEqual(result.bisenet.skin.to_dict(), skin)
         self.assertEqual(skin["status"], "observed")
         self.assertAlmostEqual(skin["median_linear_rgb"][0], skin["median_linear_rgb"][2])
         self.assertEqual(result.features_colour_source, "original_rgb")
@@ -231,6 +235,8 @@ class FaceFeatureExtractorTests(unittest.TestCase):
                 self.assertEqual(result.status, "review")
                 self.assertIn(reason, result.quality["reasons"])
                 self.assertIsNone(result.features)
+                self.assertIsInstance(result.bisenet, FaceFeaturesBiseNet)
+                self.assertEqual(result.bisenet.skin.status, "observed")
 
     def test_quality_flags_low_detail_and_expression_without_discarding_evidence(self):
         """Expose low-detail and non-neutral-expression warnings for downstream review.

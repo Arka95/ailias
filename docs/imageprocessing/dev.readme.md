@@ -25,6 +25,22 @@ without retaining manifests. MediaPipe receives the prepared head, not original 
 including reviews and errors. Its attributes retain source/frame identity,
 predictions, nested evidence and execution provenance; it owns no model or images.
 Consumers use attributes rather than dictionary keys. Preparation outputs remain dictionaries.
+Output records live in model-free `face_features.py`; existing imports through
+`face_feature_extraction.py` remain valid. `FaceFeatures.bisenet` contains
+`FaceFeaturesBiseNet` with typed `FaceRegionFeatures` for all 12 natural regions
+and the original combined eyebrow/lip summaries. `extract_bisenet_features()`
+samples existing labels once and reuses that record in `photo_features()`;
+no additional BiSeNet inference occurs. BiSeNet evidence is retained when
+MediaPipe reports no/multiple faces or invalid landmarks, without inventing facial geometry.
+Absent or clipped parts retain counts, parser IDs and available bounds with an
+explicit review reason. Eye masks do not replace separate landmark-based iris sampling.
+The legacy feature dictionary keeps its original keys and adds the individual
+regions. `to_dict()` recursively produces plain data; `__str__()` emits strict
+JSON, including stringified source paths, without writing artifacts.
+The new class is retained output, not a new native-model integration. Existing
+dictionary consumers use skin evidence for texture fill and hair/brow evidence
+for approximate groom settings. Additional individual-region summaries currently
+have no dedicated native consumer; they do not drive MediaPipe or 3D shape fitting.
 `read_oriented_image(..., preserve_alpha=True)` supports the new loader;
 its default remains RGB for all existing callers.
 
