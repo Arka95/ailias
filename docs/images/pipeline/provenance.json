@@ -1,5 +1,20 @@
 {
-  "purpose": "README stage illustrations, not a matched-camera metric or likeness guarantee. Fitted mesh, surface appearance and native Character share photo-to-character run 252acd173452429388a7e40718bce9a6; photograph and cutout retain their separately recorded sources.",
+  "purpose": "README stage illustrations, not a matched-camera metric or likeness guarantee. The fitted mesh is reused from its recorded fitting run; native skin and the rendered Character show later revisions used by the recorded video. Photograph and cutout retain their separately recorded sources.",
+  "displayed_stage_lineage": {
+    "fitting_run": "252acd173452429388a7e40718bce9a6",
+    "feature_ancestry_newest_first": [
+      "35ed200aafe54149a30cd1f2e5406158",
+      "f07f4c699d874bfd847ba468db1a6405",
+      "185f51210d0e481096d42040f8c28e84",
+      "84f976735cfb4c74aed90a72eda87076",
+      "828334c0592049a982a24076f4b623c6",
+      "f14d11bce6cb44888d44b0c9eb280107",
+      "affb865f401b47d190497ca3ba9d3069",
+      "ba66c8950d994a84b2bb7163a80e8e52"
+    ],
+    "native_preview_job": "2e70817979094b57b0b39ebeab26ee84",
+    "video_run": "405ea393c5fe4175ba69bd2551ce0ea0"
+  },
   "portrait_maximum_size": [
     160,
     160
@@ -64,15 +79,17 @@
       "transform": "convert to RGB; uniformly downscale full source with Pillow LANCZOS to fit 142 x 142; center on 160 x 160 RGB (240, 240, 240) canvas; no crop, warp, relighting or inference"
     },
     "appearance.png": {
-      "source": "data\\arka\\facefitting\\fresh-video\\252acd173452429388a7e40718bce9a6\\blender\\appearance-0.png",
-      "source_manifest": "data\\arka\\facefitting\\fresh-video\\252acd173452429388a7e40718bce9a6\\manifest.json",
-      "source_artifact": "blender_appearance-0.png",
-      "source_sha256": "e7b7cf2c8df99c16da66b977af386e494d2947e10022d1044c2d81597f318adc",
+      "source": "data\\arka\\facefitting\\native-reviews\\2e70817979094b57b0b39ebeab26ee84\\frames\\frame.000000.png",
+      "source_manifest": "data\\arka\\facefitting\\native-reviews\\2e70817979094b57b0b39ebeab26ee84\\manifest.json",
+      "source_artifact": "image",
+      "source_character": "/Game/Ailias/Features/F35ed200aafe54149a30cd1f2e5406158/Character.Character",
+      "source_blueprint": "/Game/Ailias/Features/F35ed200aafe54149a30cd1f2e5406158/Runtime/FeatureDraft/BP_FeatureDraft.BP_FeatureDraft",
+      "source_sha256": "0a2d3e131e4ec5987372aa96d286b583c34cc0e6686e74dc30c7e7ee5985fa6a",
       "source_size": [
-        768,
-        768
+        540,
+        960
       ],
-      "output_sha256": "a5f2865bce33c4cb6705fe4c27d18a8b2379c323d7115bc93ba925d90c8f14c3",
+      "output_sha256": "f6d0d117ecfb4cd88cf32ad3583da9c428acb718d0cc94c09a113b0464316800",
       "output_size": [
         160,
         160
@@ -81,22 +98,24 @@
       "transform": "convert to RGB; uniformly downscale full source with Pillow LANCZOS to fit 142 x 142; center on 160 x 160 RGB (240, 240, 240) canvas; no crop, warp, relighting or inference"
     },
     "native-appearance.png": {
-      "source": "data\\arka\\facefitting\\fresh-video\\252acd173452429388a7e40718bce9a6\\native-preview.png",
-      "source_manifest": "data\\arka\\facefitting\\fresh-video\\252acd173452429388a7e40718bce9a6\\manifest.json",
-      "source_artifact": "native-preview.png",
-      "source_character": "/Game/Ailias/Features/Fba66c8950d994a84b2bb7163a80e8e52/Character.Character",
-      "source_sha256": "ba0e4ea333490cc0fb3f0cfa020774f2c72811860ee8d7e4dca4b57c9c7fdb79",
+      "source": "data\\arka\\reanimation\\runs\\405ea393c5fe4175ba69bd2551ce0ea0\\portrait-reel.mp4",
+      "source_manifest": "data\\arka\\reanimation\\runs\\405ea393c5fe4175ba69bd2551ce0ea0\\manifest.json",
+      "source_artifact": "video",
+      "source_character": "/Game/Ailias/Features/F35ed200aafe54149a30cd1f2e5406158/Character.Character",
+      "source_blueprint": "/Game/Ailias/Features/F35ed200aafe54149a30cd1f2e5406158/Runtime/FeatureDraft/BP_FeatureDraft.BP_FeatureDraft",
+      "source_sha256": "5aa85fd23c4ff82df3b3482884dc171a3bcad706b5541a9f6441b47ab39371b4",
+      "source_frame_index": 0,
       "source_size": [
         540,
         960
       ],
-      "output_sha256": "92f67dc2bd737f7c031534b9a37a7b04389ede4c7b21cdc8cfc27151ef40345d",
+      "output_sha256": "9395424f6d72d68c9a70d46d1a5a78113dc4c5fd62c9bd46a14667f6af2e4930",
       "output_size": [
         160,
         160
       ],
       "display_crop": null,
-      "transform": "convert to RGB; uniformly downscale full source with Pillow LANCZOS to fit 142 x 142; center on 160 x 160 RGB (240, 240, 240) canvas; no crop, warp, relighting or inference"
+      "transform": "decode video frame 0 with FFmpeg to PNG; convert to RGB; uniformly downscale full frame with Pillow LANCZOS to fit 142 x 142; center on 160 x 160 RGB (240, 240, 240) canvas; no crop, warp, relighting or inference"
     },
     "native.png": {
       "source": "data\\arka\\reanimation\\runs\\13a06df92b224d3b8ba938bdf7f8ddc2\\frames\\frame.000000.png",

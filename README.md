@@ -77,10 +77,11 @@ of the internal `head_reconstruction`, `metahuman` and `pipelines` package names
 
 | Photograph | Head-only input | Fitted mesh | Surface appearance | Native Character |
 |---|---|---|---|---|
-| ![Photograph](docs/images/pipeline/portrait.png) | ![Head-only crop](docs/images/pipeline/cutout.png) | ![Neutral mesh](docs/images/pipeline/clay.png) | ![Surface appearance](docs/images/pipeline/appearance.png) | ![Editable native Character](docs/images/pipeline/native-appearance.png) |
+| ![Photograph](docs/images/pipeline/portrait.png) | ![Head-only crop](docs/images/pipeline/cutout.png) | ![Neutral mesh](docs/images/pipeline/clay.png) | ![Native skin appearance](docs/images/pipeline/appearance.png) | ![Rendered native Character](docs/images/pipeline/native-appearance.png) |
 
-The fitted mesh, surface appearance and native Character come from the same
-photo-to-character run. These illustrate formats rather than a likeness guarantee.
+The mesh is the retained fitting output. Surface appearance shows the native-skin
+preview; the native Character is a frame from the rendered video. These are
+separate stages, not a likeness guarantee.
 [Image provenance](docs/images/pipeline/provenance.json) records their sources.
 
 ## Configuration and output
