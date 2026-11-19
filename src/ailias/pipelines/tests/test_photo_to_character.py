@@ -12,7 +12,12 @@ from unittest.mock import patch
 import numpy as np
 from PIL import Image
 
-from ailias.pipelines.photo_to_character import run_photo_to_character_pipeline
+from ailias.pipelines.photo_to_character import (
+    PhotoToCharacterPipeline,
+    run_photo_to_character_pipeline,
+)
+from ailias.pipelines.photo_evidence_data import PhotoEvidenceBatch, PhotoEvidenceFrame
+from ailias.pipelines.tests.photo_fixtures import make_photo_features
 from ailias.head_reconstruction.geometry.artifact_io import export_obj
 from ailias.head_reconstruction.geometry.tests.fitting_fixtures import make_head_fit
 from ailias.head_reconstruction.settings import FitPolicy
@@ -57,6 +62,41 @@ class PhotoToCharacterTests(unittest.TestCase):
             self.policy,
         )
 
+    def test_preparation_failure_keeps_image_exclusion_in_reconstruction_diagnostics(
+        self,
+    ):
+        pipeline = PhotoToCharacterPipeline(
+            self.store,
+            self.manifest,
+            Path("Editor.exe"),
+            Path("Project.uproject"),
+            SimpleNamespace(),
+            self.policy,
+        )
+        pipeline.head_model = object()
+        pipeline.photo_evidence = PhotoEvidenceBatch(
+            frames=[
+                PhotoEvidenceFrame(
+                    view_id="frame",
+                    capture={},
+                    image=self.reference,
+                    features=None,
+                    regions={},
+                    head_image={},
+                    selected=False,
+                    view_group="excluded",
+                    reason="multiple_faces",
+                )
+            ]
+        )
+        with self.assertRaisesRegex(ValueError, "at least five"):
+            pipeline.prepare_photo_head_views()
+        report = pipeline.report["reconstruction"]
+        self.assertEqual(report["status"], "failed")
+        self.assertEqual(
+            report["excluded"], [{"view_id": "frame", "reason": "multiple_faces"}]
+        )
+
     def persisted(self, result):
         return json.loads(
             self.store.resolve(
@@ -73,7 +113,7 @@ class PhotoToCharacterTests(unittest.TestCase):
                 return_value={"blockers": ["missing_editor"]},
             ),
             patch(
-                "ailias.pipelines.photo_to_character.extract_photo_evidence"
+                "ailias.pipelines.photo_to_character.extract_photo_feature_evidence"
             ) as process,
         ):
             result = self.invoke()
@@ -101,7 +141,7 @@ class PhotoToCharacterTests(unittest.TestCase):
                 return_value={"landmarker": {"artifact": self.reference}},
             ),
             patch(
-                "ailias.pipelines.photo_to_character.extract_photo_evidence",
+                "ailias.pipelines.photo_to_character.extract_photo_feature_evidence",
                 side_effect=error,
             ),
             patch(
@@ -147,29 +187,31 @@ class PhotoToCharacterTests(unittest.TestCase):
             "presence_estimate": True,
             "median_dark_linear_rgb": [0.02, 0.015, 0.01],
         }
-        frame = {
-            "face_id": "frame",
-            "image": self.reference,
-            "source_size": [16, 12],
-            "source_xy": [[1.0, 1.0]],
-            "quality_score": 1,
-        }
-        evidence = {
-            "frames": [frame],
-            "parser": {},
-            "faces": {
-                "frame": {
-                    "status": "observed",
-                    "features": {
-                        "iris": colour,
-                        "regions": {"scalp_hair": colour, "eyebrows": colour},
-                        "facial_hair_appearance": {
-                            "regions": {"beard": region, "moustache": region}
-                        },
-                    },
-                }
+        features = make_photo_features(
+            (16, 12),
+            appearance={
+                "iris": colour,
+                "regions": {"scalp_hair": colour, "eyebrows": colour},
+                "facial_hair_appearance": {
+                    "regions": {"beard": region, "moustache": region}
+                },
             },
-        }
+        )
+        evidence = PhotoEvidenceBatch(
+            status="photo_evidence_ready",
+            frames=[
+                PhotoEvidenceFrame(
+                    view_id="frame",
+                    capture={"image": self.reference},
+                    image=self.reference,
+                    features=features,
+                    regions=self.reference,
+                    head_image=self.reference,
+                    selected=True,
+                    view_group="front",
+                )
+            ],
+        )
         vertices = np.array([[0.0, 0.0, 0.0], [0.1, 0.0, 0.0], [0.0, 0.1, 0.1]])
         model = SimpleNamespace(
             vertices=vertices,
@@ -204,10 +246,10 @@ class PhotoToCharacterTests(unittest.TestCase):
                 "artifacts": {"head_only_mesh": store.reference_artifact(mesh)},
             }
 
-        def process(store, samples, root, *args):
+        def process(store, samples, root, *args, **kwargs):
             output = root / "photo-evidence"
             output.mkdir()
-            atomic_json(output / "manifest.json", evidence)
+            atomic_json(output / "manifest.json", evidence.to_dict())
             return evidence
 
         def native(tools, project, worker, root, operation, parameters, report):
@@ -298,12 +340,11 @@ class PhotoToCharacterTests(unittest.TestCase):
             for name, value in {
                 "readiness": lambda *args: {"blockers": []},
                 "model_assets": lambda *args: assets,
-                "extract_photo_evidence": process,
+                "extract_photo_feature_evidence": process,
                 "HeadModel": lambda *args: model,
-                "prepare_views": lambda *args: (
-                    [{"face_id": "frame", "view": {"category": "front"}}],
-                    [],
-                ),
+                "prepare_head_views": lambda *args: [
+                    {"face_id": "frame", "view": {"category": "front"}}
+                ],
                 "fit_shared_head_identity": lambda *args: fitted,
                 "save_fit": lambda *args: None,
                 "create_blender_head": blender,

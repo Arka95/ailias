@@ -114,7 +114,7 @@ class NativePhotoSurfaceTests(unittest.TestCase):
 
         model.neutral = neutral
 
-        def project(store, root, surface, identity, mapping, *args, **kwargs):
+        def project(root, surface, identity, mapping, *args, **kwargs):
             count = len(mapping[0])
             return {
                 "skin_color": np.full(3, 0.4),

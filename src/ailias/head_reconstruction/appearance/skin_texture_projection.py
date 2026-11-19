@@ -130,7 +130,7 @@ def bake_photo_skin_texture(
     model,
     fitted: HeadFittingResult,
     views,
-    evidence,
+    photos_by_view,
     device,
     *,
     texture_size=2048,
@@ -145,14 +145,13 @@ def bake_photo_skin_texture(
     )
     mapping = rasterize_unreal_uvs(surface.uvs, texture_size)
     baked, selected = project_photo_evidence(
-        store,
         root,
         surface,
         np.zeros(0),
         mapping,
         fitted,
         views,
-        evidence,
+        photos_by_view,
         device,
         maximum_views=maximum_views,
         photo_size=photo_size,

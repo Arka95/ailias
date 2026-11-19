@@ -11,7 +11,7 @@ lives in `pipelines`.
 
 | Area | Implementation responsibility |
 |---|---|
-| `evidence` | Source-coordinate observations, video sampling, reviewed-photo preparation and parsing workers |
+| `evidence` | Source-coordinate observations, older video sampling and parsing workers; photo loading/extraction orchestration lives in `pipelines` |
 | `geometry` | Model loading, camera/identity/expression optimization, search, coordinate conversion and mesh serialization |
 | `appearance` | UV rasterization, photo projection, coverage and texture baking |
 | `blender` | Clay/appearance scenes, tracking views and coordinate-preserving exports |
@@ -87,8 +87,12 @@ the face-ID/source-grid fields required by photo tracking and appearance.
 Observation collection, camera export and review previews have scoped functions.
 The redundant detector-reexport module was removed; its coordinate-restoration
 regression test moved to the owning imageprocessing package.
-Standalone image intake/aligned observation extraction and the older
-photo-to-character evidence producer remain pending migration steps.
+Photo-to-character extraction now composes `ImageProcessor`, `FaceFeatureExtractor`
+and the shared grouper in `pipelines\photo_feature_evidence.py`. Its typed
+pixel-free records and source readers live beside that workflow; the replaced
+head-owned photo extractor and detector/IoU helpers were deleted with their
+obsolete tests. Standalone image intake/aligned observation extraction and
+the older video sampler remain pending migration steps.
 
 The new path disables only legacy angle rejection, not camera initialization,
 foreground/template support, minimum-view, held-out identity or mesh-quality gates.
@@ -117,6 +121,10 @@ from neutral fill. Parser workers isolate incompatible native imports.
 An atlas in GNM UVs cannot be assigned directly to native MetaHuman UVs.
 Native photo projection requires a separate native-surface export and
 `appearance\skin_texture_projection.py`; native application remains downstream.
+Both Blender and native photo projectors consume `PhotoProjectionInput`, not
+pipeline manifests. Original RGB, saved labels and actual saved head alpha must
+match the fitted grid. Projection reuses alpha rather than treating every
+nonzero parser class as head foreground.
 
 ## Interfaces and lifecycle
 

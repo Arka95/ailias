@@ -11,19 +11,21 @@ import time
 import uuid
 import numpy as np
 from PIL import Image
-from ailias.metahuman.appearance_mapping import build_appearance_profile
+from ailias.pipelines.appearance_feature_mapping import build_appearance_profile
 from ailias.head_reconstruction.blender.appearance_scene import create_blender_head
 from ailias.head_reconstruction.appearance.skin_texture_projection import (
     bake_photo_skin_texture,
     estimate_photo_alignment,
 )
-from ailias.head_reconstruction.settings import VideoPolicy
 from ailias.pipelines.settings import DEFAULT_REVIEW_CONFIG, load_appearance_policy
-from ailias.head_reconstruction.evidence.photo_processing import (
-    extract_photo_evidence,
-    load_retained_frames,
+from ailias.pipelines.photo_feature_evidence import extract_photo_feature_evidence
+from ailias.pipelines.photo_inputs import (
+    load_sampled_photo_inputs,
+    prepare_reviewed_photos,
 )
-from ailias.head_reconstruction.evidence.reviewed_photos import prepare_reviewed_photos
+from ailias.pipelines.photo_evidence_data import PhotoEvidenceFrame
+from ailias.head_reconstruction.appearance.projection_data import PhotoProjectionInput
+from ailias.common.json_values import iter_artifact_references
 from ailias.head_reconstruction.evidence.fit_comparison import write_fit_overlays
 from ailias.head_reconstruction.geometry.artifact_io import export_obj, save_fit
 from ailias.head_reconstruction.geometry.head_model import HeadModel, model_assets
@@ -35,14 +37,17 @@ from ailias.head_reconstruction.geometry.identity_search import (
 )
 from ailias.head_reconstruction.geometry.feature_reconstruction import (
     construct_neutral_head_mesh,
+    prepare_head_views,
+)
+from ailias.head_reconstruction.evidence.feature_observations import (
+    observations_from_face_features,
 )
 from ailias.head_reconstruction.reconstruction_data import (
-    ExcludedHeadView,
+    HeadViewObservation,
     ReconstructionFailure,
     ReconstructionInputs,
     ReconstructionReport,
 )
-from ailias.head_reconstruction.geometry.optimization import prepare_views
 from ailias.head_reconstruction.geometry.photo_camera import perspective_camera
 from ailias.metahuman.character_features import (
     apply_character_features,
@@ -60,6 +65,33 @@ from ailias.common.execution import ExecutionChain, PipelineStep, StageJournal
 from ailias.resource_management import ResourceManager, finalize_job_resources
 
 
+def prepare_photo_projection_inputs(store, frames: list[PhotoEvidenceFrame]):
+    """Translate workflow-owned image/feature artifacts into the head module's scoped input contract.
+    Keep projectors independent of workflow manifests and their capture metadata.
+    """
+    photos = {}
+    for frame in frames:
+        if not frame.selected:
+            continue
+        features = frame.features
+        if features is None or features.source_size is None:
+            raise ValueError(
+                "Selected photo lacks retained features/grid: " + frame.view_id
+            )
+        skin = features.bisenet.skin if features.bisenet is not None else None
+        photos[frame.view_id] = PhotoProjectionInput(
+            image=store.artifact_path(frame.image),
+            regions=store.artifact_path(frame.regions),
+            head_image=store.artifact_path(frame.head_image),
+            source_size=features.source_size,
+            skin_linear_rgb=skin.median_linear_rgb
+            if skin is not None and skin.status == "observed"
+            else None,
+            blendshapes=features.blendshapes,
+        )
+    return photos
+
+
 class PhotoToCharacterPipeline:
     def __init__(
         self,
@@ -70,7 +102,7 @@ class PhotoToCharacterPipeline:
         tools,
         policy,
         *,
-        video_policy=None,
+        feature_quality_policy=None,
         appearance_policy=None,
         generation_policy=None,
         photos_run=None,
@@ -88,7 +120,7 @@ class PhotoToCharacterPipeline:
         self.project = project
         self.tools = tools
         self.fit_policy = policy
-        self.video_policy = video_policy
+        self.feature_quality_policy = feature_quality_policy
         self.requested_appearance_policy = appearance_policy
         self.generation_policy = generation_policy
         self.photos_run = photos_run
@@ -171,7 +203,7 @@ class PhotoToCharacterPipeline:
         self.journal.execute("native_preflight", check_unreal_prerequisites)
         samples, dependencies = self.journal.execute(
             "load_sampled_photos",
-            lambda: load_retained_frames(self.store, self.evidence_path),
+            lambda: load_sampled_photo_inputs(self.store, self.evidence_path),
         )
         self.report["input_dependencies"].extend(dependencies)
         if self.photos_run is not None:
@@ -195,12 +227,16 @@ class PhotoToCharacterPipeline:
         )
         self.photo_evidence = self.journal.execute(
             "fresh_photo_processing",
-            lambda: extract_photo_evidence(
+            lambda: extract_photo_feature_evidence(
                 self.store,
                 samples,
                 self.root,
                 self.model_assets["landmarker"]["artifact"],
-                self.video_policy or VideoPolicy(),
+                device="cpu" if self.fit_policy.device == "cpu" else "cuda",
+                gpu_index=0
+                if self.fit_policy.device == "cpu"
+                else int(self.fit_policy.device.split(":")[1]),
+                quality_policy=self.feature_quality_policy,
             ),
         )
         self.report["photo_features"] = self.store.reference_artifact(
@@ -208,11 +244,7 @@ class PhotoToCharacterPipeline:
         )
         self.report["artifacts"]["photo_features"] = self.report["photo_features"]
         self.report["input_dependencies"].extend(
-            (
-                self.photo_evidence["parser"][key]
-                for key in ("model", "license_artifact")
-                if key in self.photo_evidence["parser"]
-            )
+            iter_artifact_references(self.photo_evidence.models)
         )
         self.head_model = HeadModel(
             self.store.artifact_path(self.model_assets["gnm"]["artifact"]),
@@ -220,55 +252,69 @@ class PhotoToCharacterPipeline:
             self.fit_policy.expression_modes,
         )
         self.report["model"] = self.head_model.audit()
-        observations = [
-            {**frame, "status": "ready"}
-            for frame in self.photo_evidence["frames"]
-            if "source_xy" in frame
-        ]
-        entries = {f["face_id"]: {} for f in observations}
-        self.fit_views, excluded = prepare_views(self.head_model, observations, entries)
-        self.report["inputs"] = {
-            "images": len(self.photo_evidence["frames"]),
-            "fit_views": len(self.fit_views),
-            "excluded": excluded,
-            "strict_neutral_views": sum(
-                (
-                    frame.get("eligible_identity", False)
-                    for frame in self.photo_evidence["frames"]
-                )
+        self.prepare_photo_head_views()
+        self.fit_head_identity()
+
+    def prepare_photo_head_views(self):
+        """Convert selected FaceFeatures directly into typed numerical reconstruction observations.
+        Retain image-level exclusions and keep quality/pose warnings out of selection gates.
+        """
+        frames = self.photo_evidence.frames
+        self.reconstruction_report = ReconstructionReport(
+            self.fit_policy,
+            ReconstructionInputs(
+                len(frames),
+                landmarks_ready=sum(
+                    frame.features is not None and frame.features.landmarks is not None
+                    for frame in frames
+                ),
             ),
+        )
+        observations = observations_from_face_features(
+            {frame.view_id: frame.features for frame in frames if frame.selected}
+        )
+        observations.extend(
+            HeadViewObservation(
+                frame.view_id,
+                "review",
+                reason=frame.reason or "image_extraction_failed",
+            )
+            for frame in frames
+            if not frame.selected
+        )
+        try:
+            self.fit_views = prepare_head_views(
+                self.head_model, observations, self.reconstruction_report
+            )
+        except Exception as error:
+            self.reconstruction_report.status = "failed"
+            self.reconstruction_report.failure = ReconstructionFailure(
+                type(error).__name__, str(error)
+            )
+            raise
+        finally:
+            self.report["reconstruction"] = self.reconstruction_report.to_dict()
+        self.report["inputs"] = {
+            "images": len(frames),
+            "fit_views": len(self.fit_views),
+            "excluded": [
+                item.to_dict() for item in self.reconstruction_report.excluded
+            ],
             "quality_warnings": dict(
                 Counter(
-                    (
-                        reason
-                        for frame in self.photo_evidence["frames"]
-                        for reason in frame.get("reasons", [])
-                    )
+                    reason
+                    for frame in frames
+                    if frame.features is not None and frame.features.quality is not None
+                    for reason in frame.features.quality.reasons
                 )
             ),
         }
-        self.fit_head_identity()
+        self.projection_inputs = prepare_photo_projection_inputs(self.store, frames)
 
     def fit_head_identity(self):
         """Fit shared identity using typed reconstruction results and persist failure diagnostics.
         Keep candidate exports and search orchestration outside the numerical fitting module.
         """
-        self.reconstruction_report = ReconstructionReport(
-            self.fit_policy,
-            ReconstructionInputs(
-                len(self.photo_evidence["frames"]),
-                landmarks_ready=sum(
-                    "source_xy" in frame for frame in self.photo_evidence["frames"]
-                ),
-            ),
-        )
-        self.reconstruction_report.excluded = [
-            ExcludedHeadView(item["face_id"], item["reason"])
-            for item in self.report["inputs"]["excluded"]
-        ]
-        self.reconstruction_report.prepared_view_ids = [
-            view["face_id"] for view in self.fit_views
-        ]
         try:
             with redirect_stdout(sys.stderr):
                 if self.search_policy is None:
@@ -351,7 +397,7 @@ class PhotoToCharacterPipeline:
                         self.root,
                         self.fit_views,
                         self.fit_result,
-                        self.photo_evidence,
+                        self.projection_inputs,
                     ),
                 )
             )
@@ -400,7 +446,7 @@ class PhotoToCharacterPipeline:
                 self.head_model,
                 self.fit_result,
                 self.fit_views,
-                self.photo_evidence,
+                self.projection_inputs,
                 triangle_uvs,
                 self.tools,
                 generation,
@@ -435,20 +481,18 @@ class PhotoToCharacterPipeline:
             "constraints": "shared identity basis fitted to supported 2D landmark correspondences; not dense measured vertices",
             "physical_scale_calibrated": False,
         }
-        by_id = {f["face_id"]: f for f in self.photo_evidence["frames"]}
+        by_id = {frame.view_id: frame for frame in self.photo_evidence.frames}
         fronts = [
             i for i, v in enumerate(self.fit_views) if v["view"]["category"] == "front"
         ]
         if not fronts:
             raise ValueError("Fresh native conform requires a fitted frontal photo")
-        index = max(
+        index = min(
             fronts,
-            key=lambda i: by_id[self.fit_views[i]["face_id"]].get(
-                "quality_score", -1000000000.0
-            ),
+            key=lambda i: self.fit_result.summary.views[i].median_outer_eye_span_error,
         )
         frame = by_id[self.fit_views[index]["face_id"]]
-        tracking, _ = read_image(self.store.artifact_path(frame["image"]))
+        tracking, _ = read_image(self.store.artifact_path(frame.image))
         with tracking:
             tracking.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
             tracking.save(self.root / "tracking-view.png")
@@ -459,13 +503,13 @@ class PhotoToCharacterPipeline:
                     "camera": self.fit_result.parameters.cameras_and_expressions[
                         index, :7
                     ],
-                    "source_size": frame["source_size"],
+                    "source_size": list(frame.features.source_size),
                 },
                 self.head_model.center,
                 tracking.size,
             )
         atomic_json(self.root / "tracking-camera.json", camera)
-        self.report["tracking_face_id"] = frame["face_id"]
+        self.report["tracking_face_id"] = frame.view_id
         self.character_worker = self.store.copy_artifact(
             module_source("ailias.metahuman.character_creation_worker"),
             str(self.root.relative_to(self.store.root) / "worker"),
@@ -581,7 +625,7 @@ class PhotoToCharacterPipeline:
                     self.head_model,
                     self.fit_result,
                     self.fit_views,
-                    self.photo_evidence,
+                    self.projection_inputs,
                     self.appearance_policy["device"],
                     texture_size=self.appearance_policy["texture_size"],
                     maximum_views=self.appearance_policy["max_views"],
@@ -621,7 +665,11 @@ class PhotoToCharacterPipeline:
 
         def map_appearance_evidence():
             return build_appearance_profile(
-                self.photo_evidence,
+                [
+                    frame.features
+                    for frame in self.photo_evidence.frames
+                    if frame.selected
+                ],
                 baked,
                 texture,
                 appearance_sources,
@@ -891,7 +939,7 @@ def run_photo_to_character_pipeline(
     tools,
     policy,
     *,
-    video_policy=None,
+    feature_quality_policy=None,
     appearance_policy=None,
     generation_policy=None,
     photos_run=None,
@@ -910,7 +958,7 @@ def run_photo_to_character_pipeline(
         project,
         tools,
         policy,
-        video_policy=video_policy,
+        feature_quality_policy=feature_quality_policy,
         appearance_policy=appearance_policy,
         generation_policy=generation_policy,
         photos_run=photos_run,

@@ -75,7 +75,8 @@ python -m ailias facefitting video-create subject --evidence C:\data\sampled-pho
 `--evidence` reuses only the supplied sampled images and capture timestamps.
 This command never decodes the original videos, resamples images or reuses
 their previous landmark/expression/semantic predictions. It runs fresh
-MediaPipe landmarks and regional face parsing on the retained images, then uses installed GNM
+MODNet/BiSeNet preparation and MediaPipe feature extraction through the shared
+imageprocessing APIs on the retained images, then uses installed GNM
 weights and fits a new shared identity/cameras/expressions using the existing
 `config\facefitting.json` policy, imports a new mesh, creates a new native
 Character with the factory, conforms it and independently reloads it. It does
@@ -126,12 +127,21 @@ commands remain available for independent operations.
 
 `--photos-run RUN` adds every accepted original-photo portrait across that
 imageprocessing scan's groups; old eligibility and group-size thresholds do
-not remove accepted portraits. Hash-verified originals retain their full image
-coordinates and resolution; reviewed crops localize detection only. Fresh
-landmarks are mapped back before camera fitting, and parsing is recomputed.
-Review rejections, ambiguous
-target detections and unsupported views remain explicitly accounted for.
+not remove accepted portraits. Hash-verified originals remain unchanged.
+An explicitly reviewed portrait crop is exported unwarped as the actual
+fitting/projection/tracking image; `FaceFeatures.source_size` and its landmarks
+use that crop grid. Original file references, dimensions and crop bounds remain
+in capture provenance, not mislabeled as fitted full-image coordinates.
+Review rejections, ambiguous face detections and numerically unsupported views
+remain explicitly accounted for. Quality warnings and side/up/down poses do not
+exclude otherwise usable image features.
 The source-photo inventory is retained in `photo-inputs\manifest.json`.
+Fresh typed features, image/label/head-alpha references and decisions are retained
+in the version-2 `photo-evidence\manifest.json`.
+`--feature-quality-config` selects `config\face_quality.json` annotations;
+the obsolete photo-workflow `--video-config` option has been removed.
+Preparation uses the CPU or CUDA index explicitly selected by `--fit-config`;
+the imageprocessing module's documented Windows MediaPipe CPU exception remains.
 
 `--fit-search-config config\facefitting-search.json` replaces the small
 identity-only comparison with an explicit 162-candidate search:

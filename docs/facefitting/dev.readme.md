@@ -9,9 +9,9 @@ split by responsibility rather than by CLI spelling:
 
 | Package | Responsibility |
 |---|---|
-| `head_reconstruction` | Evidence preparation, numerical fitting, mesh export and Blender appearance |
+| `head_reconstruction` | Numerical observations/fitting, mesh export and Blender appearance |
 | `metahuman` | Native Character import/conform, feature edits, assembly and saved-asset checks |
-| `pipelines` | Cross-domain photo-to-character and video-refinement execution |
+| `pipelines` | Photo source readers, typed extraction manifests, appearance translation and cross-domain execution |
 | `imageprocessing` | Shared dense observations, parsing and per-photo feature evidence |
 | `generation` | Shared native tools, project-owned editor and independent native processes |
 | `resource_management` | Scratch finalization and dependency-safe major-output retention |
@@ -41,8 +41,10 @@ The chain is local and synchronous, not a background queue or resume cache.
 `video-create --evidence` consumes retained images/timestamps, not the original
 video decoder. It computes fresh landmarks/parsing and does not reuse an old
 head, identity fit or native response. `--photos-run` adds hash-verified accepted
-originals across the selected scan's groups; detection crops do not replace
-source-coordinate geometry.
+originals across the selected scan's groups. Explicit reviewed crops become
+saved, unwarped fitting grids; original references/dimensions/crop bounds remain
+separate provenance. Fitting, overlays, texture projection and tracking all use
+that same retained grid.
 
 The Blender stage is mandatory for this command. Missing scenes, failed renders
 or altered export geometry stop execution; there is no silent direct-OBJ fallback.
@@ -84,7 +86,8 @@ Photo-colour projection creates an atlas in the fitted mesh's UV coordinates.
 A native Character has different topology/UVs and native skin/groom controls.
 Conforming geometry does not transfer its Blender material, hair or iris.
 
-Native appearance mapping constructs explicit feature profiles; the
+`pipelines\appearance_feature_mapping.py` translates selected `FaceFeatures`
+into explicit native feature profiles; the
 [MetaHuman adapter](../metahuman/dev.readme.md#appearance-and-assembly)
 owns applying, saving and independently checking those properties.
 Unmeasurable beard/lash evidence and stock groom approximations remain explicit.
@@ -97,7 +100,7 @@ Appearance-only jobs must preserve geometry and source-package identities.
 | OBJ export | `(GNM Z, X, Y) * 100` |
 | Imported static preview | `(GNM Z, -X, Y) * 100` |
 | Native target/camera | `(GNM X, Z, Y) * 100` |
-| Photo contour | Full source-frame pixels and retained perspective camera; no cropped principal-point substitution |
+| Photo contour | Actual retained image/crop grid and its fitted perspective camera; never relabel crop coordinates as full-source pixels |
 | Optional baseline | Verify pinned dependencies; never refit or overwrite the selected scene |
 | Native save | Commit state, save package, verify actual file/hash |
 | Assembly | Compiled actor/rig and independent reload are separate from API return values |

@@ -5,34 +5,37 @@ from PIL import Image, ImageDraw
 
 from ailias.imageprocessing.image_io import read_oriented_image as read_image
 from ailias.head_reconstruction.reconstruction_data import HeadFittingResult
+from ailias.head_reconstruction.appearance.projection_data import PhotoProjectionInput
 
 from ailias.storage import atomic_json
 
 
-def write_fit_overlays(store, root, views, fitted: HeadFittingResult, evidence):
+def write_fit_overlays(
+    store,
+    root,
+    views,
+    fitted: HeadFittingResult,
+    photos_by_view: dict[str, PhotoProjectionInput],
+):
     directory = root / "fit-overlays"
     directory.mkdir()
-    frames = {frame["face_id"]: frame for frame in evidence["frames"]}
     metrics = {view.view_id: view for view in fitted.summary.views}
     artifacts, index = {}, []
     for number, view in enumerate(views):
-        frame = frames[view["face_id"]]
+        photo = photos_by_view[view["face_id"]]
         size = np.asarray(view["source_size"])
         observed = view["target"] * max(size) + size / 2
         projected = fitted.parameters.projected_landmarks[number] * max(size) + size / 2
         active = view["weights"] > 0
-        original, _ = read_image(store.artifact_path(frame["image"]))
-        bounds = frame.get("reviewed_crop", [0, 0, *original.size])
-        image = original.crop(bounds)
-        original.close()
+        image, _ = read_image(photo.image)
+        source_size = image.size
         try:
             image.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
-            left, top, right, bottom = bounds
-            scale = np.asarray(image.size) / [right - left, bottom - top]
+            scale = np.asarray(image.size) / source_size
             draw = ImageDraw.Draw(image)
             for target, predicted in zip(
-                (observed[active] - [left, top]) * scale,
-                (projected[active] - [left, top]) * scale,
+                observed[active] * scale,
+                projected[active] * scale,
             ):
                 draw.line([tuple(target), tuple(predicted)], fill="#ffd34e", width=1)
                 for point, color in ((target, "#36ff6d"), (predicted, "#ff42d7")):

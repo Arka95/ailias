@@ -114,8 +114,14 @@ candidate NPZs, camera exports and overlays. Its version-2 manifest exposes
 `fit` and `reconstruction` records as above; saved camera/input contracts remain
 usable by photo tracking and appearance consumers. Numerical preparation no
 longer adds a separate extreme-pose rejection gate.
-The command's image intake/aligned observation path and photo-to-character
-evidence extraction still await migration; sharing fitting does not claim otherwise.
+Photo-to-character now uses shared image preparation/extraction and consumes their
+retained `FaceFeatures` directly. Its source loading, typed photo manifests and
+native-appearance translation belong to `pipelines`, not this module.
+`appearance.projection_data.PhotoProjectionInput` contains only the explicit
+image/label/head-alpha paths, fitted grid dimensions and appearance measurements
+needed for projection; projectors do not read workflow manifests or rerun CNNs.
+The standalone command's older image intake/aligned observation path still
+awaits migration; sharing fitting does not claim otherwise.
 Pixel-based appearance fitting remains a separate downstream task.
 
 ## Interpretation

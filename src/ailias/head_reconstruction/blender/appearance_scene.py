@@ -26,7 +26,7 @@ def create_blender_head(
     model,
     fitted: HeadFittingResult,
     views,
-    evidence,
+    photos_by_view,
     uvs,
     tools,
     generation,
@@ -43,14 +43,13 @@ def create_blender_head(
         exterior = np.all(supported[model.triangles], axis=1)
         mapping = uv_surface_map(uvs, policy["texture_size"], exterior)
         baked, selected = project_photo_evidence(
-            store,
             root,
             model,
             fitted.parameters.identity_coefficients,
             mapping,
             fitted,
             views,
-            evidence,
+            photos_by_view,
             policy["device"],
             maximum_views=policy["max_views"],
             photo_size=policy["photo_size"],

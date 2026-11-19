@@ -118,7 +118,7 @@ data only. Its fields describe one view, not an identity model or a constructed 
 | `source_size` | `(width, height)` of the landmark pixel grid, including any explicit caller crop |
 | `landmarks` | `normalized_predicted`: 478 x 3 raw MediaPipe predictions; `source_xy`: 478 x 2 pixel coordinates; `on_head`: 478 in-image/positive-alpha support flags. Predicted z is not metric depth |
 | `bisenet` | Typed `FaceFeaturesBiseNet`: natural-region appearance records described below, not dense pixel masks |
-| `features` | Dictionary containing `geometry_2d` pixel lengths/eye-span ratios, `regions` appearance summaries and separate `iris` evidence, plus unresolved-measurement/limitation flags |
+| `features` | Dictionary containing `geometry_2d` pixel lengths/eye-span ratios, `regions` appearance summaries, separate `iris` evidence and heuristic `facial_hair_appearance` when skin colour is measurable, plus limitation flags |
 | `blendshapes` | Per-view expression scores, not shared identity or a neutral mesh |
 | `facial_transform` | Raw model transform, when available |
 | `orientation` | Approximate pitch/yaw/roll or a missing/invalid-pose diagnostic; not calibrated anatomical direction |
@@ -126,7 +126,8 @@ data only. Its fields describe one view, not an identity model or a constructed 
 | `features_colour_source` | `"original_rgb"`: colours retain the photographed lighting, not the normalized cutout colours |
 
 `FaceFeatures` contains **no image pixels, alpha image, dense parser masks,
-source path or selection decision**. For grouping, use batch extraction:
+source path or selection decision**. For grouping, use `extract_feature_result(prepared)`
+for one fail-fast extraction, or batch extraction for per-image failure isolation:
 its `FaceExtractionResult` items keep facial data in `.features`, original/head
 Pillow references in `.image`/`.head_image`, and source/frame/backend/error
 metadata alongside it. Wrapper JSON omits the image pixels.
@@ -173,7 +174,10 @@ For example, one **illustrative, not measured-from-the-previews** skin record is
 independent normalized linear-light channel intensities, **not percentages
 that add up to 100**. Missing/insufficient regions retain review evidence
 instead of a fabricated colour. Beard, moustache and eyelashes have no separate
-class in the current parser and remain explicitly unresolved.
+class in the current parser. `features["facial_hair_appearance"]` separately
+estimates beard/moustache darkness inside landmark regions relative to observed
+skin colour; shadows and pigmentation remain ambiguous. This is not beard
+segmentation, an eyelash measurement or intrinsic reflectance.
 
 These are derived pixel statistics, not retained raw CNN score maps. They reuse
 existing labels and do not feed into or refine MediaPipe. The enclosing

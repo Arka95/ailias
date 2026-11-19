@@ -25,10 +25,10 @@ def add_parser(commands):
         help="Retained sampled-frame manifest; all downstream predictions are recomputed",
     )
     fresh.add_argument(
-        "--video-config",
+        "--feature-quality-config",
         type=Path,
-        default=DEFAULT_CONFIG.with_name("video-evidence.json"),
-        help="Face detection/quality policy; video decoding is never invoked",
+        default=DEFAULT_CONFIG.with_name("face_quality.json"),
+        help="Imageprocessing quality annotations; warnings do not exclude usable views",
     )
     fresh.add_argument("--editor", type=Path, required=True)
     fresh.add_argument("--project", type=Path, required=True)
@@ -352,7 +352,7 @@ def execute(args, data_root):
         import json
         from ailias.pipelines.photo_to_character import run_photo_to_character_pipeline
         from ailias.head_reconstruction.settings import load_policy
-        from ailias.head_reconstruction.settings import VideoPolicy
+        from ailias.imageprocessing.settings import load_face_quality_policy
         from ailias.pipelines.settings import load_appearance_policy
         from ailias.head_reconstruction.geometry.identity_search import (
             load_search_policy,
@@ -371,8 +371,8 @@ def execute(args, data_root):
                 args.project,
                 NativeTools(tools_root, generation.timeout_seconds),
                 load_policy(args.fit_config),
-                video_policy=VideoPolicy(
-                    **json.loads(args.video_config.read_text(encoding="utf-8"))
+                feature_quality_policy=load_face_quality_policy(
+                    args.feature_quality_config
                 ),
                 appearance_policy=load_appearance_policy(args.appearance_config),
                 generation_policy=generation,

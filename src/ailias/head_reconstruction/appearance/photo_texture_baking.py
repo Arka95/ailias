@@ -1,6 +1,7 @@
 """Project current photo evidence onto a supplied head surface and write its atlas."""
 
 from contextlib import ExitStack
+from collections.abc import Mapping
 import sys
 
 import numpy as np
@@ -9,18 +10,18 @@ from scipy.ndimage import distance_transform_edt
 
 from ailias.head_reconstruction.appearance.uv_rasterization import choose_texture_views
 from ailias.head_reconstruction.reconstruction_data import HeadFittingResult
+from ailias.head_reconstruction.appearance.projection_data import PhotoProjectionInput
 from ailias.imageprocessing.image_io import read_oriented_image as read_image
 
 
 def project_photo_evidence(
-    store,
     root,
     surface,
     identity,
     mapping,
     fitted: HeadFittingResult,
     views,
-    evidence,
+    photos_by_view: Mapping[str, PhotoProjectionInput],
     device,
     *,
     maximum_views=16,
@@ -28,50 +29,60 @@ def project_photo_evidence(
 ):
     from ailias.head_reconstruction.appearance.cuda_texture_projection import bake
 
-    frames = {frame["face_id"]: frame for frame in evidence["frames"]}
     metrics = {view.view_id: view for view in fitted.summary.views}
     cameras = [
         {
             **metrics[view["face_id"]].to_dict(),
             "face_id": view["face_id"],
             "view": view["view"],
-            "source_size": frames[view["face_id"]]["source_size"],
+            "source_size": list(photos_by_view[view["face_id"]].source_size),
             "camera": fitted.parameters.cameras_and_expressions[index, :7].tolist(),
             "expression": fitted.parameters.cameras_and_expressions[index, 7:].tolist(),
         }
         for index, view in enumerate(views)
     ]
     entries = {
-        face_id: {"portrait_bounds": [0, 0, *frame["source_size"]]}
-        for face_id, frame in frames.items()
-        if "source_size" in frame
+        view_id: {"portrait_bounds": [0, 0, *photo.source_size]}
+        for view_id, photo in photos_by_view.items()
     }
-    selected = choose_texture_views(cameras, entries, frames, maximum_views)
+    observations = {
+        view_id: {"blendshapes": photo.blendshapes}
+        for view_id, photo in photos_by_view.items()
+    }
+    selected = choose_texture_views(cameras, entries, observations, maximum_views)
     photos, temporary = [], []
     try:
         for index, view in enumerate(selected):
             face_id = view["face_id"]
-            frame, record = frames[face_id], evidence["faces"][face_id]
+            photo = photos_by_view[face_id]
             with ExitStack() as resources:
-                image = resources.enter_context(
-                    read_image(store.artifact_path(frame["image"]))[0]
-                )
-                opened_regions = resources.enter_context(
-                    Image.open(store.artifact_path(record["regions"]))
-                )
+                image = resources.enter_context(read_image(photo.image)[0])
+                opened_regions = resources.enter_context(Image.open(photo.regions))
                 regions = resources.enter_context(opened_regions.convert("L"))
+                opened_head = resources.enter_context(Image.open(photo.head_image))
+                alpha = resources.enter_context(opened_head.getchannel("A"))
+                if (
+                    image.size != photo.source_size
+                    or regions.size != image.size
+                    or alpha.size != image.size
+                ):
+                    raise ValueError(
+                        "Photo pixels, parser labels and head alpha must share the fitted grid"
+                    )
                 source_size = image.size
                 image.thumbnail((photo_size, photo_size), Image.Resampling.LANCZOS)
                 regions = resources.enter_context(
                     regions.resize(image.size, Image.Resampling.NEAREST)
                 )
+                alpha = resources.enter_context(
+                    alpha.resize(image.size, Image.Resampling.LANCZOS)
+                )
                 labels, rgb = np.asarray(regions), np.asarray(image)
-                skin = record["features"]["regions"]["skin"]
-                if skin["status"] != "observed":
+                if photo.skin_linear_rgb is None:
                     raise ValueError(
                         "A selected texture view lacks skin evidence: " + face_id
                     )
-                color = np.asarray(skin["median_linear_rgb"])
+                color = np.asarray(photo.skin_linear_rgb)
                 color = np.where(
                     color <= 0.0031308,
                     color * 12.92,
@@ -81,7 +92,7 @@ def project_photo_evidence(
                 data = root / f"photo-texture-{index:02}.npz"
                 temporary.append(data)
                 np.savez_compressed(
-                    data, rgb=rgb, labels=labels, alpha=np.uint8(labels != 0) * 255
+                    data, rgb=rgb, labels=labels, alpha=np.asarray(alpha)
                 )
                 photos.append(
                     {

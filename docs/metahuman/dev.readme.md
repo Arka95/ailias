@@ -9,7 +9,6 @@
 | `static_mesh_import.py` | Verified mesh import, package hashes, declared basis/bounds |
 | `head_conforming.py` | Optional baseline/photo-camera dependencies and head-only native solve |
 | `character_features.py` | Profile validation, immutable-source duplication, edits and optional assembly |
-| `appearance_mapping.py` | Translate supported photo evidence/policy into explicit native settings |
 | `feature_comparison.py` | Photo/render diagnostics and unapplied iris-profile proposals |
 | `character_portrait.py` | Verified runtime review through the reanimation renderer |
 | `sculpt_response.py` | Source-pinned finite-difference calibration and exact state restoration |

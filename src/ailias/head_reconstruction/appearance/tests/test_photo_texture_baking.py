@@ -13,6 +13,7 @@ from ailias.head_reconstruction.appearance.photo_texture_baking import (
     write_texture_atlas,
 )
 from ailias.head_reconstruction.geometry.tests.fitting_fixtures import make_head_fit
+from ailias.head_reconstruction.appearance.projection_data import PhotoProjectionInput
 from ailias.storage import Store
 
 
@@ -27,23 +28,19 @@ class PhotoTextureBakingTests(unittest.TestCase):
         Image.new("RGB", (8, 8), (100, 80, 60)).save(image)
         Image.new("L", (8, 8), 1).save(mask)
         self.source = self.store.reference_artifact(image)
-        self.evidence = {
-            "frames": [
-                {"face_id": "frame", "image": self.source, "source_size": [8, 8]}
-            ],
-            "faces": {
-                "frame": {
-                    "regions": self.store.reference_artifact(mask),
-                    "features": {
-                        "regions": {
-                            "skin": {
-                                "status": "observed",
-                                "median_linear_rgb": [0.2, 0.15, 0.1],
-                            }
-                        }
-                    },
-                }
-            },
+        head = self.root / "head.png"
+        cutout = Image.new("RGBA", (8, 8), (100, 80, 60, 255))
+        cutout.putpixel((0, 0), (100, 80, 60, 0))
+        cutout.save(head)
+        cutout.close()
+        self.photos = {
+            "frame": PhotoProjectionInput(
+                image=image,
+                regions=mask,
+                head_image=head,
+                source_size=(8, 8),
+                skin_linear_rgb=[0.2, 0.15, 0.1],
+            )
         }
         self.fitted = make_head_fit(["frame"], error=0.02)
         self.views = [{"face_id": "frame", "view": {"category": "front", "yaw_deg": 0}}]
@@ -58,6 +55,8 @@ class PhotoTextureBakingTests(unittest.TestCase):
                     with np.load(photos[0]["data"], allow_pickle=False) as data:
                         self.assertEqual(data["rgb"].shape, (8, 8, 3))
                         np.testing.assert_array_equal(data["labels"], np.ones((8, 8)))
+                        self.assertEqual(data["alpha"][0, 0], 0)
+                        self.assertEqual(data["alpha"][1, 1], 255)
                     if fail:
                         raise RuntimeError("projection failed")
                     return {"current_projection": True}
@@ -69,26 +68,24 @@ class PhotoTextureBakingTests(unittest.TestCase):
                     if fail:
                         with self.assertRaisesRegex(RuntimeError, "projection failed"):
                             project_photo_evidence(
-                                self.store,
                                 self.root,
                                 object(),
                                 np.zeros(1),
                                 (),
                                 self.fitted,
                                 self.views,
-                                self.evidence,
+                                self.photos,
                                 "cuda:0",
                             )
                     else:
                         result, selected = project_photo_evidence(
-                            self.store,
                             self.root,
                             object(),
                             np.zeros(1),
                             (),
                             self.fitted,
                             self.views,
-                            self.evidence,
+                            self.photos,
                             "cuda:0",
                         )
                         self.assertTrue(result["current_projection"])
