@@ -8,6 +8,58 @@ Reusable photo-feature extraction belongs here; native asset/control translation
 belongs downstream. Regional geometry/colour/iris evidence does not include
 separate beard/lash segmentation or automatic native likeness fitting.
 See the [research and limitations](photo-to-metahuman-research.md).
+For model-by-model inputs, outputs and actual local portrait examples, see the
+[illustrated image-to-features pipeline](illustrated-pipeline.md).
+
+## Simple Python API
+
+`ImageProcessor` runs **MODNet -> BiSeNet -> MediaPipe** directly, without
+YuNet, SFace, automatic cropping or alignment. Existing commands below are
+unchanged and still use their original pipeline.
+
+```python
+from pathlib import Path
+from ailias.imageprocessing.images import ImageProcessor
+
+models = Path(r"data\arka\imageprocessing\models")
+with ImageProcessor(
+    modnet_model=models / "modnet-photographic-v1" / "modnet-512.onnx",
+    bisenet_model=models / "face-parsing-resnet18-v1" / "resnet18.onnx",
+    mediapipe_model=Path(r"data\arka\facefitting\models\mp-face-landmarker-v1\face_landmarker.task"),
+) as processor:
+    result = processor.process_image(Path(r"C:\photos\face.jpg"))
+    result["image"].save("head.png")  # Explicit export; processing itself writes nothing.
+```
+
+| Result | Contents |
+|---|---|
+| `image`, `regions` | Native-size RGBA head and semantic-label image |
+| `landmarks`, `blendshapes`, `facial_transform` | Original-grid 478-point predictions, expression scores and model transform |
+| `features` | Facial ratios, regional colours and iris evidence sampled from **original RGB** |
+| `status`, `quality`, `colour` | `ready`/`review`, quality reasons and white-balance outcome |
+
+Colour normalization is enabled by default for the returned cutout, not feature
+samples; pass `normalize_colour=False` to skip it. This is bounded scene-neutral
+white balance, not calibrated skin colour or cross-photo exposure matching.
+No/multiple faces, invalid points, low detail, clipping, poor foreground support,
+strong expressions and extreme/missing pose produce review outcomes rather than automatic approval.
+Region/iris features can independently require review.
+
+Use `processor.process_images(paths)` for a lazy batch with reused models and
+per-item error results. `processor.extract_video_frames(path)` yields `Frame`
+records with RGB, source, decode index and timestamp; pass these records directly
+to `process_image()` or `process_images()`. Sampling defaults to one frame per
+second; `interval_seconds` and `max_frames` control it. Close an unfinished frame
+iterator to release its decoder. `load_image()` preserves orientation, colour
+profiles and existing transparency; `crop_image()` accepts explicit pixel bounds.
+
+Models load lazily on CPU from the supplied local files, with no downloads,
+external processes or global thread-setting changes. Use prepared model files
+compatible with the existing MODNet static-512 and BiSeNet ResNet18 adapters.
+Image inference needs the existing `imageprocessing` and `dense-landmarks`
+extras; frame extraction also needs PyAV from the existing `video` extra.
+Use one processor serially, not concurrent calls sharing its mutable networks.
+No alpha sidecars, JSON or previews are retained automatically.
 
 ## Inputs and outputs
 

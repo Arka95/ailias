@@ -7,7 +7,10 @@ import warnings
 from PIL import Image, ImageCms, ImageOps
 
 
-def read_oriented_image(path: Path) -> tuple[Image.Image, dict]:
+def read_oriented_image(path: Path, *, preserve_alpha: bool = False) -> tuple[Image.Image, dict]:
+    """Decode oriented, colour-managed pixels without retaining the source file handle.
+    Preserve transparency only when requested; existing callers continue receiving RGB.
+    """
     if path.suffix.lower() in {".heic", ".heif", ".hif"}:
         try:
             from pillow_heif import register_heif_opener
@@ -21,6 +24,9 @@ def read_oriented_image(path: Path) -> tuple[Image.Image, dict]:
         with Image.open(path) as original:
             image = ImageOps.exif_transpose(original)
             image.load()
+            alpha = (image.convert("RGBA").getchannel("A")
+                     if preserve_alpha and ("A" in image.getbands() or "transparency" in image.info)
+                     else None)
             metadata = {
                 "decoded_size": list(original.size),
                 "oriented_size": list(image.size),
@@ -43,5 +49,8 @@ def read_oriented_image(path: Path) -> tuple[Image.Image, dict]:
                         "invalid_icc_profile; RGB conversion only"
                     )
             image = image.convert("RGB")
+            if alpha is not None:
+                image.putalpha(alpha)
+                metadata["alpha_preserved"] = True
             image.info.clear()
             return image, metadata

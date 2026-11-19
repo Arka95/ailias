@@ -2,6 +2,32 @@
 
 # Imageprocessing internals
 
+## Simple API
+
+`images.py` owns one `ImageProcessor` and the plain `Frame` data record.
+MODNet predicts opacity; BiSeNet labels a grey composite of that result and
+restricts its alpha; MediaPipe detects directly on the head cutout. The new API
+does not use the legacy detector/grouping backend or depend on native-engine
+modules. Each function has a short descriptive docstring naming its model where
+applicable.
+
+ONNX networks and the dense detector load lazily, are reused serially across
+images/frames, and are released by `close()` or context exit. Source geometry
+stays unchanged. White balance changes only the returned cutout; feature colours
+are sampled from original RGB using restored semantic labels and dense points.
+This keeps the existing feature interpretation without retaining manifests.
+`read_oriented_image(..., preserve_alpha=True)` supports the new loader;
+its default remains RGB for all existing callers.
+
+Results and batch errors stay in memory. Individual region/iris review flags
+remain separate from overall image-quality status. Predicted pose angles flag
+absolute pitch/roll above 25 degrees or yaw above 70; expression scores above
+0.5 flag non-neutral expression. These are review heuristics, not calibrated
+depth, pose, skin colour or independent per-point visibility.
+`Frame` sampling uses presentation timestamps with bounded lazy consumption,
+never average FPS; missing/invalid timestamps and rotated inputs fail explicitly.
+No weights, codecs, real photos or native editors run in its mocked unit tests.
+
 ## Runtime
 
 `scan` accepts a backend implementing detection, segmentation and provenance.
