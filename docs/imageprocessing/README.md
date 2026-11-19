@@ -19,6 +19,13 @@ prepared head and labels: no second matting, parsing or head-isolation pass.
 Neither stage uses YuNet, SFace, automatic cropping or alignment. Existing commands
 below are unchanged and still use their original pipeline.
 
+**Single-person scope:** every input belongs to the same known person. Identity
+embeddings, person clustering and subject matching are intentionally unnecessary
+in this API. Grouping means organizing views, not identifying people.
+The next stages are **view grouping, then selection within each view group**;
+neither is implemented in the new API yet. Earlier quality warnings are evidence
+for selection, not instructions to delete images or reject useful side/upper views.
+
 ```python
 from pathlib import Path
 from ailias.imageprocessing.face_feature_extraction import FaceFeatureExtractor, FaceFeatures

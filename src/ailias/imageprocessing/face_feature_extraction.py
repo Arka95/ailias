@@ -25,8 +25,8 @@ ROTATION_VALIDATION_TOLERANCE = 0.02
 
 
 class FaceFeatureExtractor:
-    """Extract evidence from existing pixels and region labels without preparing them again.
-    Reuse one lazy MediaPipe task across a collection and release it on context exit.
+    """Extract one known person's facial evidence from existing pixels and region labels.
+    Reuse one lazy MediaPipe task without identifying people or selecting collection members.
     """
 
     def __init__(

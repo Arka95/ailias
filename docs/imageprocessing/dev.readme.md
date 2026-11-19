@@ -70,9 +70,14 @@ remain named model constants, not adjustable review thresholds.
 never average FPS; missing/invalid timestamps and rotated inputs fail explicitly.
 No weights, codecs, GPU probes, real photos or native editors run in its mocked unit tests.
 
-Identity grouping is not implemented by `FaceFeatures`: it contains photo-space
-measurements, not recognition embeddings. The existing CLI groups face embeddings
-in `pipeline.scan()` before cleansing; its grouping behavior is unchanged.
+The new API assumes one known person across all inputs. Identity embeddings,
+person clustering and subject association are intentionally out of scope, not
+missing prerequisites. Future `face_grouping.py` work should organize pose/view
+groups, followed by selection of useful images within those groups. Current
+quality flags annotate evidence before that selection; they do not delete inputs.
+No new grouping/selection implementation exists yet. The exactly-one-detection
+check guards against ambiguous model output, not against different identities.
+Legacy CLI identity grouping, curation and selection remain unchanged by request.
 
 ## Runtime
 
