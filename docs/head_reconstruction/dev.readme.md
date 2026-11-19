@@ -79,8 +79,16 @@ The photo-to-character manifest is version 2: `fit` is a serialized
 `HeadFitSummary`; `reconstruction` retains typed input/candidate/mesh diagnostics.
 Neutral geometry passes `construct_neutral_head_mesh()` before any Blender/native
 handoff, including after capacity search. NPZ array names are unchanged.
-The standalone `facefitting fit` CLI and older photo evidence extraction remain
-separate pending migration steps, not alternate implementations of the new API.
+The standalone `facefitting fit` job now uses these same fitting/mesh stages:
+its duplicated reference/candidate/refit algorithm and triangle checks were
+removed. A caller-owned typed candidate callback preserves per-capacity NPZs
+without giving the fitter file/storage responsibilities. Camera exports retain
+the face-ID/source-grid fields required by photo tracking and appearance.
+Observation collection, camera export and review previews have scoped functions.
+The redundant detector-reexport module was removed; its coordinate-restoration
+regression test moved to the owning imageprocessing package.
+Standalone image intake/aligned observation extraction and the older
+photo-to-character evidence producer remain pending migration steps.
 
 The new path disables only legacy angle rejection, not camera initialization,
 foreground/template support, minimum-view, held-out identity or mesh-quality gates.

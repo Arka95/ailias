@@ -1,6 +1,7 @@
 """Select shared head identity using held-out views and separate per-view expressions."""
 
 from dataclasses import dataclass
+from collections.abc import Callable
 
 import numpy as np
 
@@ -37,18 +38,23 @@ class _CandidateFit:
 
 
 def fit_shared_head_identity(
-    model, views, policy, report: ReconstructionReport
+    model,
+    views,
+    policy,
+    report: ReconstructionReport,
+    *,
+    on_candidate: Callable[[int, HeadFittingResult], None] | None = None,
 ) -> HeadFittingResult:
     """Fit one shared identity and return typed parameters/metrics after held-out candidate selection.
     Reuse existing CPU/CUDA solvers without mixing image inference, mesh creation or file export into fitting.
     """
     return fitting_result_from_solver(
-        _fit_identity_parameters(model, views, policy, report)
+        _fit_identity_parameters(model, views, policy, report, on_candidate)
     )
 
 
 def _fit_identity_parameters(
-    model, views, policy, report: ReconstructionReport
+    model, views, policy, report: ReconstructionReport, on_candidate
 ) -> dict:
     """Separate view splitting, generic reference fitting, candidate selection and final all-view refit.
     Preserve the original view order when recombining training and validation camera/expression parameters.
@@ -65,7 +71,14 @@ def _fit_identity_parameters(
     )
     report.baseline_score = baseline_score
     best = _select_identity_candidate(
-        model, train, validation, policy, baseline_train, baseline_validation, report
+        model,
+        train,
+        validation,
+        policy,
+        baseline_train,
+        baseline_validation,
+        report,
+        on_candidate,
     )
     if (
         best is None
@@ -104,6 +117,7 @@ def _select_identity_candidate(
     baseline_train,
     baseline_validation,
     report: ReconstructionReport,
+    on_candidate,
 ) -> _CandidateFit | None:
     """Evaluate configured identity capacities without allowing held-out frontal accuracy to regress.
     Retain each completed candidate diagnostic, including when a later solver invocation fails.
@@ -129,6 +143,8 @@ def _select_identity_candidate(
         report.candidates.append(
             IdentityCandidateEvaluation(modes, candidate.score, preserved)
         )
+        if on_candidate is not None:
+            on_candidate(modes, fitting_result_from_solver(candidate.training))
         if preserved and (
             best is None
             or candidate.score.view_balanced_mean_error

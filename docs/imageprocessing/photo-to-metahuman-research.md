@@ -235,7 +235,7 @@ storage choice here. COLMAP's transient SQLite is unrelated reconstruction scrat
 | Area | Keep | Proposed change / gate |
 |---|---|---|
 | `imageprocessing\dense.py`, `appearance_features.py`, `feature_evidence.py` | Shared detector and versioned source-coordinate regional evidence implemented | Separate beard/lash evidence and multi-view visibility calibration remain |
-| `head_reconstruction\evidence\landmark_detection.py`, `head_reconstruction\appearance\iris_color_matching.py`, `metahuman\feature_comparison.py` | Shared detector imports and bounded photo/render comparison | Native anatomical mapping still required; an iris proposal is not an applied edit |
+| `imageprocessing\dense.py`, `head_reconstruction\appearance\iris_color_matching.py`, `metahuman\feature_comparison.py` | Shared detector and bounded photo/render comparison | Native anatomical mapping still required; an iris proposal is not an applied edit |
 | `config\imageprocessing.json`, `cleansing.json` | Existing extraction/colour semantics | Any new feature policy must document pixels/units, sample sufficiency, cohort and abstention; no new keys implemented here |
 | `config\facefitting.json`, `appearance.json` | Explicit device, fit/texture budgets | Preserve pinned geometry; alternatives are research until separately evaluated |
 | `metahuman\character_features.py`, `character_features_worker.py`, `character_portrait.py` | Isolated revisions, strict saved-state verification, neutral reviews | Semantic mapping and calibrated coordinated appearance remain separate gates |

@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from ailias.head_reconstruction.evidence.landmark_detection import observe
+from ailias.imageprocessing.dense import observe
 from ailias.storage import Store
 
 
@@ -26,21 +26,31 @@ class ObservationTests(unittest.TestCase):
             image.putpixel((0, 0), (0, 0, 0, 0))
             path = store.root / "head.png"
             image.save(path)
-            entry = {"face_id": "face", "source_id": "source", "analysis": {
-                "aligned_cutout": store.reference_artifact(path), "alignment": {
-                    "status": "ready", "aligned_to_source": [[2, 0, 10], [0, 2, 20], [0, 0, 1]],
-                    "source_to_aligned": [[.5, 0, -5], [0, .5, -10], [0, 0, 1]]}}}
-            landmarks = np.tile([.5, .5, 0], (478, 1))
+            entry = {
+                "face_id": "face",
+                "source_id": "source",
+                "analysis": {
+                    "aligned_cutout": store.reference_artifact(path),
+                    "alignment": {
+                        "status": "ready",
+                        "aligned_to_source": [[2, 0, 10], [0, 2, 20], [0, 0, 1]],
+                        "source_to_aligned": [[0.5, 0, -5], [0, 0.5, -10], [0, 0, 1]],
+                    },
+                },
+            }
+            landmarks = np.tile([0.5, 0.5, 0], (478, 1))
             landmarks[0] = [0, 0, 0]
-            landmarks[33, 0], landmarks[263, 0] = .3, .7
+            landmarks[33, 0], landmarks[263, 0] = 0.3, 0.7
             result = observe(store, entry, [1000, 800], FakeDetector([landmarks]))
             self.assertEqual(result["status"], "ready")
             np.testing.assert_allclose(result["source_xy"][1], [110, 120])
             self.assertFalse(result["on_head"][0])
             self.assertFalse(result["landmark_depth_is_measured"])
-            self.assertEqual(observe(store, entry, [1000, 800], FakeDetector([]))["status"], "review")
+            self.assertEqual(
+                observe(store, entry, [1000, 800], FakeDetector([]))["status"], "review"
+            )
             with self.assertRaises(ValueError):
-                entry["analysis"]["alignment"]["source_to_aligned"][0][0] = .6
+                entry["analysis"]["alignment"]["source_to_aligned"][0][0] = 0.6
                 observe(store, entry, [1000, 800], FakeDetector([landmarks]))
 
 

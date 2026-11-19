@@ -108,10 +108,14 @@ generic head as a successful personal reconstruction.
 The result is in memory: no previews, sidecars, meshes, models or native assets
 are saved automatically. Use `geometry.artifact_io.export_obj(path, vertices, triangles)`
 and `save_fit(path, reconstruction.fit)` explicitly to export geometry/parameters.
-The existing NPZ field names remain unchanged. This is a new Python entry point;
-the existing `facefitting fit` CLI, its legacy observation path and pose rules
-are not yet migrated. Photo-to-character evidence extraction also still uses
-its older path; migrating its fitting consumers does not claim otherwise.
+The existing NPZ field names remain unchanged. The standalone `facefitting fit`
+command now shares typed identity fitting and neutral-mesh validation, retaining
+candidate NPZs, camera exports and overlays. Its version-2 manifest exposes
+`fit` and `reconstruction` records as above; saved camera/input contracts remain
+usable by photo tracking and appearance consumers. Numerical preparation no
+longer adds a separate extreme-pose rejection gate.
+The command's image intake/aligned observation path and photo-to-character
+evidence extraction still await migration; sharing fitting does not claim otherwise.
 Pixel-based appearance fitting remains a separate downstream task.
 
 ## Interpretation

@@ -93,6 +93,44 @@ class SharedIdentityTests(unittest.TestCase):
                 fit_shared_head_identity(object(), views, policy, report)
         self.assertEqual(fit.call_count, 4)
 
+    def test_candidate_callback_receives_typed_training_fit_before_all_view_refit(self):
+        views, runs, score = self.fixture()
+        runs[2] = make_solver_fit(["0", "2"], identity=np.array([0.25]))
+        policy = FitPolicy(identity_candidates=(1,))
+        report = ReconstructionReport(policy, ReconstructionInputs(len(views)))
+        retained = []
+        with (
+            patch(
+                "ailias.head_reconstruction.geometry.identity_fitting.validation_indices",
+                return_value=[1],
+            ),
+            patch(
+                "ailias.head_reconstruction.geometry.identity_fitting.fit",
+                side_effect=runs,
+            ),
+            patch(
+                "ailias.head_reconstruction.geometry.identity_fitting.evaluation_score",
+                side_effect=[score(1), score(0.8)],
+            ),
+        ):
+            result = fit_shared_head_identity(
+                object(),
+                views,
+                policy,
+                report,
+                on_candidate=lambda modes, candidate: retained.append(
+                    (modes, candidate)
+                ),
+            )
+        self.assertEqual(len(retained), 1)
+        self.assertEqual(retained[0][0], 1)
+        self.assertEqual(
+            [view.view_id for view in retained[0][1].summary.views], ["0", "2"]
+        )
+        self.assertEqual(
+            [view.view_id for view in result.summary.views], ["0", "1", "2"]
+        )
+
     def test_completed_candidate_diagnostics_survive_a_later_solver_failure(self):
         """Retain a successful candidate evaluation if a subsequent capacity cannot finish fitting.
         Leave failure classification to the orchestration layer without losing completed selection evidence.
