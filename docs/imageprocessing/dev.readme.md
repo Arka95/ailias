@@ -21,6 +21,10 @@ processor closes. White balance changes only the prepared cutout; feature colour
 are sampled from original RGB using existing semantic labels and dense points.
 This preserves the uncorrected-photo colour contract, including its lighting/cast,
 without retaining manifests. MediaPipe receives the prepared head, not original RGB.
+`FaceFeatures` is the output dataclass for single extraction and every batch item,
+including reviews and errors. Its attributes retain source/frame identity,
+predictions, nested evidence and execution provenance; it owns no model or images.
+Consumers use attributes rather than dictionary keys. Preparation outputs remain dictionaries.
 `read_oriented_image(..., preserve_alpha=True)` supports the new loader;
 its default remains RGB for all existing callers.
 
@@ -49,6 +53,10 @@ remain named model constants, not adjustable review thresholds.
 `Frame` sampling uses presentation timestamps with bounded lazy consumption,
 never average FPS; missing/invalid timestamps and rotated inputs fail explicitly.
 No weights, codecs, GPU probes, real photos or native editors run in its mocked unit tests.
+
+Identity grouping is not implemented by `FaceFeatures`: it contains photo-space
+measurements, not recognition embeddings. The existing CLI groups face embeddings
+in `pipeline.scan()` before cleansing; its grouping behavior is unchanged.
 
 ## Runtime
 

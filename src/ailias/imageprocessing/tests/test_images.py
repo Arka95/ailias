@@ -335,7 +335,7 @@ class ImageProcessorTests(unittest.TestCase):
         self.processor.close()
         with FaceFeatureExtractor(mediapipe_model=model, device="cpu") as extractor:
             result = extractor.extract_features(prepared)
-        self.assertIsNotNone(result["features"])
+        self.assertIsNotNone(result.features)
         self.modnet.forward.assert_called_once()
         self.bisenet.forward.assert_called_once()
         landmarker.detect.assert_called_once()

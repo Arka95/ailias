@@ -21,7 +21,7 @@ below are unchanged and still use their original pipeline.
 
 ```python
 from pathlib import Path
-from ailias.imageprocessing.face_feature_extraction import FaceFeatureExtractor
+from ailias.imageprocessing.face_feature_extraction import FaceFeatureExtractor, FaceFeatures
 from ailias.imageprocessing.images import ImageProcessor
 
 models = Path(r"data\arka\imageprocessing\models")
@@ -34,8 +34,9 @@ with ImageProcessor(
 with FaceFeatureExtractor(
     mediapipe_model=Path(r"data\arka\facefitting\models\mp-face-landmarker-v1\face_landmarker.task"),
 ) as extractor:
-    evidence = extractor.extract_features(prepared)
+    face_features: FaceFeatures = extractor.extract_features(prepared)
 
+print(face_features.status, face_features.features)
 prepared["image"].save("head.png")  # Explicit export; neither stage writes automatically.
 ```
 
@@ -53,6 +54,10 @@ MediaPipe GPU delegate. Unsupported requested GPU execution fails; no CPU retry.
 Preparation `ready` means a nonempty head, **not face-quality approval**.
 The extractor performs face-quality review separately. `mediapipe_model` and
 `quality_policy` belong to `FaceFeatureExtractor`, not `ImageProcessor`.
+`extract_features()` returns a **`FaceFeatures` class instance**, not a dictionary;
+read `face_features.landmarks`, `.features`, `.quality` and `.source` as attributes.
+Nested measurement/quality payloads remain dictionaries. Batch results use the
+same class for `ready`, `review` and `error`; errors expose `.error_type` and `.reason`.
 
 Colour normalization is enabled by default for the returned cutout, not feature
 samples; pass `normalize_colour=False` to skip it. Original RGB is retained only
@@ -65,7 +70,7 @@ Region/iris features can independently require review.
 
 For a lazy feature batch, pass `processor.process_images(paths)` into
 `extractor.extract_features_batch(...)` while both contexts are open. Models are
-reused; preparation errors pass through and extraction errors stay per item.
+reused; preparation and extraction failures become per-item `FaceFeatures` errors.
 `processor.extract_video_frames(path)` yields `Frame`
 records with RGB, source, decode index and timestamp; pass these records directly
 to `process_image()` or `process_images()`. Sampling defaults to one frame per

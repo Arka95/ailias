@@ -4,9 +4,11 @@ Preparation and model-free image operations belong to the separate images module
 """
 
 from collections.abc import Iterable, Iterator
+from dataclasses import dataclass, field, replace
 import math
 from pathlib import Path
 import platform
+from typing import Literal
 
 from PIL import Image
 
@@ -18,6 +20,28 @@ from ailias.imageprocessing.settings import (
 NEUTRAL_BACKGROUND = (127, 127, 127, 255)
 # Allow small numerical drift in a unit orthogonal rotation, not extra head-angle deviation.
 ROTATION_VALIDATION_TOLERANCE = 0.02
+
+
+@dataclass(frozen=True)
+class FaceFeatures:
+    """Collect per-face predictions, measured photo features and review evidence as attributes.
+    Preserve source identity and optional errors without owning images or inference resources.
+    """
+
+    status: Literal["ready", "review", "error"] = "review"
+    features: dict | None = None
+    landmarks: dict | None = None
+    blendshapes: dict = field(default_factory=dict)
+    facial_transform: list[list[float]] | None = None
+    quality: dict = field(default_factory=lambda: {"reasons": []})
+    source: Path | str | None = None
+    frame_index: int | None = None
+    timestamp_seconds: float | None = None
+    features_colour_source: str = "original_rgb"
+    metric_depth_measured: bool = False
+    execution: dict = field(default_factory=dict)
+    error_type: str | None = None
+    reason: str | None = None
 
 
 class FaceFeatureExtractor:
@@ -85,21 +109,20 @@ class FaceFeatureExtractor:
         composite.alpha_composite(image.convert("RGBA"))
         return self._landmarker.detect(np.asarray(composite.convert("RGB")))
 
-    def extract_features(self, prepared_image: dict) -> dict:
+    def extract_features(self, prepared_image: dict) -> FaceFeatures:
         """Extract MediaPipe predictions and original-pixel appearance using existing region labels.
-        Return feature evidence in memory without matting, parsing, colour correction or file writes.
+        Return a FaceFeatures instance without matting, parsing, colour correction or file writes.
         """
         if self._closed:
             raise RuntimeError("Face feature extractor is closed")
         original_rgb, head, regions = self._validate_prepared_image(prepared_image)
         result = self._create_feature_result(prepared_image)
         if head.getchannel("A").getbbox() is None:
-            result["quality"]["reasons"].append("no_head_foreground")
+            result.quality["reasons"].append("no_head_foreground")
             return result
         detection = self.detect_face_landmarks(head)
-        result["execution"]["mediapipe_executed"] = True
-        result.update(self._extract_face_evidence(original_rgb, head, regions, detection))
-        return result
+        result.execution["mediapipe_executed"] = True
+        return replace(result, **self._extract_face_evidence(original_rgb, head, regions, detection))
 
     @staticmethod
     def _validate_prepared_image(prepared_image: dict) -> tuple[Image.Image, Image.Image, Image.Image]:
@@ -119,21 +142,18 @@ class FaceFeatureExtractor:
             raise ValueError("Prepared image, original pixels and region labels must share one pixel grid")
         return original_rgb.convert("RGB"), head, regions
 
-    def _create_feature_result(self, prepared_image: dict) -> dict:
+    def _create_feature_result(self, prepared_image: dict) -> FaceFeatures:
         """Create feature-only output with source identity and explicit inference provenance.
         Leave image preparation products owned by the caller instead of copying them into feature evidence.
         """
-        return {
-            "status": "review", "features": None, "landmarks": None,
-            "blendshapes": {}, "facial_transform": None, "quality": {"reasons": []},
-            "source": prepared_image.get("source"), "frame_index": prepared_image.get("frame_index"),
-            "timestamp_seconds": prepared_image.get("timestamp_seconds"),
-            "features_colour_source": "original_rgb", "metric_depth_measured": False,
-            "execution": {
+        return FaceFeatures(
+            source=prepared_image.get("source"), frame_index=prepared_image.get("frame_index"),
+            timestamp_seconds=prepared_image.get("timestamp_seconds"),
+            execution={
                 "requested_device": self.device, "mediapipe_device": self.landmarker_device,
                 "mediapipe_executed": False,
             },
-        }
+        )
 
     def _extract_face_evidence(
         self, original_rgb: Image.Image, head: Image.Image, regions: Image.Image, detection: dict,
@@ -238,17 +258,25 @@ class FaceFeatureExtractor:
                    or max(abs(pitch), abs(roll)) > self.quality_policy.max_pitch_roll_degrees)
         return pose, "extreme_pose" if extreme else None
 
-    def extract_features_batch(self, prepared_images: Iterable[dict]) -> Iterator[dict]:
-        """Stream feature results while reusing one landmarker and existing prepared pixels.
-        Pass preparation failures through unchanged and report per-image extraction errors in memory.
+    def extract_features_batch(self, prepared_images: Iterable[dict]) -> Iterator[FaceFeatures]:
+        """Stream FaceFeatures instances while reusing one landmarker and existing prepared pixels.
+        Preserve preparation failures and per-image extraction errors as class instances, not dictionaries.
         """
         for prepared in prepared_images:
             if prepared.get("status") == "error":
-                yield prepared
+                yield self._create_error_result(prepared)
                 continue
             try:
                 yield self.extract_features(prepared)
             except (OSError, ValueError, RuntimeError) as error:
-                yield {"status": "error", "error_type": type(error).__name__, "reason": str(error),
-                       "source": prepared.get("source"), "frame_index": prepared.get("frame_index"),
-                       "timestamp_seconds": prepared.get("timestamp_seconds")}
+                yield self._create_error_result(prepared, error)
+
+    def _create_error_result(self, prepared_image: dict, error: Exception | None = None) -> FaceFeatures:
+        """Represent a preparation or extraction failure with the same FaceFeatures output contract.
+        Preserve source identity without claiming successful model execution or fabricated observations.
+        """
+        return replace(
+            self._create_feature_result(prepared_image), status="error", execution={},
+            error_type=type(error).__name__ if error is not None else prepared_image.get("error_type"),
+            reason=str(error) if error is not None else prepared_image.get("reason"),
+        )

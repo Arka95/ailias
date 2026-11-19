@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 import numpy as np
 from PIL import Image
 
-from ailias.imageprocessing.face_feature_extraction import FaceFeatureExtractor
+from ailias.imageprocessing.face_feature_extraction import FaceFeatureExtractor, FaceFeatures
 from ailias.imageprocessing.settings import ProcessingPolicy
 
 
@@ -74,17 +74,18 @@ class FaceFeatureExtractorTests(unittest.TestCase):
         files = set(self.root.iterdir())
         with patch("cv2.dnn.readNetFromONNX", side_effect=AssertionError("Preparation was rerun")):
             result = self.extractor.extract_features(prepared)
-        self.assertEqual(result["status"], "ready")
-        normalized = np.asarray(result["landmarks"]["normalized_predicted"])
-        np.testing.assert_allclose(result["landmarks"]["source_xy"], normalized[:, :2] * self.image.size)
-        skin = result["features"]["regions"]["skin"]
+        self.assertIsInstance(result, FaceFeatures)
+        self.assertEqual(result.status, "ready")
+        normalized = np.asarray(result.landmarks["normalized_predicted"])
+        np.testing.assert_allclose(result.landmarks["source_xy"], normalized[:, :2] * self.image.size)
+        skin = result.features["regions"]["skin"]
         self.assertEqual(skin["status"], "observed")
         self.assertAlmostEqual(skin["median_linear_rgb"][0], skin["median_linear_rgb"][2])
-        self.assertEqual(result["features_colour_source"], "original_rgb")
-        self.assertFalse(result["metric_depth_measured"])
-        self.assertEqual(result["source"], prepared["source"])
-        self.assertEqual(result["frame_index"], 12)
-        self.assertEqual(result["timestamp_seconds"], 1.5)
+        self.assertEqual(result.features_colour_source, "original_rgb")
+        self.assertFalse(result.metric_depth_measured)
+        self.assertEqual(result.source, prepared["source"])
+        self.assertEqual(result.frame_index, 12)
+        self.assertEqual(result.timestamp_seconds, 1.5)
         for key, pixels in before.items():
             self.assertEqual(prepared[key].tobytes(), pixels)
         self.assertEqual(set(self.root.iterdir()), files)
@@ -96,8 +97,8 @@ class FaceFeatureExtractorTests(unittest.TestCase):
         prepared = self.prepared_image(self.image)
         results = self.extractor.extract_features_batch([prepared, prepared])
         self.create_landmarker.assert_not_called()
-        self.assertEqual(next(results)["status"], "ready")
-        self.assertEqual(next(results)["status"], "ready")
+        self.assertEqual(next(results).status, "ready")
+        self.assertEqual(next(results).status, "ready")
         self.create_landmarker.assert_called_once_with(self.root / "mediapipe.model", device="cpu")
         self.extractor.close()
         self.extractor.close()
@@ -123,8 +124,9 @@ class FaceFeatureExtractorTests(unittest.TestCase):
         prepared = self.prepared_image(self.image)
         prepared["image"].putalpha(0)
         result = self.extractor.extract_features(prepared)
-        self.assertEqual(result["quality"]["reasons"], ["no_head_foreground"])
-        self.assertFalse(result["execution"]["mediapipe_executed"])
+        self.assertIsInstance(result, FaceFeatures)
+        self.assertEqual(result.quality["reasons"], ["no_head_foreground"])
+        self.assertFalse(result.execution["mediapipe_executed"])
         self.create_landmarker.assert_not_called()
 
     def test_mismatched_or_missing_preparation_products_fail_before_inference(self):
@@ -147,13 +149,22 @@ class FaceFeatureExtractorTests(unittest.TestCase):
         Reuse the task for the next prepared item without rerunning any preparation stage.
         """
         prepared = self.prepared_image(self.image)
-        error = {"status": "error", "error_type": "FileNotFoundError", "source": "missing.png"}
+        error = {"status": "error", "error_type": "FileNotFoundError",
+                 "reason": "fixture missing input", "source": "missing.png"}
         self.landmarker.detect.side_effect = [RuntimeError("fixture"), dense_prediction()]
         results = list(self.extractor.extract_features_batch([error, prepared, prepared]))
-        self.assertIs(results[0], error)
-        self.assertEqual(results[1]["status"], "error")
-        self.assertEqual(results[1]["frame_index"], 12)
-        self.assertEqual(results[2]["status"], "ready")
+        for result in results:
+            self.assertIsInstance(result, FaceFeatures)
+        self.assertEqual(results[0].status, "error")
+        self.assertEqual(results[0].source, error["source"])
+        self.assertEqual(results[0].error_type, error["error_type"])
+        self.assertEqual(results[0].reason, error["reason"])
+        self.assertIsNone(results[0].features)
+        self.assertEqual(results[1].error_type, "RuntimeError")
+        self.assertEqual(results[1].reason, "fixture")
+        self.assertEqual(results[1].status, "error")
+        self.assertEqual(results[1].frame_index, 12)
+        self.assertEqual(results[2].status, "ready")
         self.create_landmarker.assert_called_once()
 
     def test_configured_alpha_threshold_controls_foreground_support_review(self):
@@ -166,10 +177,10 @@ class FaceFeatureExtractorTests(unittest.TestCase):
         prepared["image"].putalpha(Image.fromarray(alpha))
         before = prepared["image"].tobytes()
         original = self.extractor.extract_features(prepared)
-        self.assertIn("insufficient_head_support", original["quality"]["reasons"])
+        self.assertIn("insufficient_head_support", original.quality["reasons"])
         self.extractor.quality_policy = replace(self.extractor.quality_policy, min_landmark_alpha=220)
         adjusted = self.extractor.extract_features(prepared)
-        self.assertNotIn("insufficient_head_support", adjusted["quality"]["reasons"])
+        self.assertNotIn("insufficient_head_support", adjusted.quality["reasons"])
         self.assertEqual(prepared["image"].tobytes(), before)
 
     def test_default_cuda_keeps_explicit_windows_cpu_exception(self):
@@ -181,7 +192,7 @@ class FaceFeatureExtractorTests(unittest.TestCase):
         with extractor:
             result = extractor.extract_features(self.prepared_image(self.image))
         self.create_landmarker.assert_called_once_with(self.root / "mediapipe.model", device="cpu")
-        self.assertEqual(result["execution"], {
+        self.assertEqual(result.execution, {
             "requested_device": "cuda", "mediapipe_device": "cpu", "mediapipe_executed": True})
 
     def test_missing_model_and_exception_cleanup_do_not_load_or_download_weights(self):
@@ -216,9 +227,10 @@ class FaceFeatureExtractorTests(unittest.TestCase):
                 self.landmarker.detect.side_effect = None
                 self.landmarker.detect.return_value = {"faces": faces, "blendshapes": [], "transforms": []}
                 result = self.extract_image(self.image)
-                self.assertEqual(result["status"], "review")
-                self.assertIn(reason, result["quality"]["reasons"])
-                self.assertIsNone(result["features"])
+                self.assertIsInstance(result, FaceFeatures)
+                self.assertEqual(result.status, "review")
+                self.assertIn(reason, result.quality["reasons"])
+                self.assertIsNone(result.features)
 
     def test_quality_flags_low_detail_and_expression_without_discarding_evidence(self):
         """Expose low-detail and non-neutral-expression warnings for downstream review.
@@ -229,10 +241,10 @@ class FaceFeatureExtractorTests(unittest.TestCase):
         self.landmarker.detect.side_effect = None
         self.landmarker.detect.return_value = detection
         result = self.extract_image(Image.new("RGB", self.image.size, (160, 110, 75)))
-        self.assertEqual(result["status"], "review")
-        self.assertIn("face_blurred_or_low_detail", result["quality"]["reasons"])
-        self.assertIn("non_neutral_expression", result["quality"]["reasons"])
-        self.assertIsNotNone(result["features"])
+        self.assertEqual(result.status, "review")
+        self.assertIn("face_blurred_or_low_detail", result.quality["reasons"])
+        self.assertIn("non_neutral_expression", result.quality["reasons"])
+        self.assertIsNotNone(result.features)
 
     def test_quality_flags_extreme_or_unavailable_pose_without_claiming_calibration(self):
         """Flag a strongly rolled face and an invalid transform for explicit review.
@@ -249,10 +261,10 @@ class FaceFeatureExtractorTests(unittest.TestCase):
                 self.landmarker.detect.side_effect = None
                 self.landmarker.detect.return_value = detection
                 result = self.extract_image(self.image)
-                self.assertIn(reason, result["quality"]["reasons"])
+                self.assertIn(reason, result.quality["reasons"])
                 if transforms:
-                    self.assertAlmostEqual(result["quality"]["pose"]["roll_deg"], 40)
-                    self.assertFalse(result["quality"]["pose"]["calibrated"])
+                    self.assertAlmostEqual(result.quality["pose"]["roll_deg"], 40)
+                    self.assertFalse(result.quality["pose"]["calibrated"])
 
     def test_configured_supported_point_count_controls_review_without_dropping_features(self):
         """Apply the requested minimum number of supported base-face landmarks.
@@ -264,11 +276,11 @@ class FaceFeatureExtractorTests(unittest.TestCase):
         self.landmarker.detect.side_effect = None
         self.landmarker.detect.return_value = detection
         original = self.extract_image(self.image)
-        self.assertIn("insufficient_head_support", original["quality"]["reasons"])
-        self.assertIsNotNone(original["features"])
+        self.assertIn("insufficient_head_support", original.quality["reasons"])
+        self.assertIsNotNone(original.features)
         self.extractor.quality_policy = replace(self.extractor.quality_policy, min_supported_landmarks=50)
         adjusted = self.extract_image(self.image)
-        self.assertNotIn("insufficient_head_support", adjusted["quality"]["reasons"])
+        self.assertNotIn("insufficient_head_support", adjusted.quality["reasons"])
 
     def test_configured_expression_and_pose_limits_control_review_flags(self):
         """Read expression, pitch/roll and yaw limits from the supplied quality policy.
@@ -295,11 +307,11 @@ class FaceFeatureExtractorTests(unittest.TestCase):
                 self.landmarker.detect.return_value = detection
                 self.extractor.quality_policy = base_policy
                 original = self.extract_image(self.image)
-                self.assertIn(reason, original["quality"]["reasons"])
+                self.assertIn(reason, original.quality["reasons"])
                 self.extractor.quality_policy = replace(base_policy, **changes)
                 adjusted = self.extract_image(self.image)
-                self.assertNotIn(reason, adjusted["quality"]["reasons"])
-                self.assertEqual(original["facial_transform"], adjusted["facial_transform"])
+                self.assertNotIn(reason, adjusted.quality["reasons"])
+                self.assertEqual(original.facial_transform, adjusted.facial_transform)
 
     def test_quality_policy_rejects_review_thresholds_outside_their_meaningful_ranges(self):
         """Reject opacity/count/score/angle thresholds outside their documented domains.
@@ -331,8 +343,8 @@ class FaceFeatureExtractorTests(unittest.TestCase):
                 self.landmarker.detect.return_value = detection
                 result = self.extract_image(self.image)
                 reason = "face_outside_image" if outside else "face_clipped"
-                self.assertIn(reason, result["quality"]["reasons"])
-                self.assertEqual(result["features"] is None, outside)
+                self.assertIn(reason, result.quality["reasons"])
+                self.assertEqual(result.features is None, outside)
 
     def test_non_windows_cuda_requests_gpu_landmarks_without_retry(self):
         """Request the MediaPipe GPU delegate outside Windows when CUDA mode is selected.
