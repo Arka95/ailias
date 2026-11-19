@@ -1,4 +1,5 @@
 from fractions import Fraction
+from dataclasses import replace
 from pathlib import Path
 import sys
 import tempfile
@@ -213,6 +214,98 @@ class ImageProcessorTests(unittest.TestCase):
                 if transforms:
                     self.assertAlmostEqual(result["quality"]["pose"]["roll_deg"], 40)
                     self.assertFalse(result["quality"]["pose"]["calibrated"])
+
+    def test_configured_alpha_threshold_controls_foreground_support_review(self):
+        """Allow the configured opacity threshold to decide whether points have head support.
+        Preserve the same fractional cutout rather than modifying alpha to satisfy the quality gate.
+        """
+        self.modnet.forward.return_value.fill(.9)
+        original = self.processor.process_image(self.image, normalize_colour=False)
+        self.assertIn("insufficient_head_support", original["quality"]["reasons"])
+        self.processor.quality_policy = replace(self.processor.quality_policy, min_landmark_alpha=220)
+        adjusted = self.processor.process_image(self.image, normalize_colour=False)
+        self.assertNotIn("insufficient_head_support", adjusted["quality"]["reasons"])
+        self.assertEqual(original["image"].tobytes(), adjusted["image"].tobytes())
+
+    def test_configured_supported_point_count_controls_review_without_dropping_features(self):
+        """Apply the requested minimum number of supported base-face landmarks.
+        Keep regional evidence available when a stricter support requirement requests review.
+        """
+        detection = dense_prediction()
+        for point in detection["faces"][0][100:]:
+            point[1] = .75
+        self.landmarker.detect.side_effect = None
+        self.landmarker.detect.return_value = detection
+        original = self.processor.process_image(self.image, normalize_colour=False)
+        self.assertIn("insufficient_head_support", original["quality"]["reasons"])
+        self.assertIsNotNone(original["features"])
+        self.processor.quality_policy = replace(self.processor.quality_policy, min_supported_landmarks=50)
+        adjusted = self.processor.process_image(self.image, normalize_colour=False)
+        self.assertNotIn("insufficient_head_support", adjusted["quality"]["reasons"])
+
+    def test_configured_expression_and_pose_limits_control_review_flags(self):
+        """Read expression, pitch/roll and yaw limits from the supplied quality policy.
+        Changing a review threshold must not change the underlying predicted transform or scores.
+        """
+        cases = (
+            ("non_neutral_expression", {"max_neutral_expression": .95}, "expression", .9),
+            ("extreme_pose", {"max_pitch_roll_degrees": 45}, "roll", 40),
+            ("extreme_pose", {"max_yaw_degrees": 85}, "yaw", 80),
+        )
+        base_policy = self.processor.quality_policy
+        for reason, changes, kind, value in cases:
+            with self.subTest(kind=kind):
+                detection = dense_prediction()
+                if kind == "expression":
+                    detection["blendshapes"][0]["mouthSmileLeft"] = value
+                else:
+                    sine, cosine = np.sin(np.deg2rad(value)), np.cos(np.deg2rad(value))
+                    matrix = np.eye(4)
+                    axes = (0, 1) if kind == "roll" else (0, 2)
+                    matrix[np.ix_(axes, axes)] = [[cosine, -sine], [sine, cosine]]
+                    detection["transforms"] = [matrix.tolist()]
+                self.landmarker.detect.side_effect = None
+                self.landmarker.detect.return_value = detection
+                self.processor.quality_policy = base_policy
+                original = self.processor.process_image(self.image, normalize_colour=False)
+                self.assertIn(reason, original["quality"]["reasons"])
+                self.processor.quality_policy = replace(base_policy, **changes)
+                adjusted = self.processor.process_image(self.image, normalize_colour=False)
+                self.assertNotIn(reason, adjusted["quality"]["reasons"])
+                self.assertEqual(original["facial_transform"], adjusted["facial_transform"])
+
+    def test_quality_policy_rejects_review_thresholds_outside_their_meaningful_ranges(self):
+        """Reject opacity/count/score/angle thresholds outside their documented domains.
+        Prevent invalid configuration from weakening or breaking face-quality assessment.
+        """
+        for changes in (
+            {"min_landmark_alpha": 0}, {"min_landmark_alpha": 256}, {"min_landmark_alpha": 1.5},
+            {"min_supported_landmarks": 0}, {"min_supported_landmarks": 469},
+            {"max_neutral_expression": 1.1}, {"max_neutral_expression": float("nan")},
+            {"max_pitch_roll_degrees": 0}, {"max_pitch_roll_degrees": 181},
+            {"max_yaw_degrees": 0}, {"max_yaw_degrees": 91},
+        ):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                replace(self.processor.quality_policy, **changes)
+
+    def test_outside_and_clipped_landmarks_preserve_distinct_review_outcomes(self):
+        """Preserve early rejection for an out-of-image face and a warning for partial clipping.
+        Return features only when the predicted face still overlaps the source image.
+        """
+        for outside in (True, False):
+            with self.subTest(outside=outside):
+                detection = dense_prediction()
+                if outside:
+                    for point in detection["faces"][0]:
+                        point[0] += 2
+                else:
+                    detection["faces"][0][0][0] = -.1
+                self.landmarker.detect.side_effect = None
+                self.landmarker.detect.return_value = detection
+                result = self.processor.process_image(self.image, normalize_colour=False)
+                reason = "face_outside_image" if outside else "face_clipped"
+                self.assertIn(reason, result["quality"]["reasons"])
+                self.assertEqual(result["features"] is None, outside)
 
     def test_batch_continues_after_bad_file_and_preserves_frame_metadata(self):
         """Return a per-item error for unreadable files without losing later inputs.

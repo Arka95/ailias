@@ -11,6 +11,10 @@ does not use the legacy detector/grouping backend or depend on native-engine
 modules. Each function has a short descriptive docstring naming its model where
 applicable.
 
+`process_image()` only orchestrates the named stages. Source/result handling,
+landmark-coordinate mapping, face-quality assessment and pose assessment stay
+in focused private methods on the same class; no extra classes or modules.
+
 ONNX networks and the dense detector load lazily, are reused serially across
 images/frames, and are released by `close()` or context exit. Source geometry
 stays unchanged. White balance changes only the returned cutout; feature colours
@@ -31,9 +35,13 @@ always supplies the selected delegate.
 
 Results and batch errors stay in memory. Individual region/iris review flags
 remain separate from overall image-quality status. Predicted pose angles flag
-absolute pitch/roll above 25 degrees or yaw above 70; expression scores above
-0.5 flag non-neutral expression. These are review heuristics, not calibrated
+absolute pitch/roll above 25 degrees or yaw above 70 by default; expression scores above
+0.5 flag non-neutral expression by default. These are review heuristics, not calibrated
 depth, pose, skin colour or independent per-point visibility.
+The defaults are loaded from `config\imageprocessing.json` and may be overridden
+with `quality_policy`. Each review field is explained beside its definition in
+`settings.py`. Model input sizes, landmark counts and trained RGB normalization
+remain named model constants, not adjustable review thresholds.
 `Frame` sampling uses presentation timestamps with bounded lazy consumption,
 never average FPS; missing/invalid timestamps and rotated inputs fail explicitly.
 No weights, codecs, GPU probes, real photos or native editors run in its mocked unit tests.

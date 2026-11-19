@@ -129,6 +129,11 @@ Matting setup requires the optional `matting-tools` extra; see [runtime setup](d
 | `min_laplacian_variance` | `40` | Minimum face-region focus score after bounded downsampling |
 | `max_dark_fraction` | `0.5` | Maximum dark-pixel fraction in the face quality test |
 | `max_bright_fraction` | `0.5` | Maximum bright-pixel fraction in the face quality test |
+| `min_landmark_alpha` | `240` | Minimum 0-255 head opacity for a dense landmark to count as supported |
+| `min_supported_landmarks` | `150` | Minimum supported base-face points before the simple API flags review; excludes iris points |
+| `max_neutral_expression` | `0.5` | Maximum expression/jaw-open score before the simple API flags non-neutral expression |
+| `max_pitch_roll_degrees` | `25.0` | Maximum absolute predicted pitch or roll before the simple API flags extreme pose |
+| `max_yaw_degrees` | `70.0` | Maximum absolute predicted yaw before the simple API flags extreme pose |
 | `identity_cosine_threshold` | `0.5` | Minimum pairwise SFace cosine for complete-link grouping |
 | `identity_ambiguity_margin` | `0.05` | Near-tie margin used to flag ambiguous identity assignments |
 | `portrait_side_margin` | `0.6` | Extra crop margin per side, relative to face-box width |

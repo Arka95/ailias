@@ -8,6 +8,9 @@ from pathlib import Path
 from ailias.settings import PROJECT_ROOT
 
 DEFAULT_PROCESSING_CONFIG = PROJECT_ROOT / "config" / "imageprocessing.json"
+# MediaPipe's model emits 468 face points and 10 additional iris points.
+MEDIAPIPE_BASE_FACE_POINT_COUNT = 468
+MEDIAPIPE_LANDMARK_COUNT = 478
 
 
 @dataclass(frozen=True)
@@ -15,10 +18,30 @@ class ProcessingPolicy:
     detection_score: float = 0.85
     detection_max_side: int = 1600
     cpu_threads: int = 2
+    # Minimum native face-box short side, in pixels; smaller faces are flagged as too small.
     min_face_size: int = 256
+    # Minimum grayscale Laplacian variance after downsampling the face to at most 256 pixels per side.
+    # Lower variance flags blur or low detail; this is a focus heuristic, not learned confidence.
     min_laplacian_variance: float = 40.0
+    # Largest permitted fraction of sampled grayscale face pixels below intensity 16; higher flags underexposure.
     max_dark_fraction: float = 0.5
+    # Largest permitted fraction of sampled grayscale face pixels at/above intensity 240; higher flags overexposure.
     max_bright_fraction: float = 0.5
+    # Minimum opacity beneath a landmark for foreground support: 0 is transparent, 255 is opaque.
+    # A point below this threshold is unsupported, not automatically an invalid prediction.
+    min_landmark_alpha: int = 240
+    # Require this many of the 468 base face points to lie on supported foreground; iris points do not count.
+    # Fewer supported points flags the image for review but does not discard extracted evidence.
+    min_supported_landmarks: int = 150
+    # Largest permitted mouth/brow/cheek/nose/eye-expression or jaw-open model score for a neutral face.
+    # A higher score flags non-neutral expression; the score is not a calibrated probability.
+    max_neutral_expression: float = 0.5
+    # Maximum absolute predicted up/down tilt (pitch) or sideways head tilt (roll), in degrees.
+    # Exceeding either limit flags extreme pose; these angles are predictions, not calibrated measurements.
+    max_pitch_roll_degrees: float = 25.0
+    # Maximum absolute predicted left/right head turn (yaw), in degrees.
+    # A larger turn flags extreme pose because less of the face is visible.
+    max_yaw_degrees: float = 70.0
     identity_cosine_threshold: float = 0.5
     identity_ambiguity_margin: float = 0.05
     portrait_side_margin: float = 0.6
@@ -30,17 +53,30 @@ class ProcessingPolicy:
     curation_score_margin: float = 0.1
 
     def __post_init__(self):
+        """Validate configurable image-quality and collection thresholds before processing.
+        Bound dense-face review settings by their model and pixel-coordinate contracts.
+        """
         for field in fields(self):
             value = getattr(self, field.name)
             if (isinstance(value, bool) or not isinstance(value, (int, float))
                     or not math.isfinite(value) or value < 0):
                 raise ValueError(f"{field.name} must be a non-negative finite number")
-        for name in ("detection_max_side", "cpu_threads", "min_face_size"):
+        for name in ("detection_max_side", "cpu_threads", "min_face_size",
+                     "min_landmark_alpha", "min_supported_landmarks"):
             if not isinstance(getattr(self, name), int) or getattr(self, name) < 1:
                 raise ValueError(f"{name} must be a positive integer")
         if self.detection_max_side < 320:
             raise ValueError("detection_max_side must be at least 320")
+        if self.min_landmark_alpha > 255:
+            raise ValueError("min_landmark_alpha must be between 1 and 255")
+        if self.min_supported_landmarks > MEDIAPIPE_BASE_FACE_POINT_COUNT:
+            raise ValueError("min_supported_landmarks exceeds the number of base facial points")
+        if not 0 < self.max_pitch_roll_degrees <= 180:
+            raise ValueError("max_pitch_roll_degrees must be between 0 (exclusive) and 180")
+        if not 0 < self.max_yaw_degrees <= 90:
+            raise ValueError("max_yaw_degrees must be between 0 (exclusive) and 90")
         for name in ("detection_score", "max_dark_fraction", "max_bright_fraction",
+                     "max_neutral_expression",
                      "identity_cosine_threshold", "identity_ambiguity_margin",
                      "curation_accept_cosine", "curation_reject_cosine",
                      "curation_reject_positive_ceiling", "curation_score_margin"):
@@ -55,4 +91,7 @@ class ProcessingPolicy:
 
 
 def load_policy(path: Path = DEFAULT_PROCESSING_CONFIG) -> ProcessingPolicy:
+    """Load image-processing thresholds from the selected JSON configuration file.
+    Apply defaults for omitted fields and validate the resulting policy before use.
+    """
     return ProcessingPolicy(**json.loads(path.read_text(encoding="utf-8")))
