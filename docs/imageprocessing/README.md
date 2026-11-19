@@ -31,12 +31,18 @@ with ImageProcessor(
     result["image"].save("head.png")  # Explicit export; processing itself writes nothing.
 ```
 
+The default is `device="cuda", gpu_index=0`; use `device="cpu"` only for explicit
+CPU-only processing. On Windows in CUDA mode, **only MediaPipe uses CPU**, because
+its Python GPU delegate is unsupported there. Elsewhere CUDA mode requests the
+MediaPipe GPU delegate. Unsupported requested GPU execution fails; no CPU retry.
+
 | Result | Contents |
 |---|---|
 | `image`, `regions` | Native-size RGBA head and semantic-label image |
 | `landmarks`, `blendshapes`, `facial_transform` | Original-grid 478-point predictions, expression scores and model transform |
 | `features` | Facial ratios, regional colours and iris evidence sampled from **original RGB** |
 | `status`, `quality`, `colour` | `ready`/`review`, quality reasons and white-balance outcome |
+| `execution` | Requested mode, OpenCV backend evidence and selected MediaPipe delegate |
 
 Colour normalization is enabled by default for the returned cutout, not feature
 samples; pass `normalize_colour=False` to skip it. This is bounded scene-neutral
@@ -53,11 +59,13 @@ second; `interval_seconds` and `max_frames` control it. Close an unfinished fram
 iterator to release its decoder. `load_image()` preserves orientation, colour
 profiles and existing transparency; `crop_image()` accepts explicit pixel bounds.
 
-Models load lazily on CPU from the supplied local files, with no downloads,
-external processes or global thread-setting changes. Use prepared model files
+Models load lazily on the selected backend from supplied local files, with no
+downloads, external processes or global thread-setting changes. Use prepared model files
 compatible with the existing MODNet static-512 and BiSeNet ResNet18 adapters.
-Image inference needs the existing `imageprocessing` and `dense-landmarks`
-extras; frame extraction also needs PyAV from the existing `video` extra.
+CPU inference needs the existing `imageprocessing` and `dense-landmarks`
+extras. CUDA inference requires the existing CUDA-enabled OpenCV environment;
+do not replace it with a CPU-only wheel. Frame extraction also needs PyAV
+from the existing `video` extra.
 Use one processor serially, not concurrent calls sharing its mutable networks.
 No alpha sidecars, JSON or previews are retained automatically.
 

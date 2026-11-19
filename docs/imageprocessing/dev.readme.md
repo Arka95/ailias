@@ -19,6 +19,16 @@ This keeps the existing feature interpretation without retaining manifests.
 `read_oriented_image(..., preserve_alpha=True)` supports the new loader;
 its default remains RGB for all existing callers.
 
+`ImageProcessor` defaults to `device="cuda"` with explicit `gpu_index=0`.
+MODNet/BiSeNet check CUDA availability and verify graph execution, failing if
+OpenCV silently ran entirely on CPU. `device="cpu"` is the explicit CPU-only
+mode. In CUDA mode, MediaPipe uses CPU on Windows and requests its GPU delegate
+elsewhere; the selection reason is in `detect_face_landmarks()`'s docstring.
+This is the owner's explicit Windows exception, not a failed-GPU retry.
+See [MediaPipe's delegate support](https://github.com/google-ai-edge/mediapipe/blob/master/mediapipe/tasks/python/core/base_options.py).
+Existing callers of `DenseDetector(model)` keep their CPU default; the new API
+always supplies the selected delegate.
+
 Results and batch errors stay in memory. Individual region/iris review flags
 remain separate from overall image-quality status. Predicted pose angles flag
 absolute pitch/roll above 25 degrees or yaw above 70; expression scores above
@@ -26,7 +36,7 @@ absolute pitch/roll above 25 degrees or yaw above 70; expression scores above
 depth, pose, skin colour or independent per-point visibility.
 `Frame` sampling uses presentation timestamps with bounded lazy consumption,
 never average FPS; missing/invalid timestamps and rotated inputs fail explicitly.
-No weights, codecs, real photos or native editors run in its mocked unit tests.
+No weights, codecs, GPU probes, real photos or native editors run in its mocked unit tests.
 
 ## Runtime
 
@@ -89,7 +99,7 @@ Model download identities are pinned in the model adapters, separate from policy
 
 | Component | Responsibility / boundary |
 |---|---|
-| `dense.py` | Task-scoped CPU MediaPipe predictions and reversible source coordinates; no GNM dependency |
+| `dense.py` | Explicit MediaPipe CPU/GPU delegate; legacy CPU default and reversible source coordinates; no GNM dependency |
 | `appearance_features.py` | Pure per-photo geometry ratios, semantic-region colour and pupil-excluding iris sampling |
 | `feature_evidence.py` | Validate input hashes/curation/transforms; retain versioned features and parser masks |
 | `metahuman\feature_comparison.py` | Downstream photo/render diagnostics and optional native eye-profile proposal; never edits a Character |

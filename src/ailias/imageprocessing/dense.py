@@ -1,4 +1,4 @@
-"""Predict CPU dense-face landmarks and map aligned points back to source pixels.
+"""Predict dense-face landmarks and map aligned points back to source pixels.
 
 MediaPipe outputs are image evidence, not measured depth or calibrated visibility.
 """
@@ -8,18 +8,28 @@ from PIL import Image
 
 
 class DenseDetector:
-    def __init__(self, model):
+    def __init__(self, model, *, device="cpu"):
+        """Create MediaPipe's face-detection/landmark bundle with an explicit CPU or GPU delegate.
+        Preserve legacy CPU callers; an unavailable requested delegate fails without a CPU retry.
+        """
+        if device not in {"cpu", "gpu"}:
+            raise ValueError("MediaPipe delegate must be cpu or gpu")
         import mediapipe as mp
 
-        self.mp = mp
+        self.mp, self.device = mp, device
         self.detector = mp.tasks.vision.FaceLandmarker.create_from_options(
             mp.tasks.vision.FaceLandmarkerOptions(
                 base_options=mp.tasks.BaseOptions(
-                    model_asset_path=str(model), delegate=mp.tasks.BaseOptions.Delegate.CPU),
+                    model_asset_path=str(model), delegate=(
+                        mp.tasks.BaseOptions.Delegate.GPU if device == "gpu"
+                        else mp.tasks.BaseOptions.Delegate.CPU)),
                 num_faces=2, output_face_blendshapes=True,
                 output_facial_transformation_matrixes=True))
 
     def detect(self, rgb):
+        """Pass contiguous RGB pixels through the configured MediaPipe neural-model bundle.
+        Return predicted points, expression scores and transforms without changing the selected delegate.
+        """
         result = self.detector.detect(self.mp.Image(
             image_format=self.mp.ImageFormat.SRGB, data=np.ascontiguousarray(rgb)))
         return {
@@ -30,6 +40,9 @@ class DenseDetector:
         }
 
     def close(self):
+        """Close the owned MediaPipe task and its configured inference resources.
+        Leave other detectors and external runtime processes untouched.
+        """
         self.detector.close()
 
 
@@ -46,7 +59,7 @@ def observe(store, entry, source_size, detector):
         "face_id": entry["face_id"], "source_id": entry["source_id"],
         "aligned_cutout": artifact, "alignment": analysis["alignment"],
         "source_size": source_size, "size": [rgba.shape[1], rgba.shape[0]],
-        "device": "MediaPipe CPU (explicit); existing CUDA cleansing is unchanged",
+        "device": f"MediaPipe {getattr(detector, 'device', 'cpu').upper()} (explicit); existing CUDA cleansing is unchanged",
         "landmark_depth_is_measured": False, "per_point_visibility_available": False,
     }
     if len(result["faces"]) != 1:

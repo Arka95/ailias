@@ -58,7 +58,7 @@ class ImageProcessorTests(unittest.TestCase):
             "ailias.imageprocessing.dense.DenseDetector", return_value=self.landmarker))
         self.processor = ImageProcessor(
             modnet_model=paths["modnet"], bisenet_model=paths["bisenet"],
-            mediapipe_model=paths["mediapipe"],
+            mediapipe_model=paths["mediapipe"], device="cpu",
             quality_policy=ProcessingPolicy(min_face_size=1, min_laplacian_variance=0.01))
         self.addCleanup(self.processor.close)
         y, x = np.indices((128, 160))
@@ -305,7 +305,7 @@ class ImageProcessorTests(unittest.TestCase):
         """Fail on missing explicit models and release owned resources after exceptions.
         Keep lightweight image loading/cropping independent of model configuration.
         """
-        with ImageProcessor() as processor:
+        with ImageProcessor(device="cpu") as processor:
             with self.assertRaisesRegex(ValueError, "modnet"):
                 processor.remove_background(self.image)
         with self.assertRaisesRegex(RuntimeError, "fixture"):
@@ -313,6 +313,117 @@ class ImageProcessorTests(unittest.TestCase):
                 self.processor.detect_face_landmarks(self.image)
                 raise RuntimeError("fixture")
         self.landmarker.close.assert_called_once()
+
+    def test_default_cuda_uses_gpu_networks_and_explicit_windows_landmarker_exception(self):
+        """Default CUDA mode keeps MODNet/BiSeNet on GPU but selects MediaPipe CPU on Windows.
+        Verify graph evidence and delegate selection using mocks, without probing GPU hardware.
+        """
+        import cv2
+
+        self.modnet.dump.return_value = 'layer [label="conv CUDA/CUDA"];'
+        self.bisenet.dump.return_value = 'layer [label="conv CUDA/CUDA"];'
+        with patch("ailias.imageprocessing.images.platform.system", return_value="Windows"):
+            processor = ImageProcessor(
+                modnet_model=self.root / "modnet.model", bisenet_model=self.root / "bisenet.model",
+                mediapipe_model=self.root / "mediapipe.model", quality_policy=self.processor.quality_policy)
+        with processor, patch("ailias.imageprocessing.cuda.require_cuda") as require_cuda, patch(
+            "cv2.cuda.setDevice"
+        ) as select_device:
+            result = processor.process_image(self.image, normalize_colour=False)
+        self.assertEqual(require_cuda.call_count, 2)
+        self.assertEqual(select_device.call_count, 2)
+        self.modnet.setPreferableBackend.assert_called_once_with(cv2.dnn.DNN_BACKEND_CUDA)
+        self.bisenet.setPreferableTarget.assert_called_once_with(cv2.dnn.DNN_TARGET_CUDA)
+        self.create_landmarker.assert_called_once_with(self.root / "mediapipe.model", device="cpu")
+        self.assertEqual(result["execution"]["requested_device"], "cuda")
+        self.assertEqual(result["execution"]["networks"]["modnet"]["status"], "verified")
+        self.assertEqual(result["execution"]["mediapipe_device"], "cpu")
+        self.assertTrue(result["execution"]["mediapipe_executed"])
+
+    def test_non_windows_cuda_requests_gpu_landmarks_without_retry(self):
+        """Request the MediaPipe GPU delegate outside Windows when CUDA mode is selected.
+        Propagate an unavailable delegate rather than constructing a second CPU detector.
+        """
+        with patch("ailias.imageprocessing.images.platform.system", return_value="Linux"):
+            processor = ImageProcessor(mediapipe_model=self.root / "mediapipe.model")
+        self.create_landmarker.side_effect = RuntimeError("fixture GPU delegate unavailable")
+        with processor, self.assertRaisesRegex(RuntimeError, "GPU delegate unavailable"):
+            processor.detect_face_landmarks(self.image)
+        self.create_landmarker.assert_called_once_with(self.root / "mediapipe.model", device="gpu")
+
+    def test_explicit_cpu_never_checks_or_selects_cuda(self):
+        """Keep all inference on CPU only when the caller explicitly requests CPU mode.
+        Do not inspect GPU availability or silently change the selected hardware.
+        """
+        import cv2
+
+        with patch("ailias.imageprocessing.cuda.require_cuda") as require_cuda, patch(
+            "cv2.cuda.setDevice"
+        ) as select_device:
+            result = self.processor.process_image(self.image, normalize_colour=False)
+        require_cuda.assert_not_called()
+        select_device.assert_not_called()
+        self.modnet.setPreferableBackend.assert_called_once_with(cv2.dnn.DNN_BACKEND_OPENCV)
+        self.bisenet.setPreferableTarget.assert_called_once_with(cv2.dnn.DNN_TARGET_CPU)
+        self.create_landmarker.assert_called_once_with(self.root / "mediapipe.model", device="cpu")
+        self.assertEqual(result["execution"]["requested_device"], "cpu")
+
+    def test_unavailable_cuda_never_loads_a_cpu_network(self):
+        """Fail the requested CUDA operation before loading a model when CUDA is unavailable.
+        Keep the caller in control of CPU mode rather than retrying through another backend.
+        """
+        from ailias.imageprocessing.cuda import CudaUnavailable
+
+        with ImageProcessor(modnet_model=self.root / "modnet.model") as processor, patch(
+            "ailias.imageprocessing.cuda.require_cuda", side_effect=CudaUnavailable("fixture CUDA unavailable")
+        ), self.assertRaises(CudaUnavailable):
+            processor.remove_background(self.image)
+        self.load.assert_not_called()
+
+    def test_cuda_graph_without_cuda_layers_is_rejected(self):
+        """Refuse an OpenCV forward that completed entirely on CPU despite requesting CUDA.
+        Check actual graph evidence rather than treating backend configuration as GPU execution.
+        """
+        from ailias.imageprocessing.cuda import CudaUnavailable
+
+        self.modnet.dump.return_value = 'layer [label="conv OCV/CPU"];'
+        with ImageProcessor(modnet_model=self.root / "modnet.model") as processor, patch(
+            "ailias.imageprocessing.cuda.require_cuda"
+        ), patch("cv2.cuda.setDevice"), self.assertRaises(CudaUnavailable):
+            processor.remove_background(self.image)
+        self.assertEqual(self.load.call_count, 1)
+
+    def test_invalid_device_selection_fails_before_loading_models(self):
+        """Validate backend names and GPU indices without importing an inference runtime.
+        Avoid ambiguous devices, negative GPU indices and boolean-as-integer configuration.
+        """
+        for options in ({"device": "auto"}, {"gpu_index": -1}, {"gpu_index": True}):
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                ImageProcessor(**options)
+        self.load.assert_not_called()
+
+
+class DenseDelegateTests(unittest.TestCase):
+    def test_dense_adapter_preserves_cpu_default_and_accepts_explicit_gpu(self):
+        """Pass the selected delegate into MediaPipe while keeping legacy callers on CPU.
+        Use a fake SDK so no model bundle, device or hardware context is created.
+        """
+        from ailias.imageprocessing.dense import DenseDetector
+
+        base_options = Mock(side_effect=lambda **kwargs: SimpleNamespace(**kwargs))
+        base_options.Delegate = SimpleNamespace(CPU="cpu-fixture", GPU="gpu-fixture")
+        create = Mock(return_value=Mock())
+        sdk = SimpleNamespace(tasks=SimpleNamespace(
+            BaseOptions=base_options, vision=SimpleNamespace(
+                FaceLandmarker=SimpleNamespace(create_from_options=create),
+                FaceLandmarkerOptions=Mock(side_effect=lambda **kwargs: SimpleNamespace(**kwargs)))))
+        with patch.dict(sys.modules, {"mediapipe": sdk}):
+            cpu = DenseDetector("fixture.task")
+            gpu = DenseDetector("fixture.task", device="gpu")
+        self.assertEqual(create.call_args_list[0].args[0].base_options.delegate, "cpu-fixture")
+        self.assertEqual(create.call_args_list[1].args[0].base_options.delegate, "gpu-fixture")
+        cpu.close()
+        gpu.close()
 
 
 class VideoFrameTests(unittest.TestCase):

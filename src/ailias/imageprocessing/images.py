@@ -1,4 +1,4 @@
-"""Image and video-frame preparation with reusable, explicitly supplied CPU models.
+"""Image and video-frame preparation with reusable, explicitly supplied models.
 
 The simple path returns head cutouts and facial evidence without writing artifacts.
 """
@@ -7,6 +7,7 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 import math
 from pathlib import Path
+import platform
 
 from PIL import Image
 
@@ -47,18 +48,26 @@ class ImageProcessor:
         self, *, modnet_model: str | Path | None = None,
         bisenet_model: str | Path | None = None,
         mediapipe_model: str | Path | None = None,
+        device: str = "cuda", gpu_index: int = 0,
         colour_policy: CleansingPolicy | None = None,
         quality_policy: ProcessingPolicy | None = None,
     ):
         """Accept existing model files without loading weights or downloading anything.
-        Reuse the current colour and image-quality policies unless explicitly supplied.
+        Default to CUDA; explicit CPU mode and supplied colour/quality policies override defaults.
         """
+        if device not in {"cpu", "cuda"}:
+            raise ValueError("Image processing device must be cpu or cuda")
+        if isinstance(gpu_index, bool) or not isinstance(gpu_index, int) or gpu_index < 0:
+            raise ValueError("GPU index must be a nonnegative integer")
+        self.device, self.gpu_index = device, gpu_index
+        self.landmarker_device = "cpu" if device == "cpu" or platform.system() == "Windows" else "gpu"
         self._model_paths = {
             "modnet": Path(modnet_model) if modnet_model is not None else None,
             "bisenet": Path(bisenet_model) if bisenet_model is not None else None,
             "mediapipe": Path(mediapipe_model) if mediapipe_model is not None else None,
         }
         self._networks = {}
+        self._executions = {}
         self._landmarker = None
         self._closed = False
         self.colour_policy = colour_policy if colour_policy is not None else CleansingPolicy()
@@ -84,6 +93,7 @@ class ImageProcessor:
         """
         self._closed = True
         self._networks.clear()
+        self._executions.clear()
         landmarker, self._landmarker = self._landmarker, None
         if landmarker is not None:
             landmarker.close()
@@ -154,8 +164,8 @@ class ImageProcessor:
                 raise ValueError("Video decoded no frames")
 
     def _load_network(self, name: str):
-        """Load and cache the requested MODNet or BiSeNet ONNX CNN on OpenCV CPU.
-        Require an explicitly supplied local file; never install or download a runtime.
+        """Load and cache the MODNet or BiSeNet ONNX CNN on the explicitly selected backend.
+        Require local weights and available CUDA when requested; never install, download or retry on CPU.
         """
         if self._closed:
             raise RuntimeError("Image processor is closed")
@@ -168,13 +178,42 @@ class ImageProcessor:
             import cv2
 
             try:
+                if self.device == "cuda":
+                    from ailias.imageprocessing.cuda import require_cuda
+
+                    require_cuda(cv2)
+                    cv2.cuda.setDevice(self.gpu_index)
                 network = cv2.dnn.readNetFromONNX(str(path))
-                network.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
-                network.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+                network.setPreferableBackend(
+                    cv2.dnn.DNN_BACKEND_CUDA if self.device == "cuda" else cv2.dnn.DNN_BACKEND_OPENCV)
+                network.setPreferableTarget(
+                    cv2.dnn.DNN_TARGET_CUDA if self.device == "cuda" else cv2.dnn.DNN_TARGET_CPU)
             except cv2.error as error:
                 raise ValueError(f"Unable to load the {name} ONNX model") from error
             self._networks[name] = network
         return self._networks[name]
+
+    def _run_network(self, name: str, values):
+        """Execute the cached MODNet/BiSeNet CNN and verify CUDA graph use after its first forward.
+        Refuse OpenCV CPU fallback in CUDA mode and keep backend execution evidence in memory.
+        """
+        import cv2
+
+        network = self._load_network(name)
+        try:
+            network.setInput(values)
+            prediction = network.forward()
+        except cv2.error as error:
+            raise ValueError(f"{'MODNet' if name == 'modnet' else 'BiSeNet'} inference failed") from error
+        if name not in self._executions:
+            if self.device == "cuda":
+                from ailias.imageprocessing.cuda import graph_execution
+
+                self._executions[name] = {
+                    **graph_execution(network.dump()), "device": f"cuda:{self.gpu_index}"}
+            else:
+                self._executions[name] = {"status": "completed", "device": "cpu"}
+        return prediction
 
     def remove_background(self, image: Image.Image) -> Image.Image:
         """Use the MODNet portrait-matting CNN to predict soft person/background opacity.
@@ -183,7 +222,6 @@ class ImageProcessor:
         import cv2
         import numpy as np
 
-        network = self._load_network("modnet")
         result = image.convert("RGBA")
         composite = Image.new("RGBA", image.size, NEUTRAL_BACKGROUND)
         composite.alpha_composite(result)
@@ -193,11 +231,8 @@ class ImageProcessor:
         values = np.full((MODEL_INPUT_SIDE, MODEL_INPUT_SIDE, 3), 127.5, dtype=np.float32)
         values[y:y + height, x:x + width] = cv2.resize(
             np.asarray(composite.convert("RGB")), (width, height), interpolation=cv2.INTER_AREA)
-        try:
-            network.setInput(cv2.dnn.blobFromImage(values, 1 / 127.5, mean=(127.5,) * 3))
-            prediction = network.forward()
-        except cv2.error as error:
-            raise ValueError("MODNet inference failed") from error
+        prediction = self._run_network(
+            "modnet", cv2.dnn.blobFromImage(values, 1 / 127.5, mean=(127.5,) * 3))
         if prediction.shape != (1, 1, MODEL_INPUT_SIDE, MODEL_INPUT_SIDE) or not np.isfinite(prediction).all():
             raise ValueError("MODNet returned invalid opacity")
         alpha = cv2.resize(prediction[0, 0, y:y + height, x:x + width],
@@ -213,7 +248,6 @@ class ImageProcessor:
         import cv2
         import numpy as np
 
-        network = self._load_network("bisenet")
         rgba = image.convert("RGBA")
         composite = Image.new("RGBA", image.size, NEUTRAL_BACKGROUND)
         composite.alpha_composite(rgba)
@@ -221,11 +255,7 @@ class ImageProcessor:
                             interpolation=cv2.INTER_LINEAR).astype(np.float32) / 255
         values = ((values - np.array([0.485, 0.456, 0.406], np.float32))
                   / np.array([0.229, 0.224, 0.225], np.float32))
-        try:
-            network.setInput(values.transpose(2, 0, 1)[None])
-            prediction = network.forward()
-        except cv2.error as error:
-            raise ValueError("BiSeNet inference failed") from error
+        prediction = self._run_network("bisenet", values.transpose(2, 0, 1)[None])
         if (prediction.shape != (1, 19, MODEL_INPUT_SIDE, MODEL_INPUT_SIDE)
                 or not np.isfinite(prediction).all()):
             raise ValueError("BiSeNet returned invalid region scores")
@@ -238,8 +268,9 @@ class ImageProcessor:
         return rgba, Image.fromarray(labels)
 
     def detect_face_landmarks(self, image: Image.Image) -> dict:
-        """Use MediaPipe's face-detection/landmark model bundle to predict dense points and expressions.
-        Pass RGB over neutral grey directly, without a separate detector, eye alignment or measured-depth claim.
+        """Use MediaPipe's face-detection/landmark bundle on neutral-grey RGB for points and expressions.
+        Windows CUDA mode uses CPU because MediaPipe's Python GPU delegate is unsupported on Windows.
+        Other CUDA platforms request GPU; explicit CPU mode stays on CPU, without retry fallback.
         """
         import numpy as np
 
@@ -253,7 +284,7 @@ class ImageProcessor:
                 raise FileNotFoundError(path)
             from ailias.imageprocessing.dense import DenseDetector
 
-            self._landmarker = DenseDetector(path)
+            self._landmarker = DenseDetector(path, device=self.landmarker_device)
         composite = Image.new("RGBA", image.size, NEUTRAL_BACKGROUND)
         composite.alpha_composite(image.convert("RGBA"))
         return self._landmarker.detect(np.asarray(composite.convert("RGB")))
@@ -304,11 +335,16 @@ class ImageProcessor:
             "timestamp_seconds": frame.timestamp_seconds if frame is not None else None,
             "features_colour_source": "original_rgb",
             "metric_depth_measured": False,
+            "execution": {
+                "requested_device": self.device, "networks": dict(self._executions),
+                "mediapipe_device": self.landmarker_device, "mediapipe_executed": False,
+            },
         }
         if bounds is None:
             result["quality"]["reasons"].append("no_head_foreground")
             return result
         detection = self.detect_face_landmarks(head)
+        result["execution"]["mediapipe_executed"] = True
         if normalize_colour:
             corrected, result["colour"] = self.normalize_colour(original_rgb, excluded_bounds=bounds)
             corrected = corrected.convert("RGBA")
