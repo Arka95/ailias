@@ -1,13 +1,12 @@
 """Image and video-frame preparation with reusable, explicitly supplied models.
 
-The simple path returns head cutouts and facial evidence without writing artifacts.
+The simple path returns prepared head images and labels without writing artifacts.
 """
 
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 import math
 from pathlib import Path
-import platform
 
 from PIL import Image
 
@@ -16,9 +15,6 @@ from ailias.imageprocessing.cleansing import (
 )
 from ailias.imageprocessing.faceparsing import HEAD_CLASSES
 from ailias.imageprocessing.image_io import read_oriented_image
-from ailias.imageprocessing.settings import (
-    MEDIAPIPE_BASE_FACE_POINT_COUNT, MEDIAPIPE_LANDMARK_COUNT, ProcessingPolicy, load_policy,
-)
 
 
 MODNET_INPUT_SIDE = 512
@@ -30,8 +26,6 @@ BISENET_RGB_MEAN = (0.485, 0.456, 0.406)
 BISENET_RGB_STANDARD_DEVIATION = (0.229, 0.224, 0.225)
 RGB_MAX_VALUE = 255
 NEUTRAL_BACKGROUND = (127, 127, 127, 255)
-# Allow small numerical drift in a unit orthogonal rotation, not extra head-angle deviation.
-ROTATION_VALIDATION_TOLERANCE = 0.02
 
 
 @dataclass(frozen=True)
@@ -54,31 +48,25 @@ class ImageProcessor:
     def __init__(
         self, *, modnet_model: str | Path | None = None,
         bisenet_model: str | Path | None = None,
-        mediapipe_model: str | Path | None = None,
         device: str = "cuda", gpu_index: int = 0,
         colour_policy: CleansingPolicy | None = None,
-        quality_policy: ProcessingPolicy | None = None,
     ):
         """Accept existing model files without loading weights or downloading anything.
-        Default to CUDA and the image-processing quality config unless policies are explicitly supplied.
+        Default to CUDA and the current colour policy unless explicitly supplied.
         """
         if device not in {"cpu", "cuda"}:
             raise ValueError("Image processing device must be cpu or cuda")
         if isinstance(gpu_index, bool) or not isinstance(gpu_index, int) or gpu_index < 0:
             raise ValueError("GPU index must be a nonnegative integer")
         self.device, self.gpu_index = device, gpu_index
-        self.landmarker_device = "cpu" if device == "cpu" or platform.system() == "Windows" else "gpu"
         self._model_paths = {
             "modnet": Path(modnet_model) if modnet_model is not None else None,
             "bisenet": Path(bisenet_model) if bisenet_model is not None else None,
-            "mediapipe": Path(mediapipe_model) if mediapipe_model is not None else None,
         }
         self._networks = {}
         self._executions = {}
-        self._landmarker = None
         self._closed = False
         self.colour_policy = colour_policy if colour_policy is not None else CleansingPolicy()
-        self.quality_policy = quality_policy if quality_policy is not None else load_policy()
 
     def __enter__(self):
         """Keep one processor and its model instances alive for the enclosing batch.
@@ -95,15 +83,12 @@ class ImageProcessor:
         self.close()
 
     def close(self) -> None:
-        """Release cached OpenCV networks and the owned MediaPipe landmarker.
+        """Release the owned MODNet and BiSeNet OpenCV networks.
         Closing is idempotent and never shuts down an external model process.
         """
         self._closed = True
         self._networks.clear()
         self._executions.clear()
-        landmarker, self._landmarker = self._landmarker, None
-        if landmarker is not None:
-            landmarker.close()
 
     @staticmethod
     def load_image(path: str | Path) -> Image.Image:
@@ -274,28 +259,6 @@ class ImageProcessor:
         rgba.putalpha(Image.fromarray(alpha))
         return rgba, Image.fromarray(labels)
 
-    def detect_face_landmarks(self, image: Image.Image) -> dict:
-        """Use MediaPipe's face-detection/landmark bundle on neutral-grey RGB for points and expressions.
-        Windows CUDA mode uses CPU because MediaPipe's Python GPU delegate is unsupported on Windows.
-        Other CUDA platforms request GPU; explicit CPU mode stays on CPU, without retry fallback.
-        """
-        import numpy as np
-
-        if self._closed:
-            raise RuntimeError("Image processor is closed")
-        if self._landmarker is None:
-            path = self._model_paths["mediapipe"]
-            if path is None:
-                raise ValueError("Supply the existing mediapipe model path")
-            if not path.is_file():
-                raise FileNotFoundError(path)
-            from ailias.imageprocessing.dense import DenseDetector
-
-            self._landmarker = DenseDetector(path, device=self.landmarker_device)
-        composite = Image.new("RGBA", image.size, NEUTRAL_BACKGROUND)
-        composite.alpha_composite(image.convert("RGBA"))
-        return self._landmarker.detect(np.asarray(composite.convert("RGB")))
-
     def normalize_colour(
         self, image: Image.Image, *, excluded_bounds: tuple[int, int, int, int] | None = None,
     ) -> tuple[Image.Image, dict]:
@@ -319,22 +282,20 @@ class ImageProcessor:
     def process_image(
         self, source: str | Path | Image.Image | Frame, *, normalize_colour: bool = True,
     ) -> dict:
-        """Run MODNet, BiSeNet and MediaPipe in order, then extract original-pixel facial features.
-        Return native-grid images, predictions and quality flags in memory; never crop, align or write sidecars.
+        """Prepare a native-grid head with MODNet, BiSeNet and optional colour normalization.
+        Return original pixels and existing labels for separate feature extraction; never crop or write sidecars.
         """
         image = self._load_source_image(source)
         original_rgb = image.convert("RGB")
         foreground = self.remove_background(image)
         head, regions = self.isolate_head(foreground)
-        result = self._create_processing_result(source, head, regions)
+        result = self._create_processing_result(source, original_rgb, head, regions)
 
         head_bounds = head.getchannel("A").getbbox()
         if head_bounds is None:
             result["quality"]["reasons"].append("no_head_foreground")
             return result
 
-        detection = self.detect_face_landmarks(head)
-        result["execution"]["mediapipe_executed"] = True
         if normalize_colour:
             corrected, result["colour"] = self.normalize_colour(
                 original_rgb, excluded_bounds=head_bounds)
@@ -342,7 +303,7 @@ class ImageProcessor:
             corrected.putalpha(head.getchannel("A"))
             result["image"] = corrected
 
-        result.update(self._extract_face_evidence(original_rgb, head, regions, detection))
+        result["status"] = "ready"
         return result
 
     def _load_source_image(self, source: str | Path | Image.Image | Frame) -> Image.Image:
@@ -356,10 +317,11 @@ class ImageProcessor:
         return self.load_image(source)
 
     def _create_processing_result(
-        self, source: str | Path | Image.Image | Frame, head: Image.Image, regions: Image.Image,
+        self, source: str | Path | Image.Image | Frame, original_rgb: Image.Image,
+        head: Image.Image, regions: Image.Image,
     ) -> dict:
-        """Assemble the stable in-memory result fields before face validation begins.
-        Preserve source/frame identity and backend evidence even when the image needs review.
+        """Assemble preparation products with untouched RGB for later colour measurements.
+        Preserve source/frame identity and backend evidence without owning facial analysis.
         """
         source_path, frame_index, timestamp = None, None, None
         if isinstance(source, Frame):
@@ -367,121 +329,13 @@ class ImageProcessor:
         elif isinstance(source, (str, Path)):
             source_path = Path(source)
         return {
-            "status": "review", "image": head, "regions": regions, "features": None,
-            "landmarks": None, "blendshapes": {}, "facial_transform": None,
+            "status": "review", "image": head, "original_image": original_rgb, "regions": regions,
             "quality": {"reasons": []}, "colour": {"status": "not_applied"},
             "source": source_path, "frame_index": frame_index, "timestamp_seconds": timestamp,
-            "features_colour_source": "original_rgb",
-            "metric_depth_measured": False,
             "execution": {
                 "requested_device": self.device, "networks": dict(self._executions),
-                "mediapipe_device": self.landmarker_device, "mediapipe_executed": False,
             },
         }
-
-    def _extract_face_evidence(
-        self, original_rgb: Image.Image, head: Image.Image, regions: Image.Image, detection: dict,
-    ) -> dict:
-        """Combine MediaPipe points and BiSeNet labels into original-pixel feature evidence.
-        Keep invalid-face review outcomes separate from coordinate mapping and quality assessment.
-        """
-        import numpy as np
-        from ailias.imageprocessing.appearance_features import photo_features
-
-        if len(detection["faces"]) != 1:
-            reason = "no_face_detected" if not detection["faces"] else "multiple_faces_detected"
-            return {"quality": {"reasons": [reason]}}
-        landmarks = self._map_face_landmarks(detection["faces"][0], head)
-        if "review_reason" in landmarks:
-            return {"quality": {"reasons": [landmarks["review_reason"]]}}
-
-        blendshapes = detection["blendshapes"][0] if detection["blendshapes"] else {}
-        transform = detection["transforms"][0] if detection["transforms"] else None
-        quality = self._assess_face_quality(original_rgb, landmarks, blendshapes, transform)
-        return {
-            "status": "review" if quality["reasons"] else "ready", "quality": quality,
-            "landmarks": {
-                "normalized_predicted": landmarks["normalized_predicted"].tolist(),
-                "source_xy": landmarks["source_xy"].tolist(), "on_head": landmarks["on_head"].tolist(),
-            },
-            "blendshapes": blendshapes, "facial_transform": transform,
-            "features": photo_features(np.asarray(original_rgb), landmarks["source_xy"], regions,
-                                       landmarks["on_head"]),
-        }
-
-    def _map_face_landmarks(self, normalized_points: list, head: Image.Image) -> dict:
-        """Map MediaPipe's 478 normalized predictions onto the unchanged source-image grid.
-        Derive face bounds and alpha support without treating predicted depth as measured geometry.
-        """
-        import numpy as np
-
-        normalized = np.asarray(normalized_points, dtype=float)
-        if normalized.shape != (MEDIAPIPE_LANDMARK_COUNT, 3) or not np.isfinite(normalized).all():
-            return {"review_reason": "invalid_dense_landmarks"}
-        source_xy = normalized[:, :2] * head.size
-        inside_image = ((source_xy >= 0) & (source_xy < head.size)).all(1)
-        sample_pixels = np.clip(np.floor(source_xy).astype(int), 0, np.asarray(head.size) - 1)
-        alpha = np.asarray(head.getchannel("A"))
-        on_head = inside_image & (
-            alpha[sample_pixels[:, 1], sample_pixels[:, 0]] >= self.quality_policy.min_landmark_alpha)
-        face_points = source_xy[:MEDIAPIPE_BASE_FACE_POINT_COUNT]
-        minimum_xy, maximum_xy = face_points.min(0), face_points.max(0)
-        left, top = np.maximum(0, minimum_xy)
-        right, bottom = np.minimum(head.size, maximum_xy)
-        if right <= left or bottom <= top:
-            return {"review_reason": "face_outside_image"}
-        return {
-            "normalized_predicted": normalized, "source_xy": source_xy,
-            "inside_image": inside_image, "on_head": on_head,
-            "face_box": [left, top, right - left, bottom - top],
-        }
-
-    def _assess_face_quality(
-        self, original_rgb: Image.Image, landmarks: dict, blendshapes: dict, transform,
-    ) -> dict:
-        """Assess image detail, clipping, head support, expression and predicted pose independently.
-        Return review reasons without discarding usable features or claiming calibrated confidence.
-        """
-        from ailias.imageprocessing.features import face_quality
-
-        quality = face_quality(original_rgb, landmarks["face_box"], self.quality_policy)
-        if not landmarks["inside_image"][:MEDIAPIPE_BASE_FACE_POINT_COUNT].all():
-            quality["reasons"].append("face_clipped")
-        supported_points = int(landmarks["on_head"][:MEDIAPIPE_BASE_FACE_POINT_COUNT].sum())
-        if supported_points < self.quality_policy.min_supported_landmarks:
-            quality["reasons"].append("insufficient_head_support")
-        expression = max((value for name, value in blendshapes.items()
-                          if name.startswith(("mouth", "brow", "cheek", "noseSneer", "eyeWide", "eyeSquint"))
-                          or name == "jawOpen"), default=0.0)
-        if expression > self.quality_policy.max_neutral_expression:
-            quality["reasons"].append("non_neutral_expression")
-        pose, pose_warning = self._assess_face_pose(transform)
-        if pose is not None:
-            quality["pose"] = pose
-        if pose_warning is not None:
-            quality["reasons"].append(pose_warning)
-        return quality
-
-    def _assess_face_pose(self, transform) -> tuple[dict | None, str | None]:
-        """Validate the predicted rotation and derive uncalibrated pitch, yaw and roll.
-        Flag unavailable or extreme pose without fitting a camera or altering image pixels.
-        """
-        import numpy as np
-
-        matrix = np.asarray(transform, dtype=float)
-        if (matrix.shape != (4, 4) or not np.isfinite(matrix).all()
-                or not np.allclose(matrix[:3, :3].T @ matrix[:3, :3], np.eye(3),
-                                   atol=ROTATION_VALIDATION_TOLERANCE)
-                or not math.isclose(float(np.linalg.det(matrix[:3, :3])), 1.0,
-                                    abs_tol=ROTATION_VALIDATION_TOLERANCE)):
-            return None, "missing_or_invalid_pose"
-        yaw = math.degrees(math.atan2(-matrix[2, 0], math.hypot(matrix[0, 0], matrix[1, 0])))
-        pitch = math.degrees(math.atan2(matrix[2, 1], matrix[2, 2]))
-        roll = math.degrees(math.atan2(matrix[1, 0], matrix[0, 0]))
-        pose = {"pitch_deg": pitch, "yaw_deg": yaw, "roll_deg": roll, "calibrated": False}
-        extreme = (abs(yaw) > self.quality_policy.max_yaw_degrees
-                   or max(abs(pitch), abs(roll)) > self.quality_policy.max_pitch_roll_degrees)
-        return pose, "extreme_pose" if extreme else None
 
     def process_images(
         self, sources: Iterable[str | Path | Image.Image | Frame], *, normalize_colour: bool = True,

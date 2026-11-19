@@ -13,22 +13,30 @@ For model-by-model inputs, outputs and actual local portrait examples, see the
 
 ## Simple Python API
 
-`ImageProcessor` runs **MODNet -> BiSeNet -> MediaPipe** directly, without
-YuNet, SFace, automatic cropping or alignment. Existing commands below are
-unchanged and still use their original pipeline.
+`images.py` prepares pixels with **MODNet -> BiSeNet -> optional white balance**.
+`face_feature_extraction.py` uses **MediaPipe -> facial features**, reusing the
+prepared head and labels: no second matting, parsing or head-isolation pass.
+Neither stage uses YuNet, SFace, automatic cropping or alignment. Existing commands
+below are unchanged and still use their original pipeline.
 
 ```python
 from pathlib import Path
+from ailias.imageprocessing.face_feature_extraction import FaceFeatureExtractor
 from ailias.imageprocessing.images import ImageProcessor
 
 models = Path(r"data\arka\imageprocessing\models")
 with ImageProcessor(
     modnet_model=models / "modnet-photographic-v1" / "modnet-512.onnx",
     bisenet_model=models / "face-parsing-resnet18-v1" / "resnet18.onnx",
-    mediapipe_model=Path(r"data\arka\facefitting\models\mp-face-landmarker-v1\face_landmarker.task"),
 ) as processor:
-    result = processor.process_image(Path(r"C:\photos\face.jpg"))
-    result["image"].save("head.png")  # Explicit export; processing itself writes nothing.
+    prepared = processor.process_image(Path(r"C:\photos\face.jpg"))
+
+with FaceFeatureExtractor(
+    mediapipe_model=Path(r"data\arka\facefitting\models\mp-face-landmarker-v1\face_landmarker.task"),
+) as extractor:
+    evidence = extractor.extract_features(prepared)
+
+prepared["image"].save("head.png")  # Explicit export; neither stage writes automatically.
 ```
 
 The default is `device="cuda", gpu_index=0`; use `device="cpu"` only for explicit
@@ -36,23 +44,29 @@ CPU-only processing. On Windows in CUDA mode, **only MediaPipe uses CPU**, becau
 its Python GPU delegate is unsupported there. Elsewhere CUDA mode requests the
 MediaPipe GPU delegate. Unsupported requested GPU execution fails; no CPU retry.
 
-| Result | Contents |
+| Stage | Result fields |
 |---|---|
-| `image`, `regions` | Native-size RGBA head and semantic-label image |
-| `landmarks`, `blendshapes`, `facial_transform` | Original-grid 478-point predictions, expression scores and model transform |
-| `features` | Facial ratios, regional colours and iris evidence sampled from **original RGB** |
-| `status`, `quality`, `colour` | `ready`/`review`, quality reasons and white-balance outcome |
-| `execution` | Requested mode, OpenCV backend evidence and selected MediaPipe delegate |
+| Preparation | `image`: native-size RGBA head; `original_image`: untouched RGB on the same grid; `regions`: semantic labels; `colour`: white-balance outcome |
+| Feature extraction | `landmarks`, `blendshapes`, `facial_transform`, `features`: original-grid predictions, facial ratios, regional colours and iris evidence |
+| Both | Own `status`, `quality`, `execution` and source/frame metadata |
+
+Preparation `ready` means a nonempty head, **not face-quality approval**.
+The extractor performs face-quality review separately. `mediapipe_model` and
+`quality_policy` belong to `FaceFeatureExtractor`, not `ImageProcessor`.
 
 Colour normalization is enabled by default for the returned cutout, not feature
-samples; pass `normalize_colour=False` to skip it. This is bounded scene-neutral
+samples; pass `normalize_colour=False` to skip it. Original RGB is retained only
+as the uncorrected colour reference; MediaPipe does not require original pixels.
+This is bounded scene-neutral
 white balance, not calibrated skin colour or cross-photo exposure matching.
 No/multiple faces, invalid points, low detail, clipping, poor foreground support,
 strong expressions and extreme/missing pose produce review outcomes rather than automatic approval.
 Region/iris features can independently require review.
 
-Use `processor.process_images(paths)` for a lazy batch with reused models and
-per-item error results. `processor.extract_video_frames(path)` yields `Frame`
+For a lazy feature batch, pass `processor.process_images(paths)` into
+`extractor.extract_features_batch(...)` while both contexts are open. Models are
+reused; preparation errors pass through and extraction errors stay per item.
+`processor.extract_video_frames(path)` yields `Frame`
 records with RGB, source, decode index and timestamp; pass these records directly
 to `process_image()` or `process_images()`. Sampling defaults to one frame per
 second; `interval_seconds` and `max_frames` control it. Close an unfinished frame
@@ -62,11 +76,11 @@ profiles and existing transparency; `crop_image()` accepts explicit pixel bounds
 Models load lazily on the selected backend from supplied local files, with no
 downloads, external processes or global thread-setting changes. Use prepared model files
 compatible with the existing MODNet static-512 and BiSeNet ResNet18 adapters.
-CPU inference needs the existing `imageprocessing` and `dense-landmarks`
-extras. CUDA inference requires the existing CUDA-enabled OpenCV environment;
+Preparation needs the existing `imageprocessing` extra; feature extraction also
+needs `dense-landmarks`. CUDA inference requires the existing CUDA-enabled OpenCV environment;
 do not replace it with a CPU-only wheel. Frame extraction also needs PyAV
 from the existing `video` extra.
-Use one processor serially, not concurrent calls sharing its mutable networks.
+Use each instance serially, not concurrent calls sharing mutable model state.
 No alpha sidecars, JSON or previews are retained automatically.
 
 ## Inputs and outputs

@@ -6,40 +6,44 @@
 
 `images.py` owns one `ImageProcessor` and the plain `Frame` data record.
 MODNet predicts opacity; BiSeNet labels a grey composite of that result and
-restricts its alpha; MediaPipe detects directly on the head cutout. The new API
-does not use the legacy detector/grouping backend or depend on native-engine
-modules. Each function has a short descriptive docstring naming its model where
-applicable.
+restricts its alpha. Optional white balance completes preparation.
+`face_feature_extraction.py` owns `FaceFeatureExtractor`: MediaPipe inference,
+coordinate mapping, face-quality/pose review and calls to `photo_features()`.
+It consumes existing `image`, `original_image` and `regions` values on one
+validated pixel grid; it never reloads source files, mattes, reparses or isolates
+the head again. Neither class imports the other or depends on native-engine modules.
+Each function has a short descriptive docstring naming its model where applicable.
 
-`process_image()` only orchestrates the named stages. Source/result handling,
-landmark-coordinate mapping, face-quality assessment and pose assessment stay
-in focused private methods on the same class; no extra classes or modules.
-
-ONNX networks and the dense detector load lazily, are reused serially across
-images/frames, and are released by `close()` or context exit. Source geometry
-stays unchanged. White balance changes only the returned cutout; feature colours
-are sampled from original RGB using restored semantic labels and dense points.
-This keeps the existing feature interpretation without retaining manifests.
+The two public entry points only orchestrate their scoped stages. Networks and
+the dense detector load lazily, are reused serially, and have independent
+`close()`/context lifecycles. Preparation outputs remain usable after the
+processor closes. White balance changes only the prepared cutout; feature colours
+are sampled from original RGB using existing semantic labels and dense points.
+This preserves the uncorrected-photo colour contract, including its lighting/cast,
+without retaining manifests. MediaPipe receives the prepared head, not original RGB.
 `read_oriented_image(..., preserve_alpha=True)` supports the new loader;
 its default remains RGB for all existing callers.
 
 `ImageProcessor` defaults to `device="cuda"` with explicit `gpu_index=0`.
 MODNet/BiSeNet check CUDA availability and verify graph execution, failing if
 OpenCV silently ran entirely on CPU. `device="cpu"` is the explicit CPU-only
-mode. In CUDA mode, MediaPipe uses CPU on Windows and requests its GPU delegate
+mode. `FaceFeatureExtractor` also defaults to CUDA mode; MediaPipe uses CPU on Windows and requests its GPU delegate
 elsewhere; the selection reason is in `detect_face_landmarks()`'s docstring.
 This is the owner's explicit Windows exception, not a failed-GPU retry.
 See [MediaPipe's delegate support](https://github.com/google-ai-edge/mediapipe/blob/master/mediapipe/tasks/python/core/base_options.py).
 Existing callers of `DenseDetector(model)` keep their CPU default; the new API
 always supplies the selected delegate.
 
-Results and batch errors stay in memory. Individual region/iris review flags
+Results and batch errors stay in memory. Preparation `ready` only confirms a
+nonempty head; feature extraction owns facial approval/review. Compose
+`process_images()` with `extract_features_batch()` to stream both stages while
+preserving per-item errors and source/frame metadata. Individual region/iris review flags
 remain separate from overall image-quality status. Predicted pose angles flag
 absolute pitch/roll above 25 degrees or yaw above 70 by default; expression scores above
 0.5 flag non-neutral expression by default. These are review heuristics, not calibrated
 depth, pose, skin colour or independent per-point visibility.
 The defaults are loaded from `config\imageprocessing.json` and may be overridden
-with `quality_policy`. Each review field is explained beside its definition in
+with the extractor's `quality_policy`. Each review field is explained beside its definition in
 `settings.py`. Model input sizes, landmark counts and trained RGB normalization
 remain named model constants, not adjustable review thresholds.
 `Frame` sampling uses presentation timestamps with bounded lazy consumption,
@@ -107,6 +111,8 @@ Model download identities are pinned in the model adapters, separate from policy
 
 | Component | Responsibility / boundary |
 |---|---|
+| `images.py` | Image/frame I/O, explicit cropping, MODNet/BiSeNet preparation and bounded colour normalization; no landmark inference |
+| `face_feature_extraction.py` | MediaPipe lifecycle, native-grid landmarks, face-quality review and extraction from existing pixels/labels |
 | `dense.py` | Explicit MediaPipe CPU/GPU delegate; legacy CPU default and reversible source coordinates; no GNM dependency |
 | `appearance_features.py` | Pure per-photo geometry ratios, semantic-region colour and pupil-excluding iris sampling |
 | `feature_evidence.py` | Validate input hashes/curation/transforms; retain versioned features and parser masks |

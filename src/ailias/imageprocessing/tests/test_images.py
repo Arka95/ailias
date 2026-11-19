@@ -1,5 +1,4 @@
 from fractions import Fraction
-from dataclasses import replace
 from pathlib import Path
 import sys
 import tempfile
@@ -11,7 +10,6 @@ import numpy as np
 from PIL import Image
 
 from ailias.imageprocessing.images import Frame, ImageProcessor
-from ailias.imageprocessing.settings import ProcessingPolicy
 
 
 def region_scores():
@@ -25,17 +23,6 @@ def region_scores():
     return scores
 
 
-def dense_prediction():
-    """Provide finite normalized landmarks and neutral expression/transform evidence.
-    Distribute points over the synthetic skin region without claiming an anatomical fixture.
-    """
-    indices = np.arange(478)
-    points = np.column_stack((0.2 + indices % 23 / 22 * 0.6,
-                              0.1 + indices // 23 / 21 * 0.3, np.zeros(478)))
-    return {"faces": [points.tolist()], "blendshapes": [{"mouthSmileLeft": 0.1}],
-            "transforms": [np.eye(4).tolist()]}
-
-
 class ImageProcessorTests(unittest.TestCase):
     def setUp(self):
         """Create explicit dummy model paths and deterministic fake network responses.
@@ -44,7 +31,7 @@ class ImageProcessorTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
-        paths = {name: self.root / (name + ".model") for name in ("modnet", "bisenet", "mediapipe")}
+        paths = {name: self.root / (name + ".model") for name in ("modnet", "bisenet")}
         for path in paths.values():
             path.write_bytes(b"unit fixture, not model weights")
         self.modnet, self.bisenet = Mock(), Mock()
@@ -53,46 +40,43 @@ class ImageProcessorTests(unittest.TestCase):
         networks = {"modnet.model": self.modnet, "bisenet.model": self.bisenet}
         self.load = self.enterContext(patch(
             "cv2.dnn.readNetFromONNX", side_effect=lambda path: networks[Path(path).name]))
-        self.landmarker = Mock()
-        self.landmarker.detect.side_effect = lambda rgb: dense_prediction()
         self.create_landmarker = self.enterContext(patch(
-            "ailias.imageprocessing.dense.DenseDetector", return_value=self.landmarker))
+            "ailias.imageprocessing.dense.DenseDetector",
+            side_effect=AssertionError("Image preparation must not construct MediaPipe")))
         self.processor = ImageProcessor(
             modnet_model=paths["modnet"], bisenet_model=paths["bisenet"],
-            mediapipe_model=paths["mediapipe"], device="cpu",
-            quality_policy=ProcessingPolicy(min_face_size=1, min_laplacian_variance=0.01))
+            device="cpu")
         self.addCleanup(self.processor.close)
         y, x = np.indices((128, 160))
         values = ((x * 41 + y * 31) % 140 + 50).astype(np.uint8)
         self.image = Image.fromarray(values).convert("RGB")
 
-    def test_pipeline_preserves_pixels_coordinates_and_returns_original_colour_features(self):
-        """Exercise the full new path through fake MODNet, BiSeNet and MediaPipe outputs.
-        Verify native-grid transparency, usable features, unchanged input and no retained sidecars.
+    def test_preparation_preserves_pixels_and_labels_without_landmark_inference(self):
+        """Prepare native-grid pixels with MODNet and BiSeNet but no MediaPipe model or dependency.
+        Keep original RGB and semantic labels in memory without modifying inputs or writing sidecars.
         """
         before, files = self.image.tobytes(), set(self.root.iterdir())
         events = []
         self.modnet.setInput.side_effect = lambda blob: events.append("modnet")
         self.bisenet.setInput.side_effect = lambda blob: events.append("bisenet")
-        self.landmarker.detect.side_effect = lambda rgb: events.append("mediapipe") or dense_prediction()
-        result = self.processor.process_image(self.image, normalize_colour=False)
-        self.assertEqual(events, ["modnet", "bisenet", "mediapipe"])
+        with patch.dict(sys.modules, {"mediapipe": None}):
+            result = self.processor.process_image(self.image, normalize_colour=False)
+        self.assertEqual(events, ["modnet", "bisenet"])
         self.assertEqual(result["status"], "ready")
         self.assertEqual(result["image"].size, self.image.size)
         self.assertEqual(result["image"].getpixel((80, 110))[3], 0)
         self.assertEqual(result["image"].getpixel((80, 25))[3], 255)
         np.testing.assert_array_equal(np.asarray(result["image"])[:, :, :3], np.asarray(self.image))
-        normalized = np.asarray(result["landmarks"]["normalized_predicted"])
-        np.testing.assert_allclose(result["landmarks"]["source_xy"], normalized[:, :2] * self.image.size)
-        self.assertEqual(result["features"]["regions"]["skin"]["status"], "observed")
-        self.assertEqual(result["features_colour_source"], "original_rgb")
-        self.assertFalse(result["metric_depth_measured"])
+        self.assertEqual(result["regions"].size, self.image.size)
+        self.assertEqual(result["regions"].getpixel((80, 110)), 16)
+        self.assertEqual(result["original_image"].tobytes(), before)
+        self.create_landmarker.assert_not_called()
         self.assertEqual(self.image.tobytes(), before)
         self.assertEqual(set(self.root.iterdir()), files)
 
     def test_models_are_lazy_reused_and_closed_after_collection(self):
         """Stream two inputs through the same cached models rather than rebuilding per photo.
-        Verify explicit close releases the landmarker and prevents further inference.
+        Verify explicit close prevents further inference without owning a landmark task.
         """
         self.load.assert_not_called()
         self.create_landmarker.assert_not_called()
@@ -101,10 +85,9 @@ class ImageProcessorTests(unittest.TestCase):
         self.assertEqual(next(results)["status"], "ready")
         self.assertEqual(next(results)["status"], "ready")
         self.assertEqual(self.load.call_count, 2)
-        self.create_landmarker.assert_called_once()
+        self.create_landmarker.assert_not_called()
         self.processor.close()
         self.processor.close()
-        self.landmarker.close.assert_called_once()
         with self.assertRaisesRegex(RuntimeError, "closed"):
             self.processor.process_image(self.image)
 
@@ -124,8 +107,8 @@ class ImageProcessorTests(unittest.TestCase):
         self.assertEqual(labels.getpixel((0, 0)), 0)
         self.assertEqual(labels.getpixel((80, 110)), 16)
 
-    def test_transparent_rgb_is_hidden_from_bisenet_and_mediapipe(self):
-        """Composite transparent pixels over neutral grey before either face model sees RGB.
+    def test_transparent_rgb_is_hidden_from_bisenet(self):
+        """Composite transparent pixels over neutral grey before BiSeNet sees RGB.
         Prevent hidden source background colours from leaking into model inputs.
         """
         image = Image.new("RGBA", (128, 128), (250, 0, 0, 0))
@@ -133,53 +116,21 @@ class ImageProcessorTests(unittest.TestCase):
         blob = self.bisenet.setInput.call_args.args[0]
         expected = (np.array([127, 127, 127]) / 255 - [.485, .456, .406]) / [.229, .224, .225]
         np.testing.assert_allclose(blob[0, :, 100, 100], expected, atol=1e-6)
-        self.processor.detect_face_landmarks(image)
-        rgb = self.landmarker.detect.call_args.args[0]
-        np.testing.assert_array_equal(rgb, np.full((128, 128, 3), 127, np.uint8))
 
-    def test_no_face_multiple_faces_and_invalid_points_abstain_without_features(self):
-        """Require one valid dense face rather than silently selecting a subject.
-        Keep the prepared cutout available while returning explicit review reasons.
-        """
-        for faces, reason in (
-            ([], "no_face_detected"),
-            (dense_prediction()["faces"] * 2, "multiple_faces_detected"),
-            ([[[float("nan"), 0, 0]] * 478], "invalid_dense_landmarks"),
-        ):
-            with self.subTest(reason=reason):
-                self.landmarker.detect.side_effect = None
-                self.landmarker.detect.return_value = {"faces": faces, "blendshapes": [], "transforms": []}
-                result = self.processor.process_image(self.image, normalize_colour=False)
-                self.assertEqual(result["status"], "review")
-                self.assertIn(reason, result["quality"]["reasons"])
-                self.assertIsNone(result["features"])
-
-    def test_empty_head_skips_landmark_inference(self):
+    def test_empty_head_requests_review_before_colour_normalization(self):
         """Abstain when semantic selection removes all foreground from a portrait.
-        Avoid loading MediaPipe for an image with no supported head pixels.
+        Do not estimate white balance or claim usable preparation for an empty head.
         """
         scores = np.zeros((1, 19, 512, 512), np.float32)
         scores[:, 16] = 1
         self.bisenet.forward.side_effect = None
         self.bisenet.forward.return_value = scores
-        result = self.processor.process_image(self.image)
-        self.assertEqual(result["quality"]["reasons"], ["no_head_foreground"])
-        self.create_landmarker.assert_not_called()
-
-    def test_quality_flags_low_detail_and_expression_without_discarding_evidence(self):
-        """Expose low-detail and non-neutral-expression warnings for downstream review.
-        Still return extracted evidence instead of treating successful inference as approval.
-        """
-        detection = dense_prediction()
-        detection["blendshapes"][0]["mouthSmileLeft"] = .9
-        self.landmarker.detect.side_effect = None
-        self.landmarker.detect.return_value = detection
-        result = self.processor.process_image(Image.new("RGB", self.image.size, (160, 110, 75)),
-                                              normalize_colour=False)
+        with patch.object(self.processor, "normalize_colour") as normalize_colour:
+            result = self.processor.process_image(self.image)
         self.assertEqual(result["status"], "review")
-        self.assertIn("face_blurred_or_low_detail", result["quality"]["reasons"])
-        self.assertIn("non_neutral_expression", result["quality"]["reasons"])
-        self.assertIsNotNone(result["features"])
+        self.assertEqual(result["quality"]["reasons"], ["no_head_foreground"])
+        normalize_colour.assert_not_called()
+        self.create_landmarker.assert_not_called()
 
     def test_malformed_model_predictions_fail_instead_of_publishing_masks(self):
         """Reject wrong-sized or nonfinite network outputs before creating cutouts.
@@ -194,122 +145,9 @@ class ImageProcessorTests(unittest.TestCase):
             self.bisenet.forward.return_value = prediction
             with self.assertRaisesRegex(ValueError, "BiSeNet"):
                 self.processor.isolate_head(self.image)
-
-    def test_quality_flags_extreme_or_unavailable_pose_without_claiming_calibration(self):
-        """Flag a strongly rolled face and an invalid transform for explicit review.
-        Preserve the predicted pose as uncalibrated image evidence rather than measured orientation.
-        """
-        angle = np.deg2rad(40)
-        transform = np.eye(4)
-        transform[:2, :2] = [[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]]
-        for transforms, reason in (([transform.tolist()], "extreme_pose"),
-                                    ([], "missing_or_invalid_pose")):
-            with self.subTest(reason=reason):
-                detection = dense_prediction()
-                detection["transforms"] = transforms
-                self.landmarker.detect.side_effect = None
-                self.landmarker.detect.return_value = detection
-                result = self.processor.process_image(self.image, normalize_colour=False)
-                self.assertIn(reason, result["quality"]["reasons"])
-                if transforms:
-                    self.assertAlmostEqual(result["quality"]["pose"]["roll_deg"], 40)
-                    self.assertFalse(result["quality"]["pose"]["calibrated"])
-
-    def test_configured_alpha_threshold_controls_foreground_support_review(self):
-        """Allow the configured opacity threshold to decide whether points have head support.
-        Preserve the same fractional cutout rather than modifying alpha to satisfy the quality gate.
-        """
-        self.modnet.forward.return_value.fill(.9)
-        original = self.processor.process_image(self.image, normalize_colour=False)
-        self.assertIn("insufficient_head_support", original["quality"]["reasons"])
-        self.processor.quality_policy = replace(self.processor.quality_policy, min_landmark_alpha=220)
-        adjusted = self.processor.process_image(self.image, normalize_colour=False)
-        self.assertNotIn("insufficient_head_support", adjusted["quality"]["reasons"])
-        self.assertEqual(original["image"].tobytes(), adjusted["image"].tobytes())
-
-    def test_configured_supported_point_count_controls_review_without_dropping_features(self):
-        """Apply the requested minimum number of supported base-face landmarks.
-        Keep regional evidence available when a stricter support requirement requests review.
-        """
-        detection = dense_prediction()
-        for point in detection["faces"][0][100:]:
-            point[1] = .75
-        self.landmarker.detect.side_effect = None
-        self.landmarker.detect.return_value = detection
-        original = self.processor.process_image(self.image, normalize_colour=False)
-        self.assertIn("insufficient_head_support", original["quality"]["reasons"])
-        self.assertIsNotNone(original["features"])
-        self.processor.quality_policy = replace(self.processor.quality_policy, min_supported_landmarks=50)
-        adjusted = self.processor.process_image(self.image, normalize_colour=False)
-        self.assertNotIn("insufficient_head_support", adjusted["quality"]["reasons"])
-
-    def test_configured_expression_and_pose_limits_control_review_flags(self):
-        """Read expression, pitch/roll and yaw limits from the supplied quality policy.
-        Changing a review threshold must not change the underlying predicted transform or scores.
-        """
-        cases = (
-            ("non_neutral_expression", {"max_neutral_expression": .95}, "expression", .9),
-            ("extreme_pose", {"max_pitch_roll_degrees": 45}, "roll", 40),
-            ("extreme_pose", {"max_yaw_degrees": 85}, "yaw", 80),
-        )
-        base_policy = self.processor.quality_policy
-        for reason, changes, kind, value in cases:
-            with self.subTest(kind=kind):
-                detection = dense_prediction()
-                if kind == "expression":
-                    detection["blendshapes"][0]["mouthSmileLeft"] = value
-                else:
-                    sine, cosine = np.sin(np.deg2rad(value)), np.cos(np.deg2rad(value))
-                    matrix = np.eye(4)
-                    axes = (0, 1) if kind == "roll" else (0, 2)
-                    matrix[np.ix_(axes, axes)] = [[cosine, -sine], [sine, cosine]]
-                    detection["transforms"] = [matrix.tolist()]
-                self.landmarker.detect.side_effect = None
-                self.landmarker.detect.return_value = detection
-                self.processor.quality_policy = base_policy
-                original = self.processor.process_image(self.image, normalize_colour=False)
-                self.assertIn(reason, original["quality"]["reasons"])
-                self.processor.quality_policy = replace(base_policy, **changes)
-                adjusted = self.processor.process_image(self.image, normalize_colour=False)
-                self.assertNotIn(reason, adjusted["quality"]["reasons"])
-                self.assertEqual(original["facial_transform"], adjusted["facial_transform"])
-
-    def test_quality_policy_rejects_review_thresholds_outside_their_meaningful_ranges(self):
-        """Reject opacity/count/score/angle thresholds outside their documented domains.
-        Prevent invalid configuration from weakening or breaking face-quality assessment.
-        """
-        for changes in (
-            {"min_landmark_alpha": 0}, {"min_landmark_alpha": 256}, {"min_landmark_alpha": 1.5},
-            {"min_supported_landmarks": 0}, {"min_supported_landmarks": 469},
-            {"max_neutral_expression": 1.1}, {"max_neutral_expression": float("nan")},
-            {"max_pitch_roll_degrees": 0}, {"max_pitch_roll_degrees": 181},
-            {"max_yaw_degrees": 0}, {"max_yaw_degrees": 91},
-        ):
-            with self.subTest(changes=changes), self.assertRaises(ValueError):
-                replace(self.processor.quality_policy, **changes)
-
-    def test_outside_and_clipped_landmarks_preserve_distinct_review_outcomes(self):
-        """Preserve early rejection for an out-of-image face and a warning for partial clipping.
-        Return features only when the predicted face still overlaps the source image.
-        """
-        for outside in (True, False):
-            with self.subTest(outside=outside):
-                detection = dense_prediction()
-                if outside:
-                    for point in detection["faces"][0]:
-                        point[0] += 2
-                else:
-                    detection["faces"][0][0][0] = -.1
-                self.landmarker.detect.side_effect = None
-                self.landmarker.detect.return_value = detection
-                result = self.processor.process_image(self.image, normalize_colour=False)
-                reason = "face_outside_image" if outside else "face_clipped"
-                self.assertIn(reason, result["quality"]["reasons"])
-                self.assertEqual(result["features"] is None, outside)
-
     def test_batch_continues_after_bad_file_and_preserves_frame_metadata(self):
         """Return a per-item error for unreadable files without losing later inputs.
-        Carry video presentation time and original decode index through feature processing.
+        Carry video presentation time and original decode index through image preparation.
         """
         frame = Frame(self.image, self.root / "video.mp4", 12, 1.5)
         results = list(self.processor.process_images([self.root / "missing.png", frame],
@@ -352,18 +190,16 @@ class ImageProcessorTests(unittest.TestCase):
         self.assertEqual(unchanged.getpixel((0, 0)), (255, 0, 0))
         self.assertEqual(image.getpixel((0, 0)), (110, 100, 100, 128))
 
-    def test_colour_changes_cutout_not_original_feature_samples(self):
-        """Keep feature colour evidence tied to original RGB even when output is normalized.
-        Return correction provenance separately so callers cannot confuse the two pixel sources.
+    def test_colour_changes_cutout_not_retained_original_pixels(self):
+        """Keep untouched RGB alongside the normalized head for the caller's colour measurements.
+        Return correction provenance separately without performing any feature extraction.
         """
         self.processor.normalize_colour = Mock(return_value=(
             Image.new("RGB", self.image.size, "blue"), {"status": "fixture_correction"}))
         result = self.processor.process_image(self.image)
         self.assertEqual(result["image"].getpixel((80, 25))[:3], (0, 0, 255))
         self.assertEqual(result["colour"]["status"], "fixture_correction")
-        skin = result["features"]["regions"]["skin"]["median_linear_rgb"]
-        self.assertAlmostEqual(skin[0], skin[1])
-        self.assertAlmostEqual(skin[1], skin[2])
+        self.assertEqual(result["original_image"].tobytes(), self.image.tobytes())
 
     def test_explicit_cropping_preserves_pixels_and_rejects_padding(self):
         """Crop caller-selected native pixels without an automatic face detector.
@@ -403,22 +239,21 @@ class ImageProcessorTests(unittest.TestCase):
                 processor.remove_background(self.image)
         with self.assertRaisesRegex(RuntimeError, "fixture"):
             with self.processor:
-                self.processor.detect_face_landmarks(self.image)
+                self.processor.remove_background(self.image)
                 raise RuntimeError("fixture")
-        self.landmarker.close.assert_called_once()
+        with self.assertRaisesRegex(RuntimeError, "closed"):
+            self.processor.remove_background(self.image)
 
-    def test_default_cuda_uses_gpu_networks_and_explicit_windows_landmarker_exception(self):
-        """Default CUDA mode keeps MODNet/BiSeNet on GPU but selects MediaPipe CPU on Windows.
-        Verify graph evidence and delegate selection using mocks, without probing GPU hardware.
+    def test_default_cuda_uses_gpu_networks_without_loading_landmarker(self):
+        """Default CUDA mode keeps both preparation CNNs on the selected GPU.
+        Verify graph evidence using mocks without probing GPU hardware or creating a landmark task.
         """
         import cv2
 
         self.modnet.dump.return_value = 'layer [label="conv CUDA/CUDA"];'
         self.bisenet.dump.return_value = 'layer [label="conv CUDA/CUDA"];'
-        with patch("ailias.imageprocessing.images.platform.system", return_value="Windows"):
-            processor = ImageProcessor(
-                modnet_model=self.root / "modnet.model", bisenet_model=self.root / "bisenet.model",
-                mediapipe_model=self.root / "mediapipe.model", quality_policy=self.processor.quality_policy)
+        processor = ImageProcessor(
+            modnet_model=self.root / "modnet.model", bisenet_model=self.root / "bisenet.model")
         with processor, patch("ailias.imageprocessing.cuda.require_cuda") as require_cuda, patch(
             "cv2.cuda.setDevice"
         ) as select_device:
@@ -427,22 +262,9 @@ class ImageProcessorTests(unittest.TestCase):
         self.assertEqual(select_device.call_count, 2)
         self.modnet.setPreferableBackend.assert_called_once_with(cv2.dnn.DNN_BACKEND_CUDA)
         self.bisenet.setPreferableTarget.assert_called_once_with(cv2.dnn.DNN_TARGET_CUDA)
-        self.create_landmarker.assert_called_once_with(self.root / "mediapipe.model", device="cpu")
+        self.create_landmarker.assert_not_called()
         self.assertEqual(result["execution"]["requested_device"], "cuda")
         self.assertEqual(result["execution"]["networks"]["modnet"]["status"], "verified")
-        self.assertEqual(result["execution"]["mediapipe_device"], "cpu")
-        self.assertTrue(result["execution"]["mediapipe_executed"])
-
-    def test_non_windows_cuda_requests_gpu_landmarks_without_retry(self):
-        """Request the MediaPipe GPU delegate outside Windows when CUDA mode is selected.
-        Propagate an unavailable delegate rather than constructing a second CPU detector.
-        """
-        with patch("ailias.imageprocessing.images.platform.system", return_value="Linux"):
-            processor = ImageProcessor(mediapipe_model=self.root / "mediapipe.model")
-        self.create_landmarker.side_effect = RuntimeError("fixture GPU delegate unavailable")
-        with processor, self.assertRaisesRegex(RuntimeError, "GPU delegate unavailable"):
-            processor.detect_face_landmarks(self.image)
-        self.create_landmarker.assert_called_once_with(self.root / "mediapipe.model", device="gpu")
 
     def test_explicit_cpu_never_checks_or_selects_cuda(self):
         """Keep all inference on CPU only when the caller explicitly requests CPU mode.
@@ -458,7 +280,7 @@ class ImageProcessorTests(unittest.TestCase):
         select_device.assert_not_called()
         self.modnet.setPreferableBackend.assert_called_once_with(cv2.dnn.DNN_BACKEND_OPENCV)
         self.bisenet.setPreferableTarget.assert_called_once_with(cv2.dnn.DNN_TARGET_CPU)
-        self.create_landmarker.assert_called_once_with(self.root / "mediapipe.model", device="cpu")
+        self.create_landmarker.assert_not_called()
         self.assertEqual(result["execution"]["requested_device"], "cpu")
 
     def test_unavailable_cuda_never_loads_a_cpu_network(self):
@@ -495,28 +317,29 @@ class ImageProcessorTests(unittest.TestCase):
                 ImageProcessor(**options)
         self.load.assert_not_called()
 
-
-class DenseDelegateTests(unittest.TestCase):
-    def test_dense_adapter_preserves_cpu_default_and_accepts_explicit_gpu(self):
-        """Pass the selected delegate into MediaPipe while keeping legacy callers on CPU.
-        Use a fake SDK so no model bundle, device or hardware context is created.
+    def test_separate_preparation_and_extraction_run_each_model_once(self):
+        """Compose the public stages without rerunning matting or parsing for facial features.
+        Closing the processor must not invalidate prepared pixels or the separately owned landmarker.
         """
-        from ailias.imageprocessing.dense import DenseDetector
+        from ailias.imageprocessing.face_feature_extraction import FaceFeatureExtractor
 
-        base_options = Mock(side_effect=lambda **kwargs: SimpleNamespace(**kwargs))
-        base_options.Delegate = SimpleNamespace(CPU="cpu-fixture", GPU="gpu-fixture")
-        create = Mock(return_value=Mock())
-        sdk = SimpleNamespace(tasks=SimpleNamespace(
-            BaseOptions=base_options, vision=SimpleNamespace(
-                FaceLandmarker=SimpleNamespace(create_from_options=create),
-                FaceLandmarkerOptions=Mock(side_effect=lambda **kwargs: SimpleNamespace(**kwargs)))))
-        with patch.dict(sys.modules, {"mediapipe": sdk}):
-            cpu = DenseDetector("fixture.task")
-            gpu = DenseDetector("fixture.task", device="gpu")
-        self.assertEqual(create.call_args_list[0].args[0].base_options.delegate, "cpu-fixture")
-        self.assertEqual(create.call_args_list[1].args[0].base_options.delegate, "gpu-fixture")
-        cpu.close()
-        gpu.close()
+        model = self.root / "mediapipe.model"
+        model.write_bytes(b"unit fixture, not model weights")
+        landmarker = Mock()
+        points = [[.2 + i % 23 * .025, .1 + i // 23 * .014, 0] for i in range(478)]
+        landmarker.detect.return_value = {
+            "faces": [points], "blendshapes": [{}], "transforms": [np.eye(4).tolist()]}
+        self.create_landmarker.side_effect = None
+        self.create_landmarker.return_value = landmarker
+        prepared = self.processor.process_image(self.image, normalize_colour=False)
+        self.processor.close()
+        with FaceFeatureExtractor(mediapipe_model=model, device="cpu") as extractor:
+            result = extractor.extract_features(prepared)
+        self.assertIsNotNone(result["features"])
+        self.modnet.forward.assert_called_once()
+        self.bisenet.forward.assert_called_once()
+        landmarker.detect.assert_called_once()
+        landmarker.close.assert_called_once()
 
 
 class VideoFrameTests(unittest.TestCase):

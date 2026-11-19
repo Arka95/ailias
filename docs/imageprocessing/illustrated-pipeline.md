@@ -4,9 +4,10 @@
 
 **Actual images below; isolated demonstrations, not one completed production run.**
 
-**New API:** `ImageProcessor.process_image()` runs **original -> MODNet -> BiSeNet
--> MediaPipe -> features**, with optional white balance on the returned cutout.
-No YuNet or alignment. [Usage](README.md#simple-python-api).
+**New API:** `ImageProcessor.process_image()` prepares **original -> MODNet ->
+BiSeNet -> optional white balance**. Then `FaceFeatureExtractor.extract_features()`
+runs **MediaPipe -> features**, reusing the existing head, original RGB and region
+labels. No repeated head isolation, YuNet or alignment. [Usage](README.md#simple-python-api).
 
 ## Existing CLI: step-by-step image flow
 
